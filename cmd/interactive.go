@@ -208,6 +208,11 @@ type model struct {
 	lastTokensSaved int
 	totalRequests   int
 	cacheHits       int
+
+	// Command history
+	commandHistory []string
+	historyIndex   int
+	historyBuffer  string // Stores current input when navigating history
 }
 
 func (m model) Init() tea.Cmd {
@@ -274,6 +279,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case tea.KeyEnter:
 			if !m.loading && m.textarea.Value() != "" {
 				message := m.textarea.Value()
+				
+				// Add to command history
+				m.commandHistory = append(m.commandHistory, message)
+				m.historyIndex = len(m.commandHistory) // Reset to end of history
+				m.historyBuffer = "" // Clear history buffer
+				
 				m.textarea.Reset()
 
 				// Check for slash commands
@@ -293,8 +304,32 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.totalRequests++
 				return m, m.sendMessage(message)
 			}
+		case tea.KeyUp:
+			// Navigate backward in history
+			if len(m.commandHistory) > 0 && m.historyIndex > 0 {
+				// Save current input if this is the first time navigating
+				if m.historyIndex == len(m.commandHistory) {
+					m.historyBuffer = m.textarea.Value()
+				}
+				
+				m.historyIndex--
+				m.textarea.SetValue(m.commandHistory[m.historyIndex])
+				m.textarea.CursorEnd() // Move cursor to end
+			}
+		case tea.KeyDown:
+			// Navigate forward in history
+			if len(m.commandHistory) > 0 && m.historyIndex < len(m.commandHistory) {
+				m.historyIndex++
+				
+				if m.historyIndex == len(m.commandHistory) {
+					// Restore the original input
+					m.textarea.SetValue(m.historyBuffer)
+				} else {
+					m.textarea.SetValue(m.commandHistory[m.historyIndex])
+				}
+				m.textarea.CursorEnd() // Move cursor to end
+			}
 		}
-
 	case characterInfoMsg:
 		m.character = msg.character
 
@@ -414,7 +449,7 @@ func (m model) View() string {
 	statusBar := m.renderStatusBar()
 
 	// Help text
-	help := helpStyle.Render("  ⌃C quit • ↵ send • ↑↓ scroll • /help commands • /exit quit")
+	help := helpStyle.Render("  ⌃C quit • ↵ send • ↑↓ history • /help commands • /exit quit")
 
 	return lipgloss.JoinVertical(
 		lipgloss.Left,
