@@ -39,6 +39,10 @@ func InitializeAndRegisterProvider(bot *services.CharacterBot, cfg *config.Confi
 	}
 
 	bot.RegisterProvider(cfg.DefaultProvider, provider)
+	
+	// Initialize user profile agent after provider is registered
+	bot.InitializeUserProfileAgent()
+	
 	return nil
 }
 

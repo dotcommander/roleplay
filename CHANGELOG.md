@@ -8,6 +8,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- AI-Powered User Profile Agent - Intelligent system that builds and maintains user profiles
+  - Automatic extraction of user information from conversations using LLM analysis
+  - Character-specific profiles (each character maintains their own perception of users)
+  - Confidence scoring for extracted facts (0.0-1.0)
+  - Dynamic profile updates as conversations evolve
+  - `profile` command for managing user profiles
+    - `show <user-id> <character-id>` - Display a specific user profile
+    - `list <user-id>` - List all profiles for a user
+    - `delete <user-id> <character-id>` - Delete a user profile
+  - Configurable update frequency and analysis depth
+  - Privacy-aware design with user control over their data
+  - Enriches conversations with learned context about users
 - Scenario Context Cache - New highest-level cache layer for meta-prompts and operational contexts
   - 5-layer cache hierarchy with scenarios at the top (7-day TTL)
   - `scenario` command for managing high-level interaction contexts

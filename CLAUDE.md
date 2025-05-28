@@ -88,6 +88,35 @@ err := factory.InitializeAndRegisterProvider(bot, config)
 
 This pattern eliminates code duplication and ensures consistent provider setup across all commands.
 
+### AI-Powered User Profile Agent
+The system includes an intelligent user profile agent that automatically:
+- Analyzes conversation history to extract key information about users
+- Builds character-specific profiles (how each character perceives the user)
+- Updates profiles dynamically as conversations evolve
+- Enriches future interactions with learned context
+
+**Key Features:**
+- **Automatic Extraction**: LLM analyzes conversations to identify user facts, preferences, goals
+- **Confidence Scoring**: Each extracted fact has a confidence score (0.0-1.0)
+- **Character-Specific**: Each character maintains their own perception of the user
+- **Privacy-Aware**: Users can view, manage, and delete their profiles
+
+**Configuration:**
+```yaml
+user_profile:
+  enabled: true                    # Enable AI-powered user profiling
+  update_frequency: 5              # Update profile every 5 messages
+  turns_to_consider: 20            # Analyze last 20 conversation turns
+  confidence_threshold: 0.5        # Include facts with >50% confidence
+  prompt_cache_ttl: 1h             # Cache user profiles for 1 hour
+```
+
+**Usage:**
+- Profiles are automatically created/updated during interactive and demo modes
+- View profiles: `roleplay profile show <user-id> <character-id>`
+- List all profiles: `roleplay profile list <user-id>`
+- Delete profile: `roleplay profile delete <user-id> <character-id>`
+
 ### 4-Layer Cache Implementation
 The caching system uses strategic breakpoints aligned with our 4-layer architecture:
 
@@ -163,6 +192,7 @@ roleplay/
 - Character storage: `~/.config/roleplay/characters/`
 - Session storage: `~/.config/roleplay/sessions/`
 - Cache storage: `~/.config/roleplay/cache/`
+- User profiles: `~/.config/roleplay/user_profiles/`
 - Global binary: `~/go/bin/roleplay` (symlinked)
 ```
 
@@ -176,6 +206,10 @@ roleplay
 │   ├── show              # Display character details
 │   └── example           # Generate example JSON
 ├── import                 # Import character from markdown using AI
+├── profile                # User profile management
+│   ├── show              # Display specific user profile
+│   ├── list              # List all profiles for a user
+│   └── delete            # Delete a user profile
 ├── session                # Session management
 │   ├── list              # List sessions for character(s)
 │   └── stats             # Show caching performance metrics

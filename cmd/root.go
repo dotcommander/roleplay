@@ -110,6 +110,13 @@ func initConfig() {
 			MaxDriftRate:       viper.GetFloat64("personality.max_drift_rate"),
 			StabilityThreshold: viper.GetFloat64("personality.stability_threshold"),
 		},
+		UserProfileConfig: config.UserProfileConfig{
+			Enabled:             viper.GetBool("user_profile.enabled"),
+			UpdateFrequency:     viper.GetInt("user_profile.update_frequency"),
+			TurnsToConsider:     viper.GetInt("user_profile.turns_to_consider"),
+			ConfidenceThreshold: viper.GetFloat64("user_profile.confidence_threshold"),
+			PromptCacheTTL:      viper.GetDuration("user_profile.prompt_cache_ttl"),
+		},
 	}
 
 	// Set defaults if not configured
@@ -133,6 +140,20 @@ func initConfig() {
 	}
 	if cfg.PersonalityConfig.StabilityThreshold == 0 {
 		cfg.PersonalityConfig.StabilityThreshold = 10
+	}
+	
+	// Set defaults for UserProfileConfig
+	if cfg.UserProfileConfig.UpdateFrequency == 0 {
+		cfg.UserProfileConfig.UpdateFrequency = 5 // Update every 5 messages
+	}
+	if cfg.UserProfileConfig.TurnsToConsider == 0 {
+		cfg.UserProfileConfig.TurnsToConsider = 20 // Analyze last 20 turns
+	}
+	if cfg.UserProfileConfig.ConfidenceThreshold == 0 {
+		cfg.UserProfileConfig.ConfidenceThreshold = 0.5 // Include facts with >50% confidence
+	}
+	if cfg.UserProfileConfig.PromptCacheTTL == 0 {
+		cfg.UserProfileConfig.PromptCacheTTL = 1 * time.Hour // Cache user profiles for 1 hour
 	}
 }
 

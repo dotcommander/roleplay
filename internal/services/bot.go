@@ -20,15 +20,17 @@ import (
 
 // CharacterBot is the main service for managing characters and conversations
 type CharacterBot struct {
-	characters    map[string]*models.Character
-	cache         *cache.PromptCache
-	responseCache *cache.ResponseCache
-	providers     map[string]providers.AIProvider
-	config        *config.Config
-	scenarioRepo  *repository.ScenarioRepository
-	mu            sync.RWMutex
-	cacheHits     int
-	cacheMisses   int
+	characters       map[string]*models.Character
+	cache            *cache.PromptCache
+	responseCache    *cache.ResponseCache
+	providers        map[string]providers.AIProvider
+	config           *config.Config
+	scenarioRepo     *repository.ScenarioRepository
+	userProfileRepo  *repository.UserProfileRepository
+	userProfileAgent *UserProfileAgent
+	mu               sync.RWMutex
+	cacheHits        int
+	cacheMisses      int
 }
 
 // NewCharacterBot creates a new character bot instance
@@ -36,20 +38,29 @@ func NewCharacterBot(cfg *config.Config) *CharacterBot {
 	// Get config path for scenario repository
 	home, _ := os.UserHomeDir()
 	configPath := filepath.Join(home, ".config", "roleplay")
+	userProfileDataDir := filepath.Join(configPath, "user_profiles")
+
+	// Create user profiles directory if it doesn't exist
+	if err := os.MkdirAll(userProfileDataDir, 0755); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: Could not create user_profiles directory: %v\n", err)
+	}
+
+	userProfileRepo := repository.NewUserProfileRepository(userProfileDataDir)
 
 	cb := &CharacterBot{
-		characters: make(map[string]*models.Character),
+		characters:      make(map[string]*models.Character),
 		cache: cache.NewPromptCache(
 			cfg.CacheConfig.DefaultTTL,
 			5*time.Minute,
 			1*time.Hour,
 		),
-		responseCache: cache.NewResponseCache(cfg.CacheConfig.DefaultTTL),
-		providers:     make(map[string]providers.AIProvider),
-		config:        cfg,
-		scenarioRepo:  repository.NewScenarioRepository(configPath),
-		cacheHits:     0,
-		cacheMisses:   0,
+		responseCache:   cache.NewResponseCache(cfg.CacheConfig.DefaultTTL),
+		providers:       make(map[string]providers.AIProvider),
+		config:          cfg,
+		scenarioRepo:    repository.NewScenarioRepository(configPath),
+		userProfileRepo: userProfileRepo,
+		cacheHits:       0,
+		cacheMisses:     0,
 	}
 
 	// Start background workers
@@ -57,6 +68,23 @@ func NewCharacterBot(cfg *config.Config) *CharacterBot {
 	go cb.memoryConsolidationWorker()
 
 	return cb
+}
+
+// InitializeUserProfileAgent initializes the user profile agent with a provider
+func (cb *CharacterBot) InitializeUserProfileAgent() {
+	cb.mu.Lock()
+	defer cb.mu.Unlock()
+
+	if !cb.config.UserProfileConfig.Enabled {
+		return
+	}
+
+	// Get the default provider for the UserProfileAgent
+	if provider, ok := cb.providers[cb.config.DefaultProvider]; ok {
+		cb.userProfileAgent = NewUserProfileAgent(provider, cb.userProfileRepo)
+	} else {
+		fmt.Fprintf(os.Stderr, "Warning: Default provider %s not found for UserProfileAgent\n", cb.config.DefaultProvider)
+	}
 }
 
 // RegisterProvider adds a new AI provider
@@ -190,6 +218,11 @@ func (cb *CharacterBot) ProcessRequest(ctx context.Context, req *models.Conversa
 		CachedPrompt: resp.TokensUsed.CachedPrompt,
 		Total:        resp.TokensUsed.Total,
 	})
+
+	// Trigger user profile update asynchronously if enabled
+	if cb.userProfileAgent != nil && cb.config.UserProfileConfig.Enabled {
+		go cb.updateUserProfileAsync(req.UserID, char, req.Context.SessionID)
+	}
 
 	return resp, nil
 }
@@ -379,6 +412,15 @@ func (cb *CharacterBot) buildConversationHistory(ctx models.ConversationContext)
 }
 
 func (cb *CharacterBot) buildUserContext(userID string, char *models.Character) string {
+	// Try to load user profile if available
+	if cb.userProfileRepo != nil && cb.config.UserProfileConfig.Enabled {
+		profile, err := cb.userProfileRepo.LoadUserProfile(userID, char.ID)
+		if err == nil && profile != nil {
+			return cb.buildUserProfileLayer(userID, char.ID, profile)
+		}
+	}
+
+	// Fallback to basic user context
 	context := fmt.Sprintf(`[USER CONTEXT]
 You are speaking with: %s
 
@@ -399,6 +441,31 @@ Remember to address them by their name throughout the conversation.`, userID)
 	}
 
 	return context
+}
+
+func (cb *CharacterBot) buildUserProfileLayer(userID, characterID string, profile *models.UserProfile) string {
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("[USER PROFILE FOR %s (as perceived by character %s)]\n", userID, characterID))
+	
+	if profile.OverallSummary != "" {
+		sb.WriteString(fmt.Sprintf("Summary: %s\n", profile.OverallSummary))
+	}
+	
+	if profile.InteractionStyle != "" {
+		sb.WriteString(fmt.Sprintf("Interaction Style: %s\n", profile.InteractionStyle))
+	}
+
+	if len(profile.Facts) > 0 {
+		sb.WriteString("\nKey Facts Remembered About User:\n")
+		for _, fact := range profile.Facts {
+			// Only include facts with confidence above threshold
+			if fact.Confidence >= cb.config.UserProfileConfig.ConfidenceThreshold {
+				sb.WriteString(fmt.Sprintf("- %s: %s (Confidence: %.1f)\n", fact.Key, fact.Value, fact.Confidence))
+			}
+		}
+	}
+	
+	return sb.String()
 }
 
 func (cb *CharacterBot) assemblePrompt(breakpoints []cache.CacheBreakpoint, userID, message string) string {
@@ -627,4 +694,40 @@ func joinQuirks(quirks []string) string {
 		return "None"
 	}
 	return strings.Join(quirks, ", ")
+}
+
+// updateUserProfileAsync asynchronously updates the user profile based on conversation history
+func (cb *CharacterBot) updateUserProfileAsync(userID string, char *models.Character, sessionID string) {
+	// Only proceed if we have the minimum messages for an update
+	sessionRepo := repository.NewSessionRepository(filepath.Join(os.Getenv("HOME"), ".config", "roleplay"))
+	
+	currentSession, err := sessionRepo.LoadSession(char.ID, sessionID)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error loading session %s for user profile update: %v\n", sessionID, err)
+		return
+	}
+	
+	// Check if we should update based on frequency setting
+	messageCount := len(currentSession.Messages)
+	if messageCount == 0 || (messageCount % cb.config.UserProfileConfig.UpdateFrequency != 0) {
+		return
+	}
+	
+	// Update the profile
+	turnsToConsider := cb.config.UserProfileConfig.TurnsToConsider
+	if turnsToConsider <= 0 {
+		turnsToConsider = 20 // Default value
+	}
+	
+	_, updateErr := cb.userProfileAgent.UpdateUserProfile(
+		context.Background(),
+		userID,
+		char,
+		currentSession.Messages,
+		turnsToConsider,
+	)
+	
+	if updateErr != nil {
+		fmt.Fprintf(os.Stderr, "Error updating user profile for %s with %s: %v\n", userID, char.ID, updateErr)
+	}
 }

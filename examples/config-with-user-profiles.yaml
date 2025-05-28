@@ -1,0 +1,33 @@
+# Roleplay Configuration with User Profiles Enabled
+
+# Provider settings
+provider: openai
+model: gpt-4o-mini
+# api_key: YOUR_API_KEY_HERE  # Or set OPENAI_API_KEY environment variable
+
+# Cache configuration
+cache:
+  max_entries: 10000
+  cleanup_interval: 5m
+  default_ttl: 10m
+  adaptive_ttl: true
+
+# Memory configuration
+memory:
+  short_term_window: 20
+  medium_term_duration: 24h
+  consolidation_rate: 0.1
+
+# Personality evolution
+personality:
+  evolution_enabled: true
+  max_drift_rate: 0.02
+  stability_threshold: 10
+
+# User Profile Agent configuration
+user_profile:
+  enabled: true                    # Enable AI-powered user profiling
+  update_frequency: 5              # Update profile every 5 messages
+  turns_to_consider: 20            # Analyze last 20 conversation turns
+  confidence_threshold: 0.5        # Include facts with >50% confidence
+  prompt_cache_ttl: 1h             # Cache user profiles for 1 hour
