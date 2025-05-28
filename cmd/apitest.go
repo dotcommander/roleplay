@@ -9,7 +9,6 @@ import (
 	"github.com/dotcommander/roleplay/internal/providers"
 	"github.com/dotcommander/roleplay/internal/utils"
 	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
 )
 
 var apiTestCmd = &cobra.Command{
@@ -25,24 +24,23 @@ func init() {
 }
 
 func runAPITest(cmd *cobra.Command, args []string) error {
-	// Get configuration
-	provider := viper.GetString("provider")
-	apiKey := viper.GetString("api_key")
-	model := viper.GetString("model")
+	// Get configuration from global config (already resolved in initConfig)
+	cfg := GetConfig()
 	message, _ := cmd.Flags().GetString("message")
 
-	// No need to check environment here - factory will handle it
-
-	fmt.Printf("Testing %s API...\n", provider)
-	// Use factory to get default model if needed
-	if model == "" {
-		model = factory.GetDefaultModel(provider)
+	fmt.Printf("Testing %s endpoint...\n", cfg.DefaultProvider)
+	if cfg.BaseURL != "" {
+		fmt.Printf("Base URL: %s\n", cfg.BaseURL)
 	}
-	fmt.Printf("Model: %s\n", model)
+	// Use factory to get default model if needed
+	if cfg.Model == "" {
+		cfg.Model = factory.GetDefaultModel(cfg.DefaultProvider)
+	}
+	fmt.Printf("Model: %s\n", cfg.Model)
 	fmt.Printf("Message: %s\n\n", message)
 
 	// Create provider using factory
-	p, err := factory.CreateProviderWithFallback(provider, apiKey, model)
+	p, err := factory.CreateProviderWithFallback(cfg.DefaultProvider, cfg.APIKey, cfg.Model, cfg.BaseURL)
 	if err != nil {
 		return fmt.Errorf("failed to create provider: %w", err)
 	}
@@ -67,7 +65,11 @@ func runAPITest(cmd *cobra.Command, args []string) error {
 	// Display results
 	fmt.Println("✓ API test successful!")
 	fmt.Printf("Response time: %v\n", elapsed)
-	fmt.Printf("Tokens used: %d\n", resp.TokensUsed)
+	fmt.Printf("Tokens used: %d (prompt: %d, completion: %d)\n",
+		resp.TokensUsed.Total, resp.TokensUsed.Prompt, resp.TokensUsed.Completion)
+	if resp.TokensUsed.CachedPrompt > 0 {
+		fmt.Printf("Cached tokens: %d\n", resp.TokensUsed.CachedPrompt)
+	}
 	fmt.Printf("\nResponse:\n%s\n", utils.WrapText(resp.Content, 80))
 
 	return nil

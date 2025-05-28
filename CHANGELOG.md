@@ -5,6 +5,45 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - 2025-05-28
+
+### Changed
+- **BREAKING: Unified OpenAI-Compatible Provider**
+  - Replaced multiple provider implementations with a single OpenAI-compatible provider
+  - All LLM interactions now use the `sashabaranov/go-openai` SDK
+  - The `provider` setting is now a profile name for configuration resolution
+  - Removed provider-specific code in favor of universal implementation
+
+### Added
+- **Expanded Provider Support**
+  - Support for any OpenAI-compatible API endpoint
+  - Pre-configured profiles for Anthropic, Google Gemini, Groq, and more
+  - Better support for local models (Ollama, LM Studio) without API keys
+  - Custom endpoint configuration via `base_url`
+
+### Improved
+- **Configuration Resolution**
+  - Enhanced priority system: Flags > Config File > Environment Variables
+  - Automatic API key detection from provider-specific environment variables
+  - Smarter base URL resolution (including OLLAMA_HOST auto-detection)
+  - Model defaults based on provider profile
+
+- **Setup Wizard Enhancement**
+  - Added more provider presets (8 total)
+  - Auto-detection of running local services
+  - Better guidance for OpenAI-compatible services
+
+### Removed
+- `SupportsBreakpoints()` and `MaxBreakpoints()` methods from provider interface
+- Provider-specific implementations (AnthropicProvider)
+- Complex provider type switching logic
+
+### Technical
+- Simplified provider interface to just `SendRequest()`, `SendStreamRequest()`, and `Name()`
+- Consistent "openai_compatible" provider name for all endpoints
+- Cleaner factory pattern implementation
+- Updated all tests for the unified provider approach
+
 ## [0.3.0] - 2025-05-28
 
 ### Added
@@ -123,6 +162,3 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `api-test` command for testing API connectivity
 - `status` command for configuration status
 
-## [0.1.0] - TBD
-
-Initial public release.

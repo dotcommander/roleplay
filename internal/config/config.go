@@ -39,9 +39,9 @@ type PersonalityConfig struct {
 
 // UserProfileConfig holds user profile agent configuration
 type UserProfileConfig struct {
-	Enabled              bool          `mapstructure:"enabled"`
-	UpdateFrequency      int           `mapstructure:"update_frequency_messages"` // Update every N messages
-	TurnsToConsider      int           `mapstructure:"turns_to_consider"`         // How many past turns to analyze
-	ConfidenceThreshold  float64       `mapstructure:"confidence_threshold"`      // Min confidence for facts
-	PromptCacheTTL       time.Duration `mapstructure:"prompt_cache_ttl"`
+	Enabled             bool          `mapstructure:"enabled"`
+	UpdateFrequency     int           `mapstructure:"update_frequency_messages"` // Update every N messages
+	TurnsToConsider     int           `mapstructure:"turns_to_consider"`         // How many past turns to analyze
+	ConfidenceThreshold float64       `mapstructure:"confidence_threshold"`      // Min confidence for facts
+	PromptCacheTTL      time.Duration `mapstructure:"prompt_cache_ttl"`
 }

@@ -12,11 +12,9 @@ import (
 
 // Mock provider for testing
 type mockProvider struct {
-	name        string
-	breakpoints bool
-	maxBreaks   int
-	response    *providers.AIResponse
-	err         error
+	name     string
+	response *providers.AIResponse
+	err      error
 }
 
 func (m *mockProvider) SendRequest(ctx context.Context, req *providers.PromptRequest) (*providers.AIResponse, error) {
@@ -36,9 +34,22 @@ func (m *mockProvider) SendRequest(ctx context.Context, req *providers.PromptReq
 	}, nil
 }
 
-func (m *mockProvider) SupportsBreakpoints() bool { return m.breakpoints }
-func (m *mockProvider) MaxBreakpoints() int       { return m.maxBreaks }
-func (m *mockProvider) Name() string              { return m.name }
+func (m *mockProvider) SendStreamRequest(ctx context.Context, req *providers.PromptRequest, out chan<- providers.PartialAIResponse) error {
+	defer close(out)
+	if m.err != nil {
+		return m.err
+	}
+	out <- providers.PartialAIResponse{
+		Content: "Mock stream response",
+		Done:    false,
+	}
+	out <- providers.PartialAIResponse{
+		Done: true,
+	}
+	return nil
+}
+
+func (m *mockProvider) Name() string { return m.name }
 
 func TestCharacterBot(t *testing.T) {
 	cfg := &config.Config{
@@ -64,7 +75,7 @@ func TestCharacterBot(t *testing.T) {
 	bot := NewCharacterBot(cfg)
 
 	// Register mock provider
-	mockProv := &mockProvider{name: "mock", breakpoints: true, maxBreaks: 4}
+	mockProv := &mockProvider{name: "mock"}
 	bot.RegisterProvider("mock", mockProv)
 
 	// Create character

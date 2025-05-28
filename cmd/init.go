@@ -27,54 +27,78 @@ func init() {
 
 // Provider presets for common configurations
 type providerPreset struct {
-	Name        string
-	BaseURL     string
-	RequiresKey bool
-	LocalModel  bool
+	Name         string
+	BaseURL      string
+	RequiresKey  bool
+	LocalModel   bool
 	DefaultModel string
-	Description string
+	Description  string
 }
 
 var providerPresets = []providerPreset{
 	{
-		Name:        "openai",
-		BaseURL:     "https://api.openai.com/v1",
-		RequiresKey: true,
-		LocalModel:  false,
+		Name:         "openai",
+		BaseURL:      "https://api.openai.com/v1",
+		RequiresKey:  true,
+		LocalModel:   false,
 		DefaultModel: "gpt-4o-mini",
-		Description: "OpenAI API (GPT-4, GPT-3.5)",
+		Description:  "OpenAI (Official)",
 	},
 	{
-		Name:        "ollama",
-		BaseURL:     "http://localhost:11434/v1",
-		RequiresKey: false,
-		LocalModel:  true,
+		Name:         "anthropic",
+		BaseURL:      "https://api.anthropic.com/v1",
+		RequiresKey:  true,
+		LocalModel:   false,
+		DefaultModel: "claude-3-haiku-20240307",
+		Description:  "Anthropic Claude (OpenAI-Compatible)",
+	},
+	{
+		Name:         "gemini",
+		BaseURL:      "https://generativelanguage.googleapis.com/v1beta",
+		RequiresKey:  true,
+		LocalModel:   false,
+		DefaultModel: "gemini-1.5-flash",
+		Description:  "Google Gemini (OpenAI-Compatible)",
+	},
+	{
+		Name:         "ollama",
+		BaseURL:      "http://localhost:11434/v1",
+		RequiresKey:  false,
+		LocalModel:   true,
 		DefaultModel: "llama3",
-		Description: "Ollama (Local LLMs)",
+		Description:  "Ollama (Local LLMs)",
 	},
 	{
-		Name:        "lmstudio",
-		BaseURL:     "http://localhost:1234/v1",
-		RequiresKey: false,
-		LocalModel:  true,
+		Name:         "lmstudio",
+		BaseURL:      "http://localhost:1234/v1",
+		RequiresKey:  false,
+		LocalModel:   true,
 		DefaultModel: "local-model",
-		Description: "LM Studio (Local LLMs)",
+		Description:  "LM Studio (Local LLMs)",
 	},
 	{
-		Name:        "openrouter",
-		BaseURL:     "https://openrouter.ai/api/v1",
-		RequiresKey: true,
-		LocalModel:  false,
+		Name:         "groq",
+		BaseURL:      "https://api.groq.com/openai/v1",
+		RequiresKey:  true,
+		LocalModel:   false,
+		DefaultModel: "llama-3.1-70b-versatile",
+		Description:  "Groq (Fast Inference)",
+	},
+	{
+		Name:         "openrouter",
+		BaseURL:      "https://openrouter.ai/api/v1",
+		RequiresKey:  true,
+		LocalModel:   false,
 		DefaultModel: "openai/gpt-4o-mini",
-		Description: "OpenRouter (Multiple providers)",
+		Description:  "OpenRouter (Multiple providers)",
 	},
 	{
-		Name:        "custom",
-		BaseURL:     "",
-		RequiresKey: true,
-		LocalModel:  false,
+		Name:         "custom",
+		BaseURL:      "",
+		RequiresKey:  true,
+		LocalModel:   false,
 		DefaultModel: "",
-		Description: "Custom OpenAI-compatible endpoint",
+		Description:  "Custom OpenAI-Compatible Service",
 	},
 }
 
@@ -82,9 +106,9 @@ func runInit(cmd *cobra.Command, args []string) error {
 	fmt.Println("🎭 Welcome to Roleplay Setup Wizard")
 	fmt.Println("==================================")
 	fmt.Println()
-	
+
 	reader := bufio.NewReader(os.Stdin)
-	
+
 	// Check for existing config
 	configPath := filepath.Join(os.Getenv("HOME"), ".config", "roleplay", "config.yaml")
 	if _, err := os.Stat(configPath); err == nil {
@@ -97,11 +121,11 @@ func runInit(cmd *cobra.Command, args []string) error {
 			return nil
 		}
 	}
-	
+
 	// Step 1: Choose provider
 	fmt.Println("\n📡 Step 1: Choose your LLM provider")
 	fmt.Println("-----------------------------------")
-	
+
 	// Auto-detect local services
 	detectedServices := detectLocalServices()
 	if len(detectedServices) > 0 {
@@ -111,37 +135,29 @@ func runInit(cmd *cobra.Command, args []string) error {
 		}
 		fmt.Println()
 	}
-	
+
 	for i, preset := range providerPresets {
 		fmt.Printf("%d. %s - %s\n", i+1, preset.Name, preset.Description)
 	}
-	
-	fmt.Print("\nSelect provider [1-5]: ")
+
+	fmt.Printf("\nSelect provider [1-%d]: ", len(providerPresets))
 	providerChoice, _ := reader.ReadString('\n')
 	providerChoice = strings.TrimSpace(providerChoice)
-	
+
 	var selectedPreset providerPreset
-	switch providerChoice {
-	case "1":
-		selectedPreset = providerPresets[0]
-	case "2":
-		selectedPreset = providerPresets[1]
-	case "3":
-		selectedPreset = providerPresets[2]
-	case "4":
-		selectedPreset = providerPresets[3]
-	case "5":
-		selectedPreset = providerPresets[4]
-	default:
+	providerIndex := 0
+	if n, err := fmt.Sscanf(providerChoice, "%d", &providerIndex); err == nil && n == 1 && providerIndex >= 1 && providerIndex <= len(providerPresets) {
+		selectedPreset = providerPresets[providerIndex-1]
+	} else {
 		// Default to OpenAI if invalid choice
 		selectedPreset = providerPresets[0]
 		fmt.Println("Invalid choice, defaulting to OpenAI")
 	}
-	
+
 	// Step 2: Configure base URL
 	fmt.Printf("\n🌐 Step 2: Configure endpoint\n")
 	fmt.Println("-----------------------------")
-	
+
 	var baseURL string
 	if selectedPreset.Name == "custom" {
 		fmt.Print("Enter the base URL for your OpenAI-compatible API: ")
@@ -157,22 +173,31 @@ func runInit(cmd *cobra.Command, args []string) error {
 			baseURL = input
 		}
 	}
-	
+
 	// Step 3: Configure API key
 	fmt.Printf("\n🔑 Step 3: Configure API key\n")
 	fmt.Println("----------------------------")
-	
+
 	var apiKey string
 	if selectedPreset.RequiresKey {
 		// Check for existing environment variables
 		existingKey := ""
-		if selectedPreset.Name == "openai" {
+		switch selectedPreset.Name {
+		case "openai":
 			existingKey = os.Getenv("OPENAI_API_KEY")
+		case "anthropic":
+			existingKey = os.Getenv("ANTHROPIC_API_KEY")
+		case "gemini":
+			existingKey = os.Getenv("GEMINI_API_KEY")
+		case "groq":
+			existingKey = os.Getenv("GROQ_API_KEY")
+		case "openrouter":
+			existingKey = os.Getenv("OPENROUTER_API_KEY")
 		}
 		if existingKey == "" {
 			existingKey = os.Getenv("ROLEPLAY_API_KEY")
 		}
-		
+
 		if existingKey != "" {
 			fmt.Printf("Found existing API key in environment (length: %d)\n", len(existingKey))
 			fmt.Print("Use this key? [Y/n]: ")
@@ -182,7 +207,7 @@ func runInit(cmd *cobra.Command, args []string) error {
 				apiKey = existingKey
 			}
 		}
-		
+
 		if apiKey == "" {
 			fmt.Printf("Enter your %s API key: ", selectedPreset.Name)
 			apiKeyInput, _ := reader.ReadString('\n')
@@ -192,17 +217,17 @@ func runInit(cmd *cobra.Command, args []string) error {
 		fmt.Println("No API key required for local models")
 		apiKey = "not-required"
 	}
-	
+
 	// Step 4: Configure default model
 	fmt.Printf("\n🤖 Step 4: Configure default model\n")
 	fmt.Println("----------------------------------")
-	
+
 	var model string
 	if selectedPreset.LocalModel && baseURL != "" {
 		// For local models, we could try to list available models
 		fmt.Println("For local models, make sure the model is already pulled/loaded")
 	}
-	
+
 	fmt.Printf("Default model [%s]: ", selectedPreset.DefaultModel)
 	modelInput, _ := reader.ReadString('\n')
 	modelInput = strings.TrimSpace(modelInput)
@@ -211,7 +236,7 @@ func runInit(cmd *cobra.Command, args []string) error {
 	} else {
 		model = modelInput
 	}
-	
+
 	// Step 5: Create example content
 	fmt.Printf("\n📚 Step 5: Example content\n")
 	fmt.Println("-------------------------")
@@ -219,58 +244,58 @@ func runInit(cmd *cobra.Command, args []string) error {
 	createExamples, _ := reader.ReadString('\n')
 	createExamples = strings.TrimSpace(strings.ToLower(createExamples))
 	shouldCreateExamples := createExamples == "" || createExamples == "y" || createExamples == "yes"
-	
+
 	// Create configuration
 	config := map[string]interface{}{
 		"base_url": baseURL,
 		"api_key":  apiKey,
 		"model":    model,
-		"default_provider": "openai", // Always use openai provider for OpenAI-compatible APIs
+		"provider": selectedPreset.Name, // Profile name for config resolution
 		"cache": map[string]interface{}{
-			"default_ttl": "5m",
+			"default_ttl":      "5m",
 			"cleanup_interval": "10m",
 		},
 		"personality": map[string]interface{}{
 			"evolution_enabled": true,
-			"learning_rate": 0.1,
-			"max_drift_rate": 0.2,
+			"learning_rate":     0.1,
+			"max_drift_rate":    0.2,
 		},
 		"memory": map[string]interface{}{
-			"max_short_term": 10,
-			"max_medium_term": 50,
-			"max_long_term": 200,
+			"max_short_term":         10,
+			"max_medium_term":        50,
+			"max_long_term":          200,
 			"consolidation_interval": "5m",
-			"short_term_window": 10,
-			"medium_term_duration": "24h",
-			"long_term_duration": "720h",
+			"short_term_window":      10,
+			"medium_term_duration":   "24h",
+			"long_term_duration":     "720h",
 		},
 		"user_profile": map[string]interface{}{
-			"enabled": true,
-			"update_frequency": 5,
-			"turns_to_consider": 20,
+			"enabled":              true,
+			"update_frequency":     5,
+			"turns_to_consider":    20,
 			"confidence_threshold": 0.5,
-			"prompt_cache_ttl": "1h",
+			"prompt_cache_ttl":     "1h",
 		},
 	}
-	
+
 	// Create config directory
 	configDir := filepath.Dir(configPath)
 	if err := os.MkdirAll(configDir, 0755); err != nil {
 		return fmt.Errorf("failed to create config directory: %w", err)
 	}
-	
+
 	// Write config file
 	configData, err := yaml.Marshal(config)
 	if err != nil {
 		return fmt.Errorf("failed to marshal config: %w", err)
 	}
-	
+
 	if err := os.WriteFile(configPath, configData, 0644); err != nil {
 		return fmt.Errorf("failed to write config file: %w", err)
 	}
-	
+
 	fmt.Printf("\n✅ Configuration saved to %s\n", configPath)
-	
+
 	// Create example characters if requested
 	if shouldCreateExamples {
 		if err := createExampleCharacters(); err != nil {
@@ -279,7 +304,7 @@ func runInit(cmd *cobra.Command, args []string) error {
 			fmt.Println("✅ Created example characters")
 		}
 	}
-	
+
 	// Final instructions
 	fmt.Println("\n🎉 Setup complete!")
 	fmt.Println("==================")
@@ -288,36 +313,36 @@ func runInit(cmd *cobra.Command, args []string) error {
 	fmt.Println("  • Create a character: roleplay character create <file.json>")
 	fmt.Println("  • View example: roleplay character example")
 	fmt.Println("  • Check config: roleplay status")
-	
+
 	if selectedPreset.LocalModel {
 		fmt.Printf("\n💡 Tip: Make sure %s is running at %s\n", selectedPreset.Description, baseURL)
 	}
-	
+
 	return nil
 }
 
 // detectLocalServices checks for running local LLM services
 func detectLocalServices() []providerPreset {
 	var detected []providerPreset
-	
+
 	// Check common local endpoints
 	endpoints := []struct {
-		url     string
-		name    string
-		desc    string
+		url  string
+		name string
+		desc string
 	}{
 		{"http://localhost:11434/api/tags", "ollama", "Ollama"},
 		{"http://localhost:1234/v1/models", "lmstudio", "LM Studio"},
 		{"http://localhost:8080/v1/models", "localai", "LocalAI"},
 	}
-	
+
 	client := &http.Client{Timeout: 2 * time.Second}
-	
+
 	for _, endpoint := range endpoints {
 		resp, err := client.Get(endpoint.url)
 		if err == nil && resp.StatusCode == 200 {
 			resp.Body.Close()
-			
+
 			// Find matching preset
 			for _, preset := range providerPresets {
 				if preset.Name == endpoint.name {
@@ -327,7 +352,7 @@ func detectLocalServices() []providerPreset {
 			}
 		}
 	}
-	
+
 	return detected
 }
 
@@ -337,7 +362,7 @@ func createExampleCharacters() error {
 	if err := os.MkdirAll(charactersDir, 0755); err != nil {
 		return err
 	}
-	
+
 	// Create example characters
 	examples := []struct {
 		filename string
@@ -436,13 +461,13 @@ func createExampleCharacters() error {
 }`,
 		},
 	}
-	
+
 	for _, example := range examples {
 		path := filepath.Join(charactersDir, example.filename)
 		if err := os.WriteFile(path, []byte(example.content), 0644); err != nil {
 			return fmt.Errorf("failed to write %s: %w", example.filename, err)
 		}
 	}
-	
+
 	return nil
 }

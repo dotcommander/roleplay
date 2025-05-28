@@ -48,7 +48,7 @@ func NewCharacterBot(cfg *config.Config) *CharacterBot {
 	userProfileRepo := repository.NewUserProfileRepository(userProfileDataDir)
 
 	cb := &CharacterBot{
-		characters:      make(map[string]*models.Character),
+		characters: make(map[string]*models.Character),
 		cache: cache.NewPromptCache(
 			cfg.CacheConfig.DefaultTTL,
 			5*time.Minute,
@@ -446,11 +446,11 @@ Remember to address them by their name throughout the conversation.`, userID)
 func (cb *CharacterBot) buildUserProfileLayer(userID, characterID string, profile *models.UserProfile) string {
 	var sb strings.Builder
 	sb.WriteString(fmt.Sprintf("[USER PROFILE FOR %s (as perceived by character %s)]\n", userID, characterID))
-	
+
 	if profile.OverallSummary != "" {
 		sb.WriteString(fmt.Sprintf("Summary: %s\n", profile.OverallSummary))
 	}
-	
+
 	if profile.InteractionStyle != "" {
 		sb.WriteString(fmt.Sprintf("Interaction Style: %s\n", profile.InteractionStyle))
 	}
@@ -464,7 +464,7 @@ func (cb *CharacterBot) buildUserProfileLayer(userID, characterID string, profil
 			}
 		}
 	}
-	
+
 	return sb.String()
 }
 
@@ -712,32 +712,32 @@ func (cb *CharacterBot) updateUserProfileAsync(userID string, char *models.Chara
 // updateUserProfileSync performs the actual user profile update
 func (cb *CharacterBot) updateUserProfileSync(userID string, char *models.Character, sessionID string) {
 	// Update user profile based on conversation history
-	
+
 	// Only proceed if we have the minimum messages for an update
 	sessionRepo := repository.NewSessionRepository(filepath.Join(os.Getenv("HOME"), ".config", "roleplay"))
-	
+
 	currentSession, err := sessionRepo.LoadSession(char.ID, sessionID)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error loading session %s for user profile update: %v\n", sessionID, err)
 		return
 	}
-	
+
 	// Check if we should update based on frequency setting
 	messageCount := len(currentSession.Messages)
-	if messageCount == 0 || (messageCount % cb.config.UserProfileConfig.UpdateFrequency != 0) {
+	if messageCount == 0 || (messageCount%cb.config.UserProfileConfig.UpdateFrequency != 0) {
 		return
 	}
-	
+
 	// Update the profile
 	turnsToConsider := cb.config.UserProfileConfig.TurnsToConsider
 	if turnsToConsider <= 0 {
 		turnsToConsider = 20 // Default value
 	}
-	
+
 	if cb.userProfileAgent == nil {
 		return
 	}
-	
+
 	_, updateErr := cb.userProfileAgent.UpdateUserProfile(
 		context.Background(),
 		userID,
@@ -745,7 +745,7 @@ func (cb *CharacterBot) updateUserProfileSync(userID string, char *models.Charac
 		currentSession.Messages,
 		turnsToConsider,
 	)
-	
+
 	if updateErr != nil {
 		fmt.Fprintf(os.Stderr, "Error updating user profile for %s with %s: %v\n", userID, char.ID, updateErr)
 	}

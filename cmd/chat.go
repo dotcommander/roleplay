@@ -182,14 +182,14 @@ func runChat(cmd *cobra.Command, args []string) error {
 			fmt.Fprintf(os.Stderr, "Warning: Failed to save session: %v\n", err)
 		}
 	}
-	
+
 	// Check if we should update the user profile
 	// For the chat command, we do this synchronously to ensure it completes
-	if config.UserProfileConfig.Enabled && len(session.Messages) > 0 && (len(session.Messages) % config.UserProfileConfig.UpdateFrequency == 0) {
+	if config.UserProfileConfig.Enabled && len(session.Messages) > 0 && (len(session.Messages)%config.UserProfileConfig.UpdateFrequency == 0) {
 		if verbose, _ := cmd.Flags().GetBool("verbose"); verbose {
 			fmt.Fprintf(os.Stderr, "Updating user profile...\n")
 		}
-		
+
 		// Get character from manager
 		char, err := mgr.GetOrLoadCharacter(characterID)
 		if err == nil {
@@ -202,7 +202,7 @@ func runChat(cmd *cobra.Command, args []string) error {
 	if format == "json" {
 		output := map[string]interface{}{
 			"session_id": sessionID,
-			"response": resp.Content,
+			"response":   resp.Content,
 			"cache_metrics": map[string]interface{}{
 				"cache_hit":    resp.CacheMetrics.Hit,
 				"layers":       resp.CacheMetrics.Layers,

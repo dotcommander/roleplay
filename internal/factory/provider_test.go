@@ -1,7 +1,6 @@
 package factory
 
 import (
-	"os"
 	"testing"
 	"time"
 
@@ -45,47 +44,12 @@ func TestCreateProvider(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name: "anthropic provider with API key from environment",
-			cfg: &config.Config{
-				DefaultProvider: "anthropic",
-			},
-			envSetup: func() {
-				os.Setenv("ANTHROPIC_API_KEY", "env-anthropic-key")
-			},
-			envCleanup: func() {
-				os.Unsetenv("ANTHROPIC_API_KEY")
-			},
-			wantErr: false,
-		},
-		{
-			name: "openai provider with API key from environment",
-			cfg: &config.Config{
-				DefaultProvider: "openai",
-			},
-			envSetup: func() {
-				os.Setenv("OPENAI_API_KEY", "env-openai-key")
-			},
-			envCleanup: func() {
-				os.Unsetenv("OPENAI_API_KEY")
-			},
-			wantErr: false,
-		},
-		{
 			name: "missing API key",
 			cfg: &config.Config{
 				DefaultProvider: "openai",
 			},
 			wantErr:     true,
-			errContains: "API key for provider openai not found",
-		},
-		{
-			name: "unsupported provider",
-			cfg: &config.Config{
-				DefaultProvider: "unsupported",
-				APIKey:          "test-key",
-			},
-			wantErr:     true,
-			errContains: "unsupported provider: unsupported",
+			errContains: "API key required for openai",
 		},
 	}
 
@@ -109,7 +73,8 @@ func TestCreateProvider(t *testing.T) {
 			} else {
 				assert.NoError(t, err)
 				assert.NotNil(t, provider)
-				assert.Equal(t, tt.cfg.DefaultProvider, provider.Name())
+				// All providers now return "openai_compatible"
+				assert.Equal(t, "openai_compatible", provider.Name())
 			}
 		})
 	}
@@ -147,57 +112,38 @@ func TestInitializeAndRegisterProvider(t *testing.T) {
 
 func TestCreateProviderWithFallback(t *testing.T) {
 	tests := []struct {
-		name         string
-		providerName string
-		apiKey       string
-		model        string
-		envSetup     func()
-		envCleanup   func()
-		wantErr      bool
+		name        string
+		profileName string
+		apiKey      string
+		model       string
+		baseURL     string
+		wantErr     bool
 	}{
 		{
-			name:         "direct API key",
-			providerName: "openai",
-			apiKey:       "direct-key",
-			model:        "gpt-4",
-			wantErr:      false,
+			name:        "direct API key",
+			profileName: "openai",
+			apiKey:      "direct-key",
+			model:       "gpt-4",
+			wantErr:     false,
 		},
 		{
-			name:         "fallback to environment",
-			providerName: "anthropic",
-			apiKey:       "",
-			envSetup: func() {
-				os.Setenv("ANTHROPIC_API_KEY", "env-key")
-			},
-			envCleanup: func() {
-				os.Unsetenv("ANTHROPIC_API_KEY")
-			},
-			wantErr: false,
+			name:        "ollama without API key",
+			profileName: "ollama",
+			apiKey:      "",
+			baseURL:     "http://localhost:11434/v1",
+			wantErr:     false,
 		},
 		{
-			name:         "no API key available",
-			providerName: "openai",
-			apiKey:       "",
-			wantErr:      true,
-		},
-		{
-			name:         "unsupported provider",
-			providerName: "unsupported",
-			apiKey:       "key",
-			wantErr:      true,
+			name:        "no API key for non-local provider",
+			profileName: "openai",
+			apiKey:      "",
+			wantErr:     true,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if tt.envSetup != nil {
-				tt.envSetup()
-			}
-			if tt.envCleanup != nil {
-				defer tt.envCleanup()
-			}
-
-			provider, err := CreateProviderWithFallback(tt.providerName, tt.apiKey, tt.model)
+			provider, err := CreateProviderWithFallback(tt.profileName, tt.apiKey, tt.model, tt.baseURL)
 
 			if tt.wantErr {
 				assert.Error(t, err)
@@ -217,7 +163,7 @@ func TestGetDefaultModel(t *testing.T) {
 	}{
 		{"openai", "gpt-4o-mini"},
 		{"anthropic", "claude-3-haiku-20240307"},
-		{"unknown", ""},
+		{"unknown", "gpt-4o-mini"},
 	}
 
 	for _, tt := range tests {

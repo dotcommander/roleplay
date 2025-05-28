@@ -9,14 +9,14 @@ import (
 
 // Header displays character information and personality stats
 type Header struct {
-	title        string
+	title         string
 	characterName string
-	characterID  string
-	personality  PersonalityStats
-	mood         string
-	moodIcon     string
-	width        int
-	styles       headerStyles
+	characterID   string
+	personality   PersonalityStats
+	mood          string
+	moodIcon      string
+	width         int
+	styles        headerStyles
 }
 
 type headerStyles struct {
@@ -29,11 +29,11 @@ type headerStyles struct {
 // NewHeader creates a new header component
 func NewHeader(width int) *Header {
 	return &Header{
-		title:        "Chat",
+		title:         "Chat",
 		characterName: "Loading...",
-		width:        width,
-		mood:         "Unknown",
-		moodIcon:     "🤔",
+		width:         width,
+		mood:          "Unknown",
+		moodIcon:      "🤔",
 		styles: headerStyles{
 			title: lipgloss.NewStyle().
 				Foreground(GruvboxAqua).

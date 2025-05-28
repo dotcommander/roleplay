@@ -40,10 +40,10 @@ type messageListStyles struct {
 	character        lipgloss.Style
 	system           lipgloss.Style
 	// Special command output styles
-	commandHeader lipgloss.Style
-	commandBox    lipgloss.Style
-	helpCommand   lipgloss.Style
-	helpDesc      lipgloss.Style
+	commandHeader  lipgloss.Style
+	commandBox     lipgloss.Style
+	helpCommand    lipgloss.Style
+	helpDesc       lipgloss.Style
 	listItemActive lipgloss.Style
 	listItem       lipgloss.Style
 }

@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	"github.com/dotcommander/roleplay/internal/config"
+	"github.com/dotcommander/roleplay/internal/factory"
 	"github.com/dotcommander/roleplay/internal/models"
 	"github.com/dotcommander/roleplay/internal/providers"
 	"github.com/dotcommander/roleplay/internal/repository"
@@ -141,62 +142,6 @@ func (m *CharacterManager) GetSessionRepository() *repository.SessionRepository 
 
 // createProvider creates an AI provider based on the configuration
 func createProvider(cfg *config.Config) (providers.AIProvider, error) {
-	apiKey := getAPIKey(cfg)
-	if apiKey == "" {
-		return nil, fmt.Errorf("API key for provider %s not found. Set api_key in config or %s environment variable",
-			cfg.DefaultProvider, getEnvVarName(cfg.DefaultProvider))
-	}
-
-	switch cfg.DefaultProvider {
-	case "anthropic":
-		return providers.NewAnthropicProvider(apiKey), nil
-	case "openai":
-		model := resolveModel(cfg)
-		if cfg.BaseURL != "" {
-			return providers.NewOpenAIProviderWithBaseURL(apiKey, model, cfg.BaseURL), nil
-		}
-		return providers.NewOpenAIProvider(apiKey, model), nil
-	default:
-		return nil, fmt.Errorf("unsupported provider: %s", cfg.DefaultProvider)
-	}
-}
-
-// getAPIKey retrieves the API key from config or environment
-func getAPIKey(cfg *config.Config) string {
-	if cfg.APIKey != "" {
-		return cfg.APIKey
-	}
-
-	// Fall back to environment variable
-	return os.Getenv(getEnvVarName(cfg.DefaultProvider))
-}
-
-// getEnvVarName returns the environment variable name for a provider
-func getEnvVarName(provider string) string {
-	switch provider {
-	case "openai":
-		return "OPENAI_API_KEY"
-	case "anthropic":
-		return "ANTHROPIC_API_KEY"
-	default:
-		return ""
-	}
-}
-
-// resolveModel resolves model aliases and returns the actual model name
-func resolveModel(cfg *config.Config) string {
-	model := cfg.Model
-	
-	// Check if it's an alias
-	if cfg.ModelAliases != nil {
-		if resolved, ok := cfg.ModelAliases[model]; ok {
-			return resolved
-		}
-	}
-	
-	// Return the model as-is if not an alias, or use default
-	if model == "" {
-		return "gpt-4o-mini" // Default model
-	}
-	return model
+	// Use the factory to create the provider
+	return factory.CreateProvider(cfg)
 }

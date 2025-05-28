@@ -26,7 +26,7 @@ Features:
 - OCEAN personality model with dynamic evolution
 - Multi-tier memory system (short, medium, long-term)
 - Sophisticated 4-layer caching for 90% cost reduction
-- Support for multiple AI providers (Anthropic, OpenAI)
+- Universal OpenAI-compatible API support (OpenAI, Anthropic, Ollama, etc.)
 - Adaptive TTL based on conversation patterns`,
 }
 
@@ -83,30 +83,65 @@ func initConfig() {
 
 	viper.SetEnvPrefix("ROLEPLAY")
 	viper.AutomaticEnv()
-	
-	// Also check for common environment variables from other tools
-	if baseURL := os.Getenv("OPENAI_BASE_URL"); baseURL != "" && viper.GetString("base_url") == "" {
-		viper.Set("base_url", baseURL)
-	}
-	if ollamaHost := os.Getenv("OLLAMA_HOST"); ollamaHost != "" && viper.GetString("base_url") == "" {
-		viper.Set("base_url", ollamaHost+"/v1")
-	}
 
 	if err := viper.ReadInConfig(); err == nil {
 		fmt.Fprintln(os.Stderr, "Using config file:", viper.ConfigFileUsed())
 	}
 
-	// Check for OPENAI_API_KEY environment variable if no API key is set
+	// Resolve configuration with proper priority: Flags > Config File > Environment Variables
+	profileName := viper.GetString("provider")
+
+	// API Key Resolution
 	apiKey := viper.GetString("api_key")
-	if apiKey == "" && viper.GetString("provider") == "openai" {
-		apiKey = os.Getenv("OPENAI_API_KEY")
+	if apiKey == "" {
+		// Check ROLEPLAY_API_KEY first
+		apiKey = os.Getenv("ROLEPLAY_API_KEY")
+		if apiKey == "" {
+			// Check provider-specific environment variables
+			switch profileName {
+			case "openai":
+				apiKey = os.Getenv("OPENAI_API_KEY")
+			case "anthropic", "anthropic_compatible":
+				apiKey = os.Getenv("ANTHROPIC_API_KEY")
+			case "gemini", "gemini_compatible":
+				apiKey = os.Getenv("GEMINI_API_KEY")
+			case "groq":
+				apiKey = os.Getenv("GROQ_API_KEY")
+			}
+		}
+	}
+
+	// Base URL Resolution
+	baseURL := viper.GetString("base_url")
+	if baseURL == "" {
+		// Check ROLEPLAY_BASE_URL first
+		baseURL = os.Getenv("ROLEPLAY_BASE_URL")
+		if baseURL == "" {
+			// Check common environment variables
+			baseURL = os.Getenv("OPENAI_BASE_URL")
+			if baseURL == "" && (profileName == "ollama" || os.Getenv("OLLAMA_HOST") != "") {
+				// Handle Ollama special case
+				ollamaHost := os.Getenv("OLLAMA_HOST")
+				if ollamaHost == "" {
+					ollamaHost = "http://localhost:11434"
+				}
+				baseURL = ollamaHost + "/v1"
+			}
+		}
+	}
+
+	// Model Resolution
+	model := viper.GetString("model")
+	if model == "" {
+		// Check ROLEPLAY_MODEL environment variable
+		model = os.Getenv("ROLEPLAY_MODEL")
 	}
 
 	cfg = &config.Config{
 		DefaultProvider: viper.GetString("provider"),
-		Model:           viper.GetString("model"),
+		Model:           model,
 		APIKey:          apiKey,
-		BaseURL:         viper.GetString("base_url"),
+		BaseURL:         baseURL,
 		ModelAliases:    viper.GetStringMapString("model_aliases"),
 		CacheConfig: config.CacheConfig{
 			MaxEntries:        viper.GetInt("cache.max_entries"),
@@ -155,7 +190,7 @@ func initConfig() {
 	if cfg.PersonalityConfig.StabilityThreshold == 0 {
 		cfg.PersonalityConfig.StabilityThreshold = 10
 	}
-	
+
 	// Set defaults for UserProfileConfig
 	if cfg.UserProfileConfig.UpdateFrequency == 0 {
 		cfg.UserProfileConfig.UpdateFrequency = 5 // Update every 5 messages

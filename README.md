@@ -14,7 +14,7 @@ A sophisticated character bot system that implements psychologically-realistic A
 - 🗂️ **Multi-Tier Memory System**: Short-term, medium-term, and long-term memory with emotional weighting
 - 🌱 **Personality Evolution**: Characters learn and adapt based on interactions with bounded drift
 - ⚡ **4-Layer Caching Architecture**: Sophisticated caching system for optimal performance (90% cost reduction)
-- 🔄 **Multi-Provider Support**: Works with Anthropic Claude and OpenAI models
+- 🔄 **Universal OpenAI-Compatible Support**: Works with any OpenAI-compatible API (OpenAI, Anthropic, Ollama, Groq, etc.)
 - 📊 **Adaptive TTL**: Dynamic cache duration based on conversation patterns
 - 📥 **Character Import**: Import characters from unstructured markdown files using AI
 
@@ -23,7 +23,7 @@ A sophisticated character bot system that implements psychologically-realistic A
 ### Prerequisites
 
 - Go 1.23 or higher
-- OpenAI API key or Anthropic API key
+- API key for your chosen provider (or local LLM service like Ollama)
 
 ### Installation
 
@@ -53,10 +53,13 @@ sudo mv roleplay /usr/local/bin/
 ### First Run
 
 ```bash
-# Set your API key
-export OPENAI_API_KEY="your-api-key"
-# or
-export ROLEPLAY_API_KEY="your-anthropic-key"
+# Run the setup wizard (recommended)
+roleplay init
+
+# Or manually set your API key
+export OPENAI_API_KEY="your-api-key"  # For OpenAI
+export ANTHROPIC_API_KEY="your-key"   # For Anthropic
+export OLLAMA_HOST="http://localhost:11434"  # For Ollama
 
 # Quick start with built-in Rick Sanchez character
 roleplay demo
@@ -165,35 +168,83 @@ Create a JSON file with this structure:
 
 ## ⚙️ Configuration
 
-### Configuration File
+### Setup Wizard (Recommended)
+
+The easiest way to configure roleplay is using the interactive setup wizard:
+
+```bash
+roleplay init
+```
+
+This will guide you through:
+- Choosing your LLM provider (OpenAI, Anthropic, Ollama, etc.)
+- Configuring API endpoints and keys
+- Setting default models
+- Creating example characters
+
+### Manual Configuration
 
 Create `~/.config/roleplay/config.yaml`:
 
 ```yaml
-provider: openai
+# Provider profile name (used for config resolution)
+provider: openai  # or anthropic, ollama, gemini, etc.
+
+# API Configuration
 api_key: your-api-key-here
+base_url: https://api.openai.com/v1  # Optional, for custom endpoints
 model: gpt-4o-mini
+
+# Caching Configuration
 cache:
   max_entries: 10000
   cleanup_interval: 5m
   default_ttl: 10m
   adaptive_ttl: true
+
+# Memory System
 memory:
   short_term_window: 20
   medium_term_duration: 24h
   consolidation_rate: 0.1
+
+# Personality Evolution
 personality:
   evolution_enabled: true
   max_drift_rate: 0.02
   stability_threshold: 10
 ```
 
+### Supported Providers
+
+Roleplay uses a unified OpenAI-compatible provider that works with:
+
+- **OpenAI** - Official OpenAI API
+- **Anthropic** - Claude models via OpenAI-compatible endpoint
+- **Google Gemini** - Via OpenAI-compatible proxy
+- **Ollama** - Local models (no API key required)
+- **LM Studio** - Local models (no API key required)
+- **Groq** - Fast inference cloud service
+- **OpenRouter** - Access multiple providers
+- **Any OpenAI-compatible API** - Custom endpoints
+
 ### Environment Variables
 
 ```bash
+# General configuration
 export ROLEPLAY_PROVIDER=openai
 export ROLEPLAY_API_KEY=your-api-key
+export ROLEPLAY_BASE_URL=https://api.custom.com/v1
 export ROLEPLAY_MODEL=gpt-4o-mini
+
+# Provider-specific API keys (auto-detected)
+export OPENAI_API_KEY=sk-...
+export ANTHROPIC_API_KEY=sk-ant-...
+export GEMINI_API_KEY=...
+export GROQ_API_KEY=gsk-...
+
+# Local services
+export OLLAMA_HOST=http://localhost:11434
 export ROLEPLAY_CACHE_DEFAULT_TTL=10m
 export ROLEPLAY_CACHE_ADAPTIVE_TTL=true
 ```
@@ -221,6 +272,38 @@ export ROLEPLAY_CACHE_ADAPTIVE_TTL=true
 - **Adaptive TTL** extends cache duration for active conversations
 - **Background workers** for cache cleanup and memory consolidation
 - **Thread-safe** operations throughout
+
+## 🗺️ Roadmap
+
+### Near-term (Q1 2025)
+- [ ] **Streaming Support**: Real-time streaming of AI responses for more fluid conversations
+- [ ] **Voice Input**: Add voice-to-text capabilities for natural conversation
+- [ ] **Text-to-Speech**: AI responses read aloud with character-appropriate voices
+- [ ] **Web UI**: Browser-based interface alongside the terminal UI
+- [ ] **Character Marketplace**: Share and download community-created characters
+
+### Mid-term (Q2-Q3 2025)
+- [ ] **Multi-modal Characters**: Support for image generation and visual responses
+- [ ] **Group Conversations**: Multiple characters interacting in the same chat
+- [ ] **Character Relationships**: Characters remember relationships with each other
+- [ ] **Mobile Support**: iOS and Android apps with full feature parity
+- [ ] **Plugin System**: Extensible architecture for custom behaviors
+
+### Long-term (Q4 2025+)
+- [ ] **Advanced Emotional Modeling**: More nuanced emotional states and reactions
+- [ ] **Character Learning**: Long-term personality evolution across users
+- [ ] **Multi-language Support**: Characters speaking in different languages
+- [ ] **Game Integration**: SDK for integrating characters into games
+- [ ] **Enterprise Features**: Team management, analytics, and compliance tools
+
+### Community Requested
+- [ ] Discord bot integration
+- [ ] Twitch chat integration
+- [ ] Custom memory strategies
+- [ ] Character mood visualization
+- [ ] Export conversations to various formats
+
+Want to contribute to these features? Check out our [Contributing Guidelines](CONTRIBUTING.md) or start a discussion in our [GitHub Discussions](https://github.com/dotcommander/roleplay/discussions).
 
 ## 🤝 Contributing
 

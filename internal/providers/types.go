@@ -10,8 +10,7 @@ import (
 // AIProvider defines the interface for AI service providers
 type AIProvider interface {
 	SendRequest(ctx context.Context, req *PromptRequest) (*AIResponse, error)
-	SupportsBreakpoints() bool
-	MaxBreakpoints() int
+	SendStreamRequest(ctx context.Context, req *PromptRequest, out chan<- PartialAIResponse) error
 	Name() string
 }
 
@@ -39,4 +38,10 @@ type TokenUsage struct {
 	Completion   int
 	CachedPrompt int
 	Total        int
+}
+
+// PartialAIResponse represents a chunk of streaming response
+type PartialAIResponse struct {
+	Content string
+	Done    bool
 }

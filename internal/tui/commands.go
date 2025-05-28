@@ -164,7 +164,7 @@ func (m *Model) showStats() slashCommandResult {
 	if m.totalRequests > 0 {
 		cacheRate = float64(m.cacheHits) / float64(m.totalRequests) * 100
 	}
-	
+
 	content := fmt.Sprintf(`Cache Statistics:
 • Total requests: %d
 • Cache hits: %d
@@ -176,7 +176,7 @@ func (m *Model) showStats() slashCommandResult {
 		m.totalRequests-m.cacheHits,
 		cacheRate,
 		m.lastTokensSaved)
-	
+
 	return slashCommandResult{
 		cmdType: "stats",
 		content: content,
@@ -192,7 +192,7 @@ func (m *Model) showMood() slashCommandResult {
 			msgType: "error",
 		}
 	}
-	
+
 	mood := m.getDominantMood()
 	icon := m.getMoodIcon(mood)
 	content := fmt.Sprintf(`%s Current Mood: %s
@@ -208,7 +208,7 @@ Emotional State:
 		m.character.CurrentMood.Fear,
 		m.character.CurrentMood.Sadness,
 		m.character.CurrentMood.Disgust)
-	
+
 	return slashCommandResult{
 		cmdType: "mood",
 		content: content,
@@ -224,7 +224,7 @@ func (m *Model) showPersonality() slashCommandResult {
 			msgType: "error",
 		}
 	}
-	
+
 	content := fmt.Sprintf(`%s's Personality (OCEAN Model):
 
 • Openness: %.1f        (creativity, openness to experience)
@@ -238,7 +238,7 @@ func (m *Model) showPersonality() slashCommandResult {
 		m.character.Personality.Extraversion,
 		m.character.Personality.Agreeableness,
 		m.character.Personality.Neuroticism)
-	
+
 	return slashCommandResult{
 		cmdType: "personality",
 		content: content,
@@ -255,9 +255,9 @@ func (m *Model) showSession() slashCommandResult {
 	if len(m.sessionID) > 8 {
 		sessionIDDisplay = m.sessionID[:8] + "..."
 	}
-	
+
 	messageCount := 0 // Would be tracked in the refactored version
-	
+
 	content := fmt.Sprintf(`Session Information:
 • Session ID: %s
 • Character: %s (%s)
@@ -270,7 +270,7 @@ func (m *Model) showSession() slashCommandResult {
 		m.userID,
 		messageCount,
 		m.context.StartTime.Format("Jan 2, 2006 15:04"))
-	
+
 	return slashCommandResult{
 		cmdType: "session",
 		content: content,

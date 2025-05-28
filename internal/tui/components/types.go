@@ -32,13 +32,13 @@ type (
 
 	// StatusUpdateMsg updates the status bar
 	StatusUpdateMsg struct {
-		Connected    bool
-		CacheHits    int
-		CacheMisses  int
-		TokensSaved  int
-		SessionID    string
-		Model        string
-		Error        error
+		Connected   bool
+		CacheHits   int
+		CacheMisses int
+		TokensSaved int
+		SessionID   string
+		Model       string
+		Error       error
 	}
 
 	// CharacterUpdateMsg updates character info in header

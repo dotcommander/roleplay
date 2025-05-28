@@ -26,7 +26,7 @@ type UserProfileAgent struct {
 func NewUserProfileAgent(provider providers.AIProvider, repo *repository.UserProfileRepository) *UserProfileAgent {
 	// Find prompt file relative to executable
 	promptFile := "prompts/user-profile-extraction.md"
-	
+
 	// Try multiple locations for the prompt file
 	possiblePaths := []string{
 		promptFile,
@@ -34,7 +34,7 @@ func NewUserProfileAgent(provider providers.AIProvider, repo *repository.UserPro
 		filepath.Join("..", promptFile),
 		filepath.Join(os.Getenv("HOME"), "go", "src", "roleplay", promptFile),
 	}
-	
+
 	var finalPath string
 	for _, path := range possiblePaths {
 		if _, err := os.Stat(path); err == nil {
@@ -42,7 +42,7 @@ func NewUserProfileAgent(provider providers.AIProvider, repo *repository.UserPro
 			break
 		}
 	}
-	
+
 	if finalPath == "" {
 		// Fallback to the first option
 		finalPath = promptFile
@@ -81,7 +81,7 @@ func (upa *UserProfileAgent) UpdateUserProfile(
 	sessionMessages []repository.SessionMessage,
 	turnsToConsider int,
 ) (*models.UserProfile, error) {
-	
+
 	if len(sessionMessages) == 0 {
 		return nil, fmt.Errorf("no conversation history provided to update user profile")
 	}
@@ -162,7 +162,7 @@ func (upa *UserProfileAgent) UpdateUserProfile(
 
 	// Clean and parse JSON response
 	jsonContent := strings.TrimSpace(response.Content)
-	
+
 	// Remove markdown code blocks if present
 	if strings.HasPrefix(jsonContent, "```json") {
 		jsonContent = strings.TrimPrefix(jsonContent, "```json")

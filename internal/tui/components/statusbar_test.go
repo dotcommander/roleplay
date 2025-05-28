@@ -15,18 +15,18 @@ func TestStatusBar(t *testing.T) {
 		contains []string
 	}{
 		{
-			name: "Initial state shows connected",
-			updates: []tea.Msg{},
+			name:     "Initial state shows connected",
+			updates:  []tea.Msg{},
 			contains: []string{"●", "session", "0"},
 		},
 		{
 			name: "Updates cache metrics",
 			updates: []tea.Msg{
 				StatusUpdateMsg{
-					Connected:    true,
-					CacheHits:    10,
-					CacheMisses:  5,
-					TokensSaved:  1500,
+					Connected:   true,
+					CacheHits:   10,
+					CacheMisses: 5,
+					TokensSaved: 1500,
 				},
 			},
 			contains: []string{"15", "67%", "1500 tokens saved"},
@@ -106,33 +106,33 @@ func TestStatusBarResize(t *testing.T) {
 
 func TestStatusBarCacheRate(t *testing.T) {
 	tests := []struct {
-		name        string
-		hits        int
-		misses      int
+		name         string
+		hits         int
+		misses       int
 		expectedRate string
 	}{
 		{
-			name:        "Perfect cache rate",
-			hits:        10,
-			misses:      0,
+			name:         "Perfect cache rate",
+			hits:         10,
+			misses:       0,
 			expectedRate: "100%",
 		},
 		{
-			name:        "No cache hits",
-			hits:        0,
-			misses:      10,
+			name:         "No cache hits",
+			hits:         0,
+			misses:       10,
 			expectedRate: "0%",
 		},
 		{
-			name:        "50% cache rate",
-			hits:        5,
-			misses:      5,
+			name:         "50% cache rate",
+			hits:         5,
+			misses:       5,
 			expectedRate: "50%",
 		},
 		{
-			name:        "No requests",
-			hits:        0,
-			misses:      0,
+			name:         "No requests",
+			hits:         0,
+			misses:       0,
 			expectedRate: "0%",
 		},
 	}

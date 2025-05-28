@@ -9,15 +9,15 @@ import (
 
 // StatusBar displays connection status and cache metrics
 type StatusBar struct {
-	width         int
-	connected     bool
-	cacheHits     int
-	cacheMisses   int
-	tokensSaved   int
-	sessionID     string
-	model         string
-	lastError     error
-	styles        statusBarStyles
+	width       int
+	connected   bool
+	cacheHits   int
+	cacheMisses int
+	tokensSaved int
+	sessionID   string
+	model       string
+	lastError   error
+	styles      statusBarStyles
 }
 
 type statusBarStyles struct {

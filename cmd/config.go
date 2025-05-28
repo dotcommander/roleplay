@@ -58,7 +58,7 @@ func init() {
 func runConfigList(cmd *cobra.Command, args []string) error {
 	// Get all settings
 	settings := viper.AllSettings()
-	
+
 	// Show where config is loaded from
 	configFile := viper.ConfigFileUsed()
 	if configFile != "" {
@@ -67,10 +67,10 @@ func runConfigList(cmd *cobra.Command, args []string) error {
 		fmt.Println("No configuration file found, using defaults and environment variables")
 	}
 	fmt.Println()
-	
+
 	// Display settings in a readable format
 	displaySettings(settings, "")
-	
+
 	// Show which environment variables are set
 	fmt.Println("\nEnvironment variables:")
 	envVars := []string{
@@ -79,9 +79,13 @@ func runConfigList(cmd *cobra.Command, args []string) error {
 		"ROLEPLAY_MODEL",
 		"ROLEPLAY_DEFAULT_PROVIDER",
 		"OPENAI_API_KEY",
+		"OPENAI_BASE_URL",
 		"ANTHROPIC_API_KEY",
+		"GEMINI_API_KEY",
+		"GROQ_API_KEY",
+		"OLLAMA_HOST",
 	}
-	
+
 	anySet := false
 	for _, env := range envVars {
 		if val := os.Getenv(env); val != "" {
@@ -93,43 +97,43 @@ func runConfigList(cmd *cobra.Command, args []string) error {
 			anySet = true
 		}
 	}
-	
+
 	if !anySet {
 		fmt.Println("  (none set)")
 	}
-	
+
 	return nil
 }
 
 func runConfigGet(cmd *cobra.Command, args []string) error {
 	key := args[0]
-	
+
 	if !viper.IsSet(key) {
 		return fmt.Errorf("configuration key '%s' not found", key)
 	}
-	
+
 	value := viper.Get(key)
-	
+
 	// Mask API keys when displaying
 	if strings.Contains(strings.ToLower(key), "key") || strings.Contains(strings.ToLower(key), "api_key") {
 		if str, ok := value.(string); ok && len(str) > 8 {
 			value = str[:4] + "****" + str[len(str)-4:]
 		}
 	}
-	
+
 	// Print just the value for easy scripting
 	fmt.Println(value)
-	
+
 	return nil
 }
 
 func runConfigSet(cmd *cobra.Command, args []string) error {
 	key := args[0]
 	value := args[1]
-	
+
 	// Set the value in viper
 	viper.Set(key, value)
-	
+
 	// Get the config file path
 	configFile := viper.ConfigFileUsed()
 	if configFile == "" {
@@ -140,7 +144,7 @@ func runConfigSet(cmd *cobra.Command, args []string) error {
 		}
 		configFile = filepath.Join(configDir, "config.yaml")
 	}
-	
+
 	// Read existing config or create new
 	configData := make(map[string]interface{})
 	if data, err := os.ReadFile(configFile); err == nil {
@@ -148,23 +152,23 @@ func runConfigSet(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("failed to parse existing config: %w", err)
 		}
 	}
-	
+
 	// Update the specific key
 	setNestedValue(configData, key, value)
-	
+
 	// Write back to file
 	data, err := yaml.Marshal(configData)
 	if err != nil {
 		return fmt.Errorf("failed to marshal config: %w", err)
 	}
-	
+
 	if err := os.WriteFile(configFile, data, 0644); err != nil {
 		return fmt.Errorf("failed to write config file: %w", err)
 	}
-	
+
 	fmt.Printf("✅ Set %s = %s\n", key, value)
 	fmt.Printf("Configuration saved to %s\n", configFile)
-	
+
 	return nil
 }
 
@@ -186,7 +190,7 @@ func displaySettings(settings map[string]interface{}, prefix string) {
 		if prefix != "" {
 			fullKey = prefix + "." + key
 		}
-		
+
 		switch v := value.(type) {
 		case map[string]interface{}:
 			fmt.Printf("%s:\n", fullKey)
@@ -207,14 +211,14 @@ func displaySettings(settings map[string]interface{}, prefix string) {
 func setNestedValue(m map[string]interface{}, key string, value interface{}) {
 	parts := strings.Split(key, ".")
 	current := m
-	
+
 	// Navigate to the nested location
 	for i := 0; i < len(parts)-1; i++ {
 		part := parts[i]
 		if _, exists := current[part]; !exists {
 			current[part] = make(map[string]interface{})
 		}
-		
+
 		if next, ok := current[part].(map[string]interface{}); ok {
 			current = next
 		} else {
@@ -223,10 +227,10 @@ func setNestedValue(m map[string]interface{}, key string, value interface{}) {
 			current = current[part].(map[string]interface{})
 		}
 	}
-	
+
 	// Set the final value
 	finalKey := parts[len(parts)-1]
-	
+
 	// Try to parse value to appropriate type
 	switch {
 	case value == "true":

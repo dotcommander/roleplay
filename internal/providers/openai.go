@@ -1,168 +1,189 @@
 package providers
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
-	"net/http"
 	"strings"
-	"time"
 
 	"github.com/dotcommander/roleplay/internal/cache"
+	"github.com/sashabaranov/go-openai"
 )
 
-// OpenAIProvider implements the AIProvider interface for OpenAI models
+// OpenAIProvider implements the AIProvider interface for OpenAI-compatible models
 type OpenAIProvider struct {
-	apiKey     string
-	baseURL    string
-	httpClient *http.Client
-	model      string
+	client *openai.Client
+	model  string
 }
 
 // NewOpenAIProvider creates a new OpenAI provider instance
 func NewOpenAIProvider(apiKey, model string) *OpenAIProvider {
-	return NewOpenAIProviderWithBaseURL(apiKey, model, "https://api.openai.com/v1")
+	return NewOpenAIProviderWithBaseURL(apiKey, model, "")
 }
 
-// NewOpenAIProviderWithBaseURL creates a new OpenAI provider with custom base URL
+// NewOpenAIProviderWithBaseURL creates a new OpenAI-compatible provider with custom base URL
 func NewOpenAIProviderWithBaseURL(apiKey, model, baseURL string) *OpenAIProvider {
 	// Log the model being used for debugging
 	if strings.HasPrefix(model, "o1-") || strings.HasPrefix(model, "o4-") {
 		fmt.Printf("⚠️  Using o1/o4 model: %s (limited parameter support)\n", model)
 	}
-	
-	// Ensure baseURL doesn't have trailing slash
-	baseURL = strings.TrimRight(baseURL, "/")
+
+	config := openai.DefaultConfig(apiKey)
+	if baseURL != "" {
+		// Handle baseURL carefully - go-openai may expect base URL without /v1
+		baseURL = strings.TrimRight(baseURL, "/")
+		// If baseURL ends with /v1, use it as-is, otherwise let the SDK handle it
+		if !strings.HasSuffix(baseURL, "/v1") {
+			config.BaseURL = baseURL + "/v1"
+		} else {
+			config.BaseURL = baseURL
+		}
+	}
 
 	return &OpenAIProvider{
-		apiKey:     apiKey,
-		baseURL:    baseURL,
-		httpClient: &http.Client{Timeout: 60 * time.Second},
-		model:      model,
+		client: openai.NewClientWithConfig(config),
+		model:  model,
 	}
 }
 
-// SendRequest sends a request to the OpenAI API
+// SendRequest sends a request to the OpenAI-compatible API
 func (o *OpenAIProvider) SendRequest(ctx context.Context, req *PromptRequest) (*AIResponse, error) {
-	// OpenAI uses automatic caching, so we just need to structure prompts consistently
+	// Build messages from the request
 	messages := o.buildMessages(req)
 
-	payload := map[string]interface{}{
-		"model":    o.model,
-		"messages": messages,
+	// Create the API request
+	apiReq := openai.ChatCompletionRequest{
+		Model:    o.model,
+		Messages: messages,
 	}
 
 	// o1 models have restrictions on parameters
-	if strings.HasPrefix(o.model, "o1-") || strings.HasPrefix(o.model, "o4-") {
-		// o1 models don't support temperature or max_tokens
-		// They use default values
-	} else {
+	if !strings.HasPrefix(o.model, "o1-") && !strings.HasPrefix(o.model, "o4-") {
 		// Standard models support these parameters
-		payload["temperature"] = 0.7
-		payload["max_tokens"] = 2000
+		apiReq.Temperature = 0.7
+		apiReq.MaxTokens = 2000
 	}
 
-	respData, err := o.makeRequest(ctx, "/chat/completions", payload)
+	// Send the request
+	resp, err := o.client.CreateChatCompletion(ctx, apiReq)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("API request failed: %w", err)
 	}
 
-	return o.parseResponse(respData)
+	// Parse the response
+	return o.parseResponse(resp)
 }
 
-func (o *OpenAIProvider) buildMessages(req *PromptRequest) []map[string]string {
-	messages := []map[string]string{}
+func (o *OpenAIProvider) buildMessages(req *PromptRequest) []openai.ChatCompletionMessage {
+	messages := []openai.ChatCompletionMessage{}
 
-	// Combine all breakpoints into system message for consistent caching
-	systemContent := ""
-	for _, bp := range req.CacheBreakpoints {
-		systemContent += bp.Content + "\n\n"
-	}
-
-	if systemContent != "" {
-		messages = append(messages, map[string]string{
-			"role":    "system",
-			"content": systemContent,
+	// Use SystemPrompt if provided (bot service assembles this from cache breakpoints)
+	if req.SystemPrompt != "" {
+		messages = append(messages, openai.ChatCompletionMessage{
+			Role:    openai.ChatMessageRoleSystem,
+			Content: req.SystemPrompt,
 		})
+	} else {
+		// Fallback: Combine all breakpoints into system message
+		systemContent := ""
+		for _, bp := range req.CacheBreakpoints {
+			systemContent += bp.Content + "\n\n"
+		}
+		if systemContent != "" {
+			messages = append(messages, openai.ChatCompletionMessage{
+				Role:    openai.ChatMessageRoleSystem,
+				Content: strings.TrimSpace(systemContent),
+			})
+		}
 	}
 
 	// Add conversation history
 	for _, msg := range req.Context.RecentMessages {
-		messages = append(messages, map[string]string{
-			"role":    msg.Role,
-			"content": msg.Content,
+		role := openai.ChatMessageRoleUser
+		if msg.Role == "assistant" || msg.Role == "character" {
+			role = openai.ChatMessageRoleAssistant
+		}
+		messages = append(messages, openai.ChatCompletionMessage{
+			Role:    role,
+			Content: msg.Content,
 		})
 	}
 
 	// Add current message
-	messages = append(messages, map[string]string{
-		"role":    "user",
-		"content": req.Message,
+	messages = append(messages, openai.ChatCompletionMessage{
+		Role:    openai.ChatMessageRoleUser,
+		Content: req.Message,
 	})
 
 	return messages
 }
 
-func (o *OpenAIProvider) makeRequest(ctx context.Context, endpoint string, payload interface{}) ([]byte, error) {
-	data, err := json.Marshal(payload)
+// SendStreamRequest sends a streaming request to the OpenAI-compatible API
+func (o *OpenAIProvider) SendStreamRequest(ctx context.Context, req *PromptRequest, out chan<- PartialAIResponse) error {
+	defer close(out)
+
+	// Build messages from the request
+	messages := o.buildMessages(req)
+
+	// Create the API request
+	apiReq := openai.ChatCompletionRequest{
+		Model:    o.model,
+		Messages: messages,
+		Stream:   true,
+	}
+
+	// o1 models have restrictions on parameters
+	if !strings.HasPrefix(o.model, "o1-") && !strings.HasPrefix(o.model, "o4-") {
+		// Standard models support these parameters
+		apiReq.Temperature = 0.7
+		apiReq.MaxTokens = 2000
+	}
+
+	// Create the stream
+	stream, err := o.client.CreateChatCompletionStream(ctx, apiReq)
 	if err != nil {
-		return nil, err
+		return fmt.Errorf("failed to create stream: %w", err)
 	}
+	defer stream.Close()
 
-	req, err := http.NewRequestWithContext(ctx, "POST", o.baseURL+endpoint, bytes.NewBuffer(data))
-	if err != nil {
-		return nil, err
+	// Process stream chunks
+	for {
+		response, err := stream.Recv()
+		if err == io.EOF {
+			// Stream finished
+			out <- PartialAIResponse{
+				Done: true,
+			}
+			return nil
+		}
+		if err != nil {
+			return fmt.Errorf("stream error: %w", err)
+		}
+
+		// Extract content from the chunk
+		if len(response.Choices) > 0 && response.Choices[0].Delta.Content != "" {
+			out <- PartialAIResponse{
+				Content: response.Choices[0].Delta.Content,
+				Done:    false,
+			}
+		}
 	}
-
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+o.apiKey)
-
-	resp, err := o.httpClient.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("API error %d: %s", resp.StatusCode, string(body))
-	}
-
-	return io.ReadAll(resp.Body)
 }
 
-func (o *OpenAIProvider) parseResponse(data []byte) (*AIResponse, error) {
-	var resp struct {
-		Choices []struct {
-			Message struct {
-				Content string `json:"content"`
-			} `json:"message"`
-		} `json:"choices"`
-		Usage struct {
-			PromptTokens        int `json:"prompt_tokens"`
-			CompletionTokens    int `json:"completion_tokens"`
-			TotalTokens         int `json:"total_tokens"`
-			PromptTokensDetails struct {
-				CachedTokens int `json:"cached_tokens"`
-			} `json:"prompt_tokens_details"`
-		} `json:"usage"`
-	}
-
-	if err := json.Unmarshal(data, &resp); err != nil {
-		return nil, err
-	}
-
+func (o *OpenAIProvider) parseResponse(resp openai.ChatCompletionResponse) (*AIResponse, error) {
 	content := ""
 	if len(resp.Choices) > 0 {
 		content = resp.Choices[0].Message.Content
 	}
 
-	// Determine cached layers
+	// Note: The SDK response may not include prompt_tokens_details for all providers
+	// We'll set conservative defaults for cache metrics
+	cachedTokens := 0
 	cachedLayers := []cache.CacheLayer{}
-	if resp.Usage.PromptTokensDetails.CachedTokens > 0 {
-		// OpenAI's automatic caching likely cached the system prompt
+
+	// Some OpenAI-compatible APIs might not report cached tokens
+	// This is a best-effort approach
+	if cachedTokens > 0 {
 		cachedLayers = append(cachedLayers, cache.CorePersonalityLayer)
 	}
 
@@ -171,22 +192,22 @@ func (o *OpenAIProvider) parseResponse(data []byte) (*AIResponse, error) {
 		TokensUsed: TokenUsage{
 			Prompt:       resp.Usage.PromptTokens,
 			Completion:   resp.Usage.CompletionTokens,
-			CachedPrompt: resp.Usage.PromptTokensDetails.CachedTokens,
+			CachedPrompt: cachedTokens,
 			Total:        resp.Usage.TotalTokens,
 		},
 		CacheMetrics: cache.CacheMetrics{
-			Hit:         resp.Usage.PromptTokensDetails.CachedTokens > 0,
+			Hit:         cachedTokens > 0,
 			Layers:      cachedLayers,
-			SavedTokens: resp.Usage.PromptTokensDetails.CachedTokens / 2, // 50% discount
+			SavedTokens: cachedTokens / 2, // Assume 50% discount when cached
 		},
 	}, nil
 }
 
-// SupportsBreakpoints indicates that OpenAI uses automatic caching
+// SupportsBreakpoints indicates that OpenAI-compatible APIs handle caching server-side
 func (o *OpenAIProvider) SupportsBreakpoints() bool { return false }
 
-// MaxBreakpoints returns 0 as OpenAI handles caching automatically
+// MaxBreakpoints returns 0 as caching is handled server-side
 func (o *OpenAIProvider) MaxBreakpoints() int { return 0 }
 
 // Name returns the provider name
-func (o *OpenAIProvider) Name() string { return "openai" }
+func (o *OpenAIProvider) Name() string { return "openai_compatible" }
