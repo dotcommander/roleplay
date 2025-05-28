@@ -81,6 +81,7 @@ func (upa *UserProfileAgent) UpdateUserProfile(
 	sessionMessages []repository.SessionMessage,
 	turnsToConsider int,
 ) (*models.UserProfile, error) {
+	
 	if len(sessionMessages) == 0 {
 		return nil, fmt.Errorf("no conversation history provided to update user profile")
 	}

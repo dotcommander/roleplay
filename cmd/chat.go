@@ -10,6 +10,7 @@ import (
 	"github.com/dotcommander/roleplay/internal/factory"
 	"github.com/dotcommander/roleplay/internal/manager"
 	"github.com/dotcommander/roleplay/internal/models"
+	"github.com/dotcommander/roleplay/internal/repository"
 	"github.com/spf13/cobra"
 )
 
@@ -77,9 +78,50 @@ func runChat(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("character %s not found. Create it first with 'roleplay character create'", characterID)
 	}
 
+	// Get session repository
+	sessionRepo := mgr.GetSessionRepository()
+
 	// Generate session ID if not provided
 	if sessionID == "" {
 		sessionID = fmt.Sprintf("session-%d", time.Now().Unix())
+	}
+
+	// Load existing session or create new one
+	var session *repository.Session
+	existingSession, err := sessionRepo.LoadSession(characterID, sessionID)
+	if err != nil {
+		// Create new session if it doesn't exist
+		session = &repository.Session{
+			ID:           sessionID,
+			CharacterID:  characterID,
+			UserID:       userID,
+			StartTime:    time.Now(),
+			LastActivity: time.Now(),
+			Messages:     []repository.SessionMessage{},
+			CacheMetrics: repository.CacheMetrics{},
+		}
+	} else {
+		session = existingSession
+	}
+
+	// Convert session messages to conversation context
+	var recentMessages []models.Message
+	// Get last 10 messages for context
+	startIdx := 0
+	if len(session.Messages) > 10 {
+		startIdx = len(session.Messages) - 10
+	}
+	for i := startIdx; i < len(session.Messages); i++ {
+		msg := session.Messages[i]
+		// Map "character" role to "assistant" for API compatibility
+		role := msg.Role
+		if role == "character" {
+			role = "assistant"
+		}
+		recentMessages = append(recentMessages, models.Message{
+			Role:    role,
+			Content: msg.Content,
+		})
 	}
 
 	// Create conversation request
@@ -90,8 +132,8 @@ func runChat(cmd *cobra.Command, args []string) error {
 		ScenarioID:  scenarioID,
 		Context: models.ConversationContext{
 			SessionID:      sessionID,
-			StartTime:      time.Now(),
-			RecentMessages: []models.Message{}, // Could load from history
+			StartTime:      session.StartTime,
+			RecentMessages: recentMessages,
 		},
 	}
 
@@ -102,9 +144,71 @@ func runChat(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to process request: %w", err)
 	}
 
+	// Update session with new messages
+	session.Messages = append(session.Messages, repository.SessionMessage{
+		Timestamp:  time.Now(),
+		Role:       "user",
+		Content:    message,
+		TokensUsed: 0, // User messages don't consume tokens
+	})
+
+	cacheHits := 0
+	cacheMisses := 0
+	if resp.CacheMetrics.Hit {
+		cacheHits = 1
+	} else {
+		cacheMisses = 1
+	}
+
+	session.Messages = append(session.Messages, repository.SessionMessage{
+		Timestamp:   time.Now(),
+		Role:        "character",
+		Content:     resp.Content,
+		TokensUsed:  resp.TokensUsed.Total,
+		CacheHits:   cacheHits,
+		CacheMisses: cacheMisses,
+	})
+
+	// Update cache metrics
+	session.CacheMetrics.TotalRequests++
+	if resp.CacheMetrics.Hit {
+		session.CacheMetrics.CacheHits++
+	} else {
+		session.CacheMetrics.CacheMisses++
+	}
+	session.CacheMetrics.TokensSaved += resp.CacheMetrics.SavedTokens
+	session.CacheMetrics.HitRate = float64(session.CacheMetrics.CacheHits) / float64(session.CacheMetrics.TotalRequests)
+	session.CacheMetrics.CostSaved = float64(session.CacheMetrics.TokensSaved) * 0.000003 // Approximate cost per token
+	session.LastActivity = time.Now()
+
+	// Save session BEFORE checking for profile updates
+	// This ensures the async goroutine has access to the latest messages
+	if err := sessionRepo.SaveSession(session); err != nil {
+		// Log error but don't fail the command
+		if verbose, _ := cmd.Flags().GetBool("verbose"); verbose {
+			fmt.Fprintf(os.Stderr, "Warning: Failed to save session: %v\n", err)
+		}
+	}
+	
+	// Check if we should update the user profile
+	// For the chat command, we do this synchronously to ensure it completes
+	if config.UserProfileConfig.Enabled && len(session.Messages) > 0 && (len(session.Messages) % config.UserProfileConfig.UpdateFrequency == 0) {
+		if verbose, _ := cmd.Flags().GetBool("verbose"); verbose {
+			fmt.Fprintf(os.Stderr, "Updating user profile...\n")
+		}
+		
+		// Get character from manager
+		char, err := mgr.GetOrLoadCharacter(characterID)
+		if err == nil {
+			// Call the bot's profile update method directly
+			bot.UpdateUserProfile(userID, char, sessionID)
+		}
+	}
+
 	// Display response based on format
 	if format == "json" {
 		output := map[string]interface{}{
+			"session_id": sessionID,
 			"response": resp.Content,
 			"cache_metrics": map[string]interface{}{
 				"cache_hit":    resp.CacheMetrics.Hit,
@@ -128,11 +232,13 @@ func runChat(cmd *cobra.Command, args []string) error {
 		// Show cache metrics if verbose
 		if verbose, _ := cmd.Flags().GetBool("verbose"); verbose {
 			fmt.Fprintf(os.Stderr, "\n--- Performance Metrics ---\n")
+			fmt.Fprintf(os.Stderr, "Session ID: %s\n", sessionID)
 			fmt.Fprintf(os.Stderr, "Cache Hit: %v\n", resp.CacheMetrics.Hit)
 			fmt.Fprintf(os.Stderr, "Tokens Used: %d (cached: %d)\n",
 				resp.TokensUsed.Total, resp.TokensUsed.CachedPrompt)
 			fmt.Fprintf(os.Stderr, "Tokens Saved: %d\n", resp.CacheMetrics.SavedTokens)
 			fmt.Fprintf(os.Stderr, "Latency: %v\n", resp.CacheMetrics.Latency)
+			fmt.Fprintf(os.Stderr, "Session Messages: %d\n", len(session.Messages))
 		}
 	}
 

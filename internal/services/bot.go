@@ -696,8 +696,23 @@ func joinQuirks(quirks []string) string {
 	return strings.Join(quirks, ", ")
 }
 
+// UpdateUserProfile synchronously updates the user profile
+func (cb *CharacterBot) UpdateUserProfile(userID string, char *models.Character, sessionID string) {
+	if cb.userProfileAgent == nil {
+		return
+	}
+	cb.updateUserProfileSync(userID, char, sessionID)
+}
+
 // updateUserProfileAsync asynchronously updates the user profile based on conversation history
 func (cb *CharacterBot) updateUserProfileAsync(userID string, char *models.Character, sessionID string) {
+	go cb.updateUserProfileSync(userID, char, sessionID)
+}
+
+// updateUserProfileSync performs the actual user profile update
+func (cb *CharacterBot) updateUserProfileSync(userID string, char *models.Character, sessionID string) {
+	// Update user profile based on conversation history
+	
 	// Only proceed if we have the minimum messages for an update
 	sessionRepo := repository.NewSessionRepository(filepath.Join(os.Getenv("HOME"), ".config", "roleplay"))
 	
@@ -717,6 +732,10 @@ func (cb *CharacterBot) updateUserProfileAsync(userID string, char *models.Chara
 	turnsToConsider := cb.config.UserProfileConfig.TurnsToConsider
 	if turnsToConsider <= 0 {
 		turnsToConsider = 20 // Default value
+	}
+	
+	if cb.userProfileAgent == nil {
+		return
 	}
 	
 	_, updateErr := cb.userProfileAgent.UpdateUserProfile(

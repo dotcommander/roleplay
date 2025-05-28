@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.2.0] - 2025-05-28
 
 ### Added
 - AI-Powered User Profile Agent - Intelligent system that builds and maintains user profiles
@@ -20,6 +20,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Configurable update frequency and analysis depth
   - Privacy-aware design with user control over their data
   - Enriches conversations with learned context about users
+- Enhanced `chat` command with session persistence and user profile support
+  - Now saves conversation sessions for continuity across chats
+  - Loads previous conversation context for more coherent interactions
+  - Automatically triggers user profile updates based on configured frequency
+  - Includes session ID in output for easy session management
+  - Maps character roles correctly for API compatibility
 - Scenario Context Cache - New highest-level cache layer for meta-prompts and operational contexts
   - 5-layer cache hierarchy with scenarios at the top (7-day TTL)
   - `scenario` command for managing high-level interaction contexts
