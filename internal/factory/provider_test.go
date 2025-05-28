@@ -121,7 +121,8 @@ func TestInitializeAndRegisterProvider(t *testing.T) {
 		APIKey:          "test-key",
 		Model:           "gpt-4",
 		CacheConfig: config.CacheConfig{
-			DefaultTTL: 5 * time.Minute,
+			DefaultTTL:      5 * time.Minute,
+			CleanupInterval: 1 * time.Minute,
 		},
 	}
 
@@ -134,7 +135,8 @@ func TestInitializeAndRegisterProvider(t *testing.T) {
 	cfg2 := &config.Config{
 		DefaultProvider: "anthropic",
 		CacheConfig: config.CacheConfig{
-			DefaultTTL: 5 * time.Minute,
+			DefaultTTL:      5 * time.Minute,
+			CleanupInterval: 1 * time.Minute,
 		},
 	}
 

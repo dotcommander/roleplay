@@ -5,6 +5,8 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -13,6 +15,7 @@ import (
 	"github.com/dotcommander/roleplay/internal/config"
 	"github.com/dotcommander/roleplay/internal/models"
 	"github.com/dotcommander/roleplay/internal/providers"
+	"github.com/dotcommander/roleplay/internal/repository"
 )
 
 // CharacterBot is the main service for managing characters and conversations
@@ -22,6 +25,7 @@ type CharacterBot struct {
 	responseCache *cache.ResponseCache
 	providers     map[string]providers.AIProvider
 	config        *config.Config
+	scenarioRepo  *repository.ScenarioRepository
 	mu            sync.RWMutex
 	cacheHits     int
 	cacheMisses   int
@@ -29,6 +33,10 @@ type CharacterBot struct {
 
 // NewCharacterBot creates a new character bot instance
 func NewCharacterBot(cfg *config.Config) *CharacterBot {
+	// Get config path for scenario repository
+	home, _ := os.UserHomeDir()
+	configPath := filepath.Join(home, ".config", "roleplay")
+
 	cb := &CharacterBot{
 		characters: make(map[string]*models.Character),
 		cache: cache.NewPromptCache(
@@ -39,6 +47,7 @@ func NewCharacterBot(cfg *config.Config) *CharacterBot {
 		responseCache: cache.NewResponseCache(cfg.CacheConfig.DefaultTTL),
 		providers:     make(map[string]providers.AIProvider),
 		config:        cfg,
+		scenarioRepo:  repository.NewScenarioRepository(configPath),
 		cacheHits:     0,
 		cacheMisses:   0,
 	}
@@ -125,8 +134,8 @@ func (cb *CharacterBot) ProcessRequest(ctx context.Context, req *models.Conversa
 		return nil, err
 	}
 
-	// Generate cache key for static layers only
-	cacheKey := cb.generateCacheKey(req.CharacterID, req.UserID, breakpoints)
+	// Generate cache key for static layers only (including scenario if present)
+	cacheKey := cb.generateCacheKey(req.CharacterID, req.UserID, req.ScenarioID, breakpoints)
 	cachedEntry, hit := cb.cache.Get(cacheKey)
 
 	// Get character for complexity check
@@ -192,7 +201,32 @@ func (cb *CharacterBot) BuildPrompt(req *models.ConversationRequest) (string, []
 		return "", nil, err
 	}
 
-	breakpoints := make([]cache.CacheBreakpoint, 0, 4)
+	breakpoints := make([]cache.CacheBreakpoint, 0, 6)
+
+	// Layer 0: Scenario Context (highest layer, meta-prompts, longest TTL)
+	if req.ScenarioID != "" {
+		scenario, err := cb.scenarioRepo.LoadScenario(req.ScenarioID)
+		if err != nil {
+			// Log warning but continue without scenario
+			fmt.Fprintf(os.Stderr, "Warning: Failed to load scenario %s: %v\n", req.ScenarioID, err)
+		} else if scenario.Prompt != "" {
+			// Very long TTL for scenario context (7 days by default)
+			scenarioTTL := 168 * time.Hour
+
+			breakpoints = append(breakpoints, cache.CacheBreakpoint{
+				Layer:      cache.ScenarioContextLayer,
+				Content:    scenario.Prompt,
+				TokenCount: cache.EstimateTokens(scenario.Prompt),
+				TTL:        scenarioTTL,
+				LastUsed:   time.Now(),
+			})
+
+			// Update scenario last used timestamp asynchronously
+			go func(id string) {
+				_ = cb.scenarioRepo.UpdateScenarioLastUsed(id)
+			}(req.ScenarioID)
+		}
+	}
 
 	// Layer 1: Core Personality (static, long TTL)
 	personality := cb.buildPersonalityPrompt(char)
@@ -381,14 +415,21 @@ func (cb *CharacterBot) assemblePrompt(breakpoints []cache.CacheBreakpoint, user
 	return strings.Join(parts, "\n\n")
 }
 
-func (cb *CharacterBot) generateCacheKey(charID, userID string, breakpoints []cache.CacheBreakpoint) string {
+func (cb *CharacterBot) generateCacheKey(charID, userID, scenarioID string, breakpoints []cache.CacheBreakpoint) string {
 	// Generate cache key based only on static/semi-static layers
 	// Don't include conversation layer which changes every time
 	h := sha256.New()
 	h.Write([]byte(charID))
 	h.Write([]byte(userID))
 
+	// Include scenario ID in the cache key if present
+	// This ensures different scenarios create different cache entries
+	if scenarioID != "" {
+		h.Write([]byte(scenarioID))
+	}
+
 	// Only hash content from cacheable layers (not conversation)
+	// Note: If scenario content is the first breakpoint, it's already included
 	for _, bp := range breakpoints {
 		if bp.Layer != cache.ConversationLayer {
 			h.Write([]byte(bp.Content))

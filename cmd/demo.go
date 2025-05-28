@@ -84,7 +84,6 @@ func runDemo(cmd *cobra.Command, args []string) error {
 	// Get demo messages
 	demoMessages := getDemoMessages()
 
-
 	// Run demo interactions
 	ctx := context.Background()
 	for i, demo := range demoMessages {
@@ -208,13 +207,13 @@ I have a consistent personality and knowledge base that can be efficiently cache
 
 // demoStyles holds all the Lipgloss styles used in the demo command
 type demoStyles struct {
-	title      lipgloss.Style
-	cacheHit   lipgloss.Style
-	cacheMiss  lipgloss.Style
-	metrics    lipgloss.Style
-	message    lipgloss.Style
-	separator  lipgloss.Style
-	bold       lipgloss.Style
+	title     lipgloss.Style
+	cacheHit  lipgloss.Style
+	cacheMiss lipgloss.Style
+	metrics   lipgloss.Style
+	message   lipgloss.Style
+	separator lipgloss.Style
+	bold      lipgloss.Style
 }
 
 // newDemoStyles creates and initializes all demo styles
@@ -225,24 +224,24 @@ func newDemoStyles() *demoStyles {
 			Foreground(lipgloss.Color("#7c6f64")).
 			Background(lipgloss.Color("#3c3836")).
 			Padding(0, 1),
-		
+
 		cacheHit: lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#b8bb26")).
 			Bold(true),
-		
+
 		cacheMiss: lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#fb4934")).
 			Bold(true),
-		
+
 		metrics: lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#83a598")),
-		
+
 		message: lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#ebdbb2")),
-		
+
 		separator: lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#665c54")),
-		
+
 		bold: lipgloss.NewStyle().Bold(true),
 	}
 }
@@ -303,15 +302,15 @@ func processDemoMessage(
 	start := time.Now()
 	resp, err := bot.ProcessRequest(ctx, req)
 	elapsed := time.Since(start)
-	
+
 	if err != nil {
 		return nil, elapsed, err
 	}
-	
+
 	// Display response
 	fmt.Printf("%s%s:\n", styles.bold.Render(""), char.Name)
 	fmt.Printf("%s\n", styles.message.Render(utils.WrapText(resp.Content, 80)))
-	
+
 	// Display cache metrics
 	cacheStatus := "MISS"
 	style := styles.cacheMiss
@@ -319,7 +318,7 @@ func processDemoMessage(
 		cacheStatus = fmt.Sprintf("HIT (%d layers)", len(resp.CacheMetrics.Layers))
 		style = styles.cacheHit
 	}
-	
+
 	fmt.Printf("\n%s\n", styles.metrics.Render(fmt.Sprintf(
 		"  ⚡ Response Time: %v | Cache: %s | Tokens: %d (saved: %d)",
 		elapsed,
@@ -327,7 +326,7 @@ func processDemoMessage(
 		resp.TokensUsed.Total,
 		resp.CacheMetrics.SavedTokens,
 	)))
-	
+
 	return resp, elapsed, nil
 }
 
@@ -343,7 +342,7 @@ func updateSessionMetrics(
 		Role:      "user",
 		Content:   userMessage,
 	})
-	
+
 	cacheHits := 0
 	cacheMisses := 0
 	if resp.CacheMetrics.Hit {
@@ -351,7 +350,7 @@ func updateSessionMetrics(
 	} else {
 		cacheMisses = 1
 	}
-	
+
 	session.Messages = append(session.Messages, repository.SessionMessage{
 		Timestamp:   time.Now(),
 		Role:        "character",
@@ -360,7 +359,7 @@ func updateSessionMetrics(
 		CacheHits:   cacheHits,
 		CacheMisses: cacheMisses,
 	})
-	
+
 	// Update cumulative metrics
 	session.CacheMetrics.TotalRequests++
 	if resp.CacheMetrics.Hit {

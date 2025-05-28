@@ -18,6 +18,7 @@ var (
 	userID      string
 	sessionID   string
 	format      string
+	scenarioID  string
 )
 
 var chatCmd = &cobra.Command{
@@ -40,6 +41,7 @@ func init() {
 	chatCmd.Flags().StringVarP(&userID, "user", "u", "", "User ID for the conversation (required)")
 	chatCmd.Flags().StringVarP(&sessionID, "session", "s", "", "Session ID (optional, generates new if not provided)")
 	chatCmd.Flags().StringVarP(&format, "format", "f", "text", "Output format: text or json")
+	chatCmd.Flags().StringVar(&scenarioID, "scenario", "", "Scenario ID to set the interaction context (optional)")
 
 	if err := chatCmd.MarkFlagRequired("character"); err != nil {
 		fmt.Fprintf(os.Stderr, "Error marking character flag as required: %v\n", err)
@@ -85,6 +87,7 @@ func runChat(cmd *cobra.Command, args []string) error {
 		CharacterID: characterID,
 		UserID:      userID,
 		Message:     message,
+		ScenarioID:  scenarioID,
 		Context: models.ConversationContext{
 			SessionID:      sessionID,
 			StartTime:      time.Now(),

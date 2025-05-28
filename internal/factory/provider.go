@@ -13,7 +13,7 @@ import (
 func CreateProvider(cfg *config.Config) (providers.AIProvider, error) {
 	apiKey := getAPIKey(cfg)
 	if apiKey == "" {
-		return nil, fmt.Errorf("API key for provider %s not found. Set api_key in config or %s environment variable", 
+		return nil, fmt.Errorf("API key for provider %s not found. Set api_key in config or %s environment variable",
 			cfg.DefaultProvider, getEnvVarName(cfg.DefaultProvider))
 	}
 

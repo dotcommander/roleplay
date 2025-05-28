@@ -48,6 +48,7 @@ func init() {
 	interactiveCmd.Flags().StringP("user", "u", "", "User ID for the conversation (defaults to your username)")
 	interactiveCmd.Flags().StringP("session", "s", "", "Session ID (optional)")
 	interactiveCmd.Flags().Bool("new-session", false, "Start a new session instead of resuming")
+	interactiveCmd.Flags().String("scenario", "", "Scenario ID to set the interaction context (optional)")
 }
 
 // Styles - Gruvbox Dark Theme
@@ -193,6 +194,7 @@ type model struct {
 	characterID string
 	userID      string
 	sessionID   string
+	scenarioID  string
 	bot         *services.CharacterBot
 	character   *models.Character
 	context     models.ConversationContext
@@ -279,12 +281,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case tea.KeyEnter:
 			if !m.loading && m.textarea.Value() != "" {
 				message := m.textarea.Value()
-				
+
 				// Add to command history
 				m.commandHistory = append(m.commandHistory, message)
 				m.historyIndex = len(m.commandHistory) // Reset to end of history
-				m.historyBuffer = "" // Clear history buffer
-				
+				m.historyBuffer = ""                   // Clear history buffer
+
 				m.textarea.Reset()
 
 				// Check for slash commands
@@ -311,7 +313,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if m.historyIndex == len(m.commandHistory) {
 					m.historyBuffer = m.textarea.Value()
 				}
-				
+
 				m.historyIndex--
 				m.textarea.SetValue(m.commandHistory[m.historyIndex])
 				m.textarea.CursorEnd() // Move cursor to end
@@ -320,7 +322,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Navigate forward in history
 			if len(m.commandHistory) > 0 && m.historyIndex < len(m.commandHistory) {
 				m.historyIndex++
-				
+
 				if m.historyIndex == len(m.commandHistory) {
 					// Restore the original input
 					m.textarea.SetValue(m.historyBuffer)
@@ -750,6 +752,7 @@ func (m model) sendMessage(message string) tea.Cmd {
 			CharacterID: m.characterID,
 			UserID:      m.userID,
 			Message:     message,
+			ScenarioID:  m.scenarioID,
 			Context:     m.context,
 		}
 
@@ -1081,6 +1084,7 @@ func runInteractive(cmd *cobra.Command, args []string) error {
 	userID, _ := cmd.Flags().GetString("user")
 	sessionID, _ := cmd.Flags().GetString("session")
 	newSession, _ := cmd.Flags().GetBool("new-session")
+	scenarioID, _ := cmd.Flags().GetString("scenario")
 
 	// Apply smart defaults
 	if characterID == "" {
@@ -1225,6 +1229,7 @@ func runInteractive(cmd *cobra.Command, args []string) error {
 		characterID: characterID,
 		userID:      userID,
 		sessionID:   sessionID,
+		scenarioID:  scenarioID,
 		bot:         bot,
 		messages:    existingMessages,
 		spinner:     s,

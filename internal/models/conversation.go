@@ -22,4 +22,5 @@ type ConversationRequest struct {
 	UserID      string
 	Message     string
 	Context     ConversationContext
+	ScenarioID  string // Optional scenario context
 }

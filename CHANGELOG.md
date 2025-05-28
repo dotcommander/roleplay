@@ -8,6 +8,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Scenario Context Cache - New highest-level cache layer for meta-prompts and operational contexts
+  - 5-layer cache hierarchy with scenarios at the top (7-day TTL)
+  - `scenario` command for managing high-level interaction contexts
+    - `create` - Create new scenarios with custom prompts
+    - `list` - List all available scenarios
+    - `show` - Display scenario details
+    - `update` - Update existing scenarios
+    - `delete` - Remove scenarios
+    - `example` - Show example scenario definitions
+  - `--scenario` flag added to `chat` and `interactive` commands
+  - Example scenarios included: starship bridge, therapy session, tech support, creative writing
 - Command history navigation in interactive mode - use up/down arrows to navigate through previous commands
 - `/memories` command to view character's memories about the user (planned)
 

@@ -8,6 +8,7 @@ import (
 type CacheLayer string
 
 const (
+	ScenarioContextLayer CacheLayer = "scenario_context" // Highest layer - meta-prompts
 	CorePersonalityLayer CacheLayer = "core_personality"
 	LearnedBehaviorLayer CacheLayer = "learned_behavior"
 	EmotionalStateLayer  CacheLayer = "emotional_state"

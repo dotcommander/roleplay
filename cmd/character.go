@@ -122,7 +122,7 @@ func runCreateCharacter(cmd *cobra.Command, args []string) error {
 
 func runShowCharacter(cmd *cobra.Command, args []string) error {
 	characterID := args[0]
-	
+
 	// Initialize repository to load from disk
 	dataDir := filepath.Join(os.Getenv("HOME"), ".config", "roleplay")
 	repo, err := repository.NewCharacterRepository(dataDir)
