@@ -1,0 +1,57 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+
+      - name: Run tests
+        run: go test ./...
+
+      - name: Build binaries
+        run: |
+          mkdir -p dist
+          
+          # Build for multiple platforms
+          GOOS=linux GOARCH=amd64 go build -o dist/roleplay-linux-amd64 .
+          GOOS=linux GOARCH=arm64 go build -o dist/roleplay-linux-arm64 .
+          GOOS=darwin GOARCH=amd64 go build -o dist/roleplay-darwin-amd64 .
+          GOOS=darwin GOARCH=arm64 go build -o dist/roleplay-darwin-arm64 .
+          GOOS=windows GOARCH=amd64 go build -o dist/roleplay-windows-amd64.exe .
+
+      - name: Create archives
+        run: |
+          cd dist
+          tar czf roleplay-linux-amd64.tar.gz roleplay-linux-amd64
+          tar czf roleplay-linux-arm64.tar.gz roleplay-linux-arm64
+          tar czf roleplay-darwin-amd64.tar.gz roleplay-darwin-amd64
+          tar czf roleplay-darwin-arm64.tar.gz roleplay-darwin-arm64
+          zip roleplay-windows-amd64.zip roleplay-windows-amd64.exe
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: dist/*.{tar.gz,zip}
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
