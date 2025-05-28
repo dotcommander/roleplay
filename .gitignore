@@ -42,9 +42,9 @@ config.yml
 
 # Local data and cache
 data/
-cache/
-sessions/
-characters/
+/cache/
+/sessions/
+/characters/
 *.db
 *.sqlite
 
