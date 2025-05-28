@@ -34,25 +34,20 @@ This provides a REPL-like experience with:
 - Cache performance metrics
 - Session persistence
 
-Example:
-  roleplay interactive --character rick-c137 --user morty --provider openai`,
+Examples:
+  roleplay interactive                     # Uses rick-c137 and your username
+  roleplay interactive -c philosopher-123  # Chat with a specific character
+  roleplay interactive -u morty            # Specify a different user ID`,
 	RunE: runInteractive,
 }
 
 func init() {
 	rootCmd.AddCommand(interactiveCmd)
 
-	interactiveCmd.Flags().StringP("character", "c", "", "Character ID to chat with (required)")
-	interactiveCmd.Flags().StringP("user", "u", "", "User ID for the conversation (required)")
+	interactiveCmd.Flags().StringP("character", "c", "", "Character ID to chat with (defaults to rick-c137)")
+	interactiveCmd.Flags().StringP("user", "u", "", "User ID for the conversation (defaults to your username)")
 	interactiveCmd.Flags().StringP("session", "s", "", "Session ID (optional)")
 	interactiveCmd.Flags().Bool("new-session", false, "Start a new session instead of resuming")
-
-	if err := interactiveCmd.MarkFlagRequired("character"); err != nil {
-		fmt.Fprintf(os.Stderr, "Error marking character flag as required: %v\n", err)
-	}
-	if err := interactiveCmd.MarkFlagRequired("user"); err != nil {
-		fmt.Fprintf(os.Stderr, "Error marking user flag as required: %v\n", err)
-	}
 }
 
 // Styles - Gruvbox Dark Theme
@@ -1052,6 +1047,21 @@ func runInteractive(cmd *cobra.Command, args []string) error {
 	sessionID, _ := cmd.Flags().GetString("session")
 	newSession, _ := cmd.Flags().GetBool("new-session")
 
+	// Apply smart defaults
+	if characterID == "" {
+		characterID = "rick-c137" // Default to Rick Sanchez
+	}
+	if userID == "" {
+		// Try to get username from environment
+		userID = os.Getenv("USER")
+		if userID == "" {
+			userID = os.Getenv("USERNAME") // Windows fallback
+		}
+		if userID == "" {
+			userID = "user" // Final fallback
+		}
+	}
+
 	// Initialize repository for session management
 	dataDir := filepath.Join(os.Getenv("HOME"), ".config", "roleplay")
 	sessionRepo := repository.NewSessionRepository(dataDir)
@@ -1158,11 +1168,27 @@ func runInteractive(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Auto-create Rick Sanchez if that's the character requested
+	// Auto-create Rick Sanchez if requested and doesn't exist
 	if characterID == "rick-c137" {
-		if err := createRickSanchez(bot); err != nil {
-			// Try to load from file
-			fmt.Println("Note: Could not auto-create Rick. Make sure to run 'roleplay character create rick-sanchez.json' first.")
+		// Check if Rick already exists
+		if _, err := bot.GetCharacter(characterID); err != nil {
+			// Rick doesn't exist, try to create him
+			if err := createRickSanchez(bot); err != nil {
+				fmt.Printf("Warning: Could not auto-create Rick: %v\n", err)
+				// Try to load from file
+				if charRepo != nil {
+					if char, err := charRepo.LoadCharacter(characterID); err == nil {
+						if err := bot.CreateCharacter(char); err != nil {
+							return fmt.Errorf("could not load character %s: %w", characterID, err)
+						}
+						fmt.Println("✅ Loaded Rick Sanchez from file")
+					} else {
+						return fmt.Errorf("character rick-c137 not found. Run 'roleplay character create rick-sanchez.json' first")
+					}
+				}
+			} else {
+				fmt.Println("🧬 Auto-created Rick Sanchez (C-137)")
+			}
 		}
 	}
 
