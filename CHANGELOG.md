@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Fixed `character show` command to load characters from repository instead of expecting them in memory
+- Fixed interactive mode to load all available characters on startup for proper `/list` and `/switch` functionality
+
 ### Added
 - Initial release of Roleplay character bot system
 - OCEAN personality model implementation

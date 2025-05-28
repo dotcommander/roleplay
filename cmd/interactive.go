@@ -883,6 +883,8 @@ func (m model) handleSlashCommand(input string) tea.Cmd {
 					if err != nil {
 						continue
 					}
+					// Load into bot for future use
+					_ = m.bot.CreateCharacter(char)
 				}
 
 				// Current character indicator
@@ -909,7 +911,7 @@ func (m model) handleSlashCommand(input string) tea.Cmd {
 				listText.WriteString(fmt.Sprintf("   %s\n", backstory))
 			}
 
-			return systemMsg{content: listText.String(), msgType: "info"}
+			return systemMsg{content: listText.String(), msgType: "list"}
 
 		case "/stats":
 			cacheRate := 0.0
@@ -1126,6 +1128,34 @@ func runInteractive(cmd *cobra.Command, args []string) error {
 		bot.RegisterProvider("openai", provider)
 	default:
 		return fmt.Errorf("unsupported provider: %s", config.DefaultProvider)
+	}
+
+	// Load all available characters from repository
+	charRepo, err := repository.NewCharacterRepository(dataDir)
+	if err != nil {
+		fmt.Printf("Warning: Could not access character repository: %v\n", err)
+	} else {
+		characterIDs, err := charRepo.ListCharacters()
+		if err != nil {
+			fmt.Printf("Warning: Could not list characters: %v\n", err)
+		} else {
+			loadedCount := 0
+			for _, id := range characterIDs {
+				char, err := charRepo.LoadCharacter(id)
+				if err != nil {
+					fmt.Printf("Warning: Could not load character %s: %v\n", id, err)
+					continue
+				}
+				if err := bot.CreateCharacter(char); err != nil {
+					fmt.Printf("Warning: Could not register character %s: %v\n", id, err)
+					continue
+				}
+				loadedCount++
+			}
+			if loadedCount > 0 {
+				fmt.Printf("📚 Loaded %d characters into memory\n", loadedCount)
+			}
+		}
 	}
 
 	// Auto-create Rick Sanchez if that's the character requested

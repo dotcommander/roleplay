@@ -135,15 +135,18 @@ func runCreateCharacter(cmd *cobra.Command, args []string) error {
 
 func runShowCharacter(cmd *cobra.Command, args []string) error {
 	characterID := args[0]
-	config := GetConfig()
-
-	// Initialize bot
-	bot := services.NewCharacterBot(config)
-
-	// Get character
-	char, err := bot.GetCharacter(characterID)
+	
+	// Initialize repository to load from disk
+	dataDir := filepath.Join(os.Getenv("HOME"), ".config", "roleplay")
+	repo, err := repository.NewCharacterRepository(dataDir)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to initialize repository: %w", err)
+	}
+
+	// Load character from repository
+	char, err := repo.LoadCharacter(characterID)
+	if err != nil {
+		return fmt.Errorf("character %s not found", characterID)
 	}
 
 	// Display character
