@@ -47,8 +47,12 @@ func init() {
 	interactiveCmd.Flags().StringP("session", "s", "", "Session ID (optional)")
 	interactiveCmd.Flags().Bool("new-session", false, "Start a new session instead of resuming")
 
-	interactiveCmd.MarkFlagRequired("character")
-	interactiveCmd.MarkFlagRequired("user")
+	if err := interactiveCmd.MarkFlagRequired("character"); err != nil {
+		fmt.Fprintf(os.Stderr, "Error marking character flag as required: %v\n", err)
+	}
+	if err := interactiveCmd.MarkFlagRequired("user"); err != nil {
+		fmt.Fprintf(os.Stderr, "Error marking user flag as required: %v\n", err)
+	}
 }
 
 // Styles - Gruvbox Dark Theme
@@ -708,7 +712,9 @@ func (m *model) saveSession() {
 			},
 		}
 		
-		sessionRepo.SaveSession(session)
+		if err := sessionRepo.SaveSession(session); err != nil {
+			fmt.Fprintf(os.Stderr, "Error saving session: %v\n", err)
+		}
 	}()
 }
 

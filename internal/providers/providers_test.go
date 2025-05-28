@@ -59,7 +59,9 @@ func TestOpenAIProviderRequest(t *testing.T) {
 
 		// Verify request body
 		var reqBody map[string]interface{}
-		json.NewDecoder(r.Body).Decode(&reqBody)
+		if err := json.NewDecoder(r.Body).Decode(&reqBody); err != nil {
+			t.Errorf("Failed to decode request body: %v", err)
+		}
 
 		if reqBody["model"] != "o4-mini" {
 			t.Errorf("Expected model o4-mini, got %v", reqBody["model"])
@@ -85,7 +87,9 @@ func TestOpenAIProviderRequest(t *testing.T) {
 		}
 
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(response)
+		if err := json.NewEncoder(w).Encode(response); err != nil {
+			t.Errorf("Failed to encode response: %v", err)
+		}
 	}))
 	defer server.Close()
 

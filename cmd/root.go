@@ -48,8 +48,12 @@ func init() {
 	rootCmd.PersistentFlags().Bool("adaptive-ttl", true, "Enable adaptive TTL for cache")
 	rootCmd.PersistentFlags().BoolP("verbose", "v", false, "Enable verbose output")
 
-	viper.BindPFlag("provider", rootCmd.PersistentFlags().Lookup("provider"))
-	viper.BindPFlag("model", rootCmd.PersistentFlags().Lookup("model"))
+	if err := viper.BindPFlag("provider", rootCmd.PersistentFlags().Lookup("provider")); err != nil {
+		fmt.Fprintf(os.Stderr, "Error binding provider flag: %v\n", err)
+	}
+	if err := viper.BindPFlag("model", rootCmd.PersistentFlags().Lookup("model")); err != nil {
+		fmt.Fprintf(os.Stderr, "Error binding model flag: %v\n", err)
+	}
 	viper.BindPFlag("api_key", rootCmd.PersistentFlags().Lookup("api-key"))
 	viper.BindPFlag("cache.default_ttl", rootCmd.PersistentFlags().Lookup("cache-ttl"))
 	viper.BindPFlag("cache.adaptive_ttl", rootCmd.PersistentFlags().Lookup("adaptive-ttl"))

@@ -41,8 +41,12 @@ func init() {
 	chatCmd.Flags().StringVarP(&sessionID, "session", "s", "", "Session ID (optional, generates new if not provided)")
 	chatCmd.Flags().StringVarP(&format, "format", "f", "text", "Output format: text or json")
 
-	chatCmd.MarkFlagRequired("character")
-	chatCmd.MarkFlagRequired("user")
+	if err := chatCmd.MarkFlagRequired("character"); err != nil {
+		fmt.Fprintf(os.Stderr, "Error marking character flag as required: %v\n", err)
+	}
+	if err := chatCmd.MarkFlagRequired("user"); err != nil {
+		fmt.Fprintf(os.Stderr, "Error marking user flag as required: %v\n", err)
+	}
 }
 
 func runChat(cmd *cobra.Command, args []string) error {

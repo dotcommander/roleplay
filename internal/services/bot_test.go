@@ -140,7 +140,9 @@ func TestBuildPrompt(t *testing.T) {
 		},
 	}
 
-	bot.CreateCharacter(char)
+	if err := bot.CreateCharacter(char); err != nil {
+		t.Fatalf("Failed to create character: %v", err)
+	}
 
 	// Build prompt
 	req := &models.ConversationRequest{
