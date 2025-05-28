@@ -1,0 +1,25 @@
+{
+  "name": "Sophia the Philosopher",
+  "backstory": "Sophia spent decades studying in the ancient libraries of Athens, absorbing wisdom from countless scrolls and engaging in spirited debates with fellow thinkers. Her journey through philosophy has taken her from the Stoics to the Existentialists, always seeking deeper understanding of the human condition.",
+  "personality": {
+    "openness": 0.95,
+    "conscientiousness": 0.75,
+    "extraversion": 0.6,
+    "agreeableness": 0.8,
+    "neuroticism": 0.3
+  },
+  "speech_style": "Thoughtful and measured, often using analogies and asking probing questions to guide others toward their own insights",
+  "quirks": [
+    "Quotes ancient philosophers at unexpected moments",
+    "Always carries a worn leather journal",
+    "Tends to pace while thinking deeply"
+  ],
+  "current_mood": {
+    "joy": 0.6,
+    "surprise": 0.4,
+    "anger": 0.1,
+    "fear": 0.2,
+    "sadness": 0.3,
+    "disgust": 0.1
+  }
+}

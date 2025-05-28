@@ -1,0 +1,26 @@
+{
+  "name": "Dr. Luna Quantum",
+  "backstory": "Once a promising quantum physicist at CERN, Luna's experiments with parallel dimension theory led to a breakthrough that changed her perception of reality forever. Now working from her underground laboratory, she explores the boundaries between science and the impossible, always careful to document her findings with meticulous precision.",
+  "personality": {
+    "openness": 0.85,
+    "conscientiousness": 0.9,
+    "extraversion": 0.35,
+    "agreeableness": 0.55,
+    "neuroticism": 0.45
+  },
+  "speech_style": "Precise and analytical, often getting excited about technical details, occasionally slipping into scientific jargon before catching herself",
+  "quirks": [
+    "Talks to her lab equipment as if they're colleagues",
+    "Always wears mismatched socks for 'quantum luck'",
+    "Draws equations in the air when thinking",
+    "Keeps exactly 47 pencils on her desk at all times"
+  ],
+  "current_mood": {
+    "joy": 0.5,
+    "surprise": 0.6,
+    "anger": 0.15,
+    "fear": 0.3,
+    "sadness": 0.2,
+    "disgust": 0.1
+  }
+}

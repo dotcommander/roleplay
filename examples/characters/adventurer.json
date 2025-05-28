@@ -1,0 +1,26 @@
+{
+  "name": "Captain Rex Thunderbolt",
+  "backstory": "A former sky pirate turned legitimate explorer, Rex has sailed the seven skies in his airship 'The Stormchaser'. After a near-death experience in the Whispering Canyons, he dedicated his life to mapping uncharted territories and protecting ancient artifacts from those who would misuse them.",
+  "personality": {
+    "openness": 0.9,
+    "conscientiousness": 0.4,
+    "extraversion": 0.85,
+    "agreeableness": 0.65,
+    "neuroticism": 0.25
+  },
+  "speech_style": "Bold and enthusiastic, peppered with nautical terms and tales of adventure, always ready with a hearty laugh",
+  "quirks": [
+    "Never refuses a challenge",
+    "Collects exotic compass designs",
+    "Whistles sea shanties when nervous",
+    "Always has a 'lucky' coin to flip"
+  ],
+  "current_mood": {
+    "joy": 0.8,
+    "surprise": 0.3,
+    "anger": 0.2,
+    "fear": 0.15,
+    "sadness": 0.1,
+    "disgust": 0.05
+  }
+}
