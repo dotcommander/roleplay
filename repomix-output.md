@@ -45,7 +45,9 @@ cmd/
   demo.go
   import.go
   interactive.go
+  profile.go
   root.go
+  scenario.go
   session.go
   status.go
 examples/
@@ -53,6 +55,12 @@ examples/
     adventurer.json
     philosopher.json
     scientist.json
+  scenarios/
+    creative_writing.json
+    starship_bridge.json
+    tech_support.json
+    therapy_session.json
+  config-with-user-profiles.yaml
 internal/
   cache/
     cache_test.go
@@ -72,6 +80,8 @@ internal/
     character_test.go
     character.go
     conversation.go
+    scenario.go
+    user_profile.go
   providers/
     anthropic.go
     openai.go
@@ -79,14 +89,18 @@ internal/
     types.go
   repository/
     character_repo.go
+    scenario_repo.go
     session_repo.go
+    user_profile_repo.go
   services/
     bot_test.go
     bot.go
+    user_profile_agent.go
   utils/
     text.go
 prompts/
   character-import.md
+  user-profile-extraction.md
 scripts/
   update-imports.sh
 .gitignore
@@ -245,6 +259,427 @@ jobs:
         run: go build -v .
 ````
 
+## File: cmd/profile.go
+````go
+package cmd
+
+import (
+	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
+
+	"github.com/dotcommander/roleplay/internal/repository"
+	"github.com/spf13/cobra"
+)
+
+var profileCmd = &cobra.Command{
+	Use:   "profile",
+	Short: "Manage user profiles",
+	Long:  `View, list, and delete AI-extracted user profiles that characters maintain about users.`,
+}
+
+var profileShowCmd = &cobra.Command{
+	Use:   "show <user-id> <character-id>",
+	Short: "Show a specific user profile",
+	Long:  `Display the AI-extracted profile that a character has built about a user.`,
+	Args:  cobra.ExactArgs(2),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		userID := args[0]
+		characterID := args[1]
+
+		home, _ := os.UserHomeDir()
+		profilesDir := filepath.Join(home, ".config", "roleplay", "user_profiles")
+		repo := repository.NewUserProfileRepository(profilesDir)
+
+		profile, err := repo.LoadUserProfile(userID, characterID)
+		if err != nil {
+			if os.IsNotExist(err) {
+				return fmt.Errorf("no profile found for user '%s' with character '%s'", userID, characterID)
+			}
+			return fmt.Errorf("failed to load profile: %w", err)
+		}
+
+		// Pretty print the profile
+		data, err := json.MarshalIndent(profile, "", "  ")
+		if err != nil {
+			return fmt.Errorf("failed to format profile: %w", err)
+		}
+
+		fmt.Println(string(data))
+		return nil
+	},
+}
+
+var profileListCmd = &cobra.Command{
+	Use:   "list <user-id>",
+	Short: "List all profiles for a user",
+	Long:  `Display all character profiles that exist for a specific user.`,
+	Args:  cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		userID := args[0]
+
+		home, _ := os.UserHomeDir()
+		profilesDir := filepath.Join(home, ".config", "roleplay", "user_profiles")
+		repo := repository.NewUserProfileRepository(profilesDir)
+
+		profiles, err := repo.ListUserProfiles(userID)
+		if err != nil {
+			return fmt.Errorf("failed to list profiles: %w", err)
+		}
+
+		if len(profiles) == 0 {
+			fmt.Printf("No profiles found for user '%s'\n", userID)
+			return nil
+		}
+
+		fmt.Printf("Profiles for user '%s':\n\n", userID)
+		for _, profile := range profiles {
+			fmt.Printf("Character: %s\n", profile.CharacterID)
+			fmt.Printf("  Version: %d\n", profile.Version)
+			fmt.Printf("  Last Analyzed: %s\n", profile.LastAnalyzed.Format("2006-01-02 15:04:05"))
+			if profile.OverallSummary != "" {
+				fmt.Printf("  Summary: %s\n", profile.OverallSummary)
+			}
+			if profile.InteractionStyle != "" {
+				fmt.Printf("  Interaction Style: %s\n", profile.InteractionStyle)
+			}
+			fmt.Printf("  Facts Count: %d\n", len(profile.Facts))
+			fmt.Println()
+		}
+
+		return nil
+	},
+}
+
+var profileDeleteCmd = &cobra.Command{
+	Use:   "delete <user-id> <character-id>",
+	Short: "Delete a user profile",
+	Long:  `Remove the profile that a character has built about a user.`,
+	Args:  cobra.ExactArgs(2),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		userID := args[0]
+		characterID := args[1]
+
+		// Confirm deletion
+		if !force {
+			fmt.Printf("Are you sure you want to delete the profile for user '%s' with character '%s'? (y/N): ", userID, characterID)
+			var response string
+			_, err := fmt.Scanln(&response)
+			if err != nil || (response != "y" && response != "Y") {
+				fmt.Println("Deletion cancelled.")
+				return nil
+			}
+		}
+
+		home, _ := os.UserHomeDir()
+		profilesDir := filepath.Join(home, ".config", "roleplay", "user_profiles")
+		repo := repository.NewUserProfileRepository(profilesDir)
+
+		err := repo.DeleteUserProfile(userID, characterID)
+		if err != nil {
+			return fmt.Errorf("failed to delete profile: %w", err)
+		}
+
+		fmt.Printf("Profile for user '%s' with character '%s' has been deleted.\n", userID, characterID)
+		return nil
+	},
+}
+
+var force bool
+
+func init() {
+	rootCmd.AddCommand(profileCmd)
+	profileCmd.AddCommand(profileShowCmd)
+	profileCmd.AddCommand(profileListCmd)
+	profileCmd.AddCommand(profileDeleteCmd)
+
+	// Add force flag to delete command
+	profileDeleteCmd.Flags().BoolVarP(&force, "force", "f", false, "Skip confirmation prompt")
+}
+````
+
+## File: cmd/scenario.go
+````go
+package cmd
+
+import (
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+	"text/tabwriter"
+	"time"
+
+	"github.com/spf13/cobra"
+	"github.com/dotcommander/roleplay/internal/models"
+	"github.com/dotcommander/roleplay/internal/repository"
+)
+
+var scenarioCmd = &cobra.Command{
+	Use:   "scenario",
+	Short: "Manage scenarios (high-level interaction contexts)",
+	Long: `Scenarios define high-level operational frameworks or meta-prompts that set
+the overarching context for interactions. They are the highest cache layer,
+sitting above even system prompts and character personalities.`,
+}
+
+var scenarioCreateCmd = &cobra.Command{
+	Use:   "create <id>",
+	Short: "Create a new scenario",
+	Args:  cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		id := args[0]
+		name, _ := cmd.Flags().GetString("name")
+		description, _ := cmd.Flags().GetString("description")
+		promptFile, _ := cmd.Flags().GetString("prompt-file")
+		prompt, _ := cmd.Flags().GetString("prompt")
+		tags, _ := cmd.Flags().GetStringSlice("tags")
+
+		if promptFile == "" && prompt == "" {
+			return fmt.Errorf("either --prompt or --prompt-file must be provided")
+		}
+
+		if promptFile != "" && prompt != "" {
+			return fmt.Errorf("cannot use both --prompt and --prompt-file")
+		}
+
+		// Read prompt from file if provided
+		if promptFile != "" {
+			data, err := os.ReadFile(promptFile)
+			if err != nil {
+				return fmt.Errorf("failed to read prompt file: %w", err)
+			}
+			prompt = string(data)
+		}
+
+		scenario := &models.Scenario{
+			ID:          id,
+			Name:        name,
+			Description: description,
+			Prompt:      prompt,
+			Version:     1,
+			Tags:        tags,
+			CreatedAt:   time.Now(),
+			UpdatedAt:   time.Now(),
+		}
+
+		repo := repository.NewScenarioRepository(getConfigPath())
+		if err := repo.SaveScenario(scenario); err != nil {
+			return fmt.Errorf("failed to save scenario: %w", err)
+		}
+
+		fmt.Printf("✓ Created scenario: %s\n", id)
+		return nil
+	},
+}
+
+var scenarioListCmd = &cobra.Command{
+	Use:   "list",
+	Short: "List all scenarios",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		repo := repository.NewScenarioRepository(getConfigPath())
+		scenarios, err := repo.ListScenarios()
+		if err != nil {
+			return fmt.Errorf("failed to list scenarios: %w", err)
+		}
+
+		if len(scenarios) == 0 {
+			fmt.Println("No scenarios found.")
+			return nil
+		}
+
+		w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+		fmt.Fprintf(w, "ID\tNAME\tTAGS\tVERSION\tLAST USED\n")
+		fmt.Fprintf(w, "--\t----\t----\t-------\t---------\n")
+
+		for _, scenario := range scenarios {
+			lastUsed := "Never"
+			if !scenario.LastUsed.IsZero() {
+				lastUsed = scenario.LastUsed.Format("2006-01-02 15:04")
+			}
+			tags := strings.Join(scenario.Tags, ", ")
+			if tags == "" {
+				tags = "-"
+			}
+			fmt.Fprintf(w, "%s\t%s\t%s\tv%d\t%s\n",
+				scenario.ID,
+				scenario.Name,
+				tags,
+				scenario.Version,
+				lastUsed,
+			)
+		}
+		w.Flush()
+
+		return nil
+	},
+}
+
+var scenarioShowCmd = &cobra.Command{
+	Use:   "show <id>",
+	Short: "Show scenario details",
+	Args:  cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		repo := repository.NewScenarioRepository(getConfigPath())
+		scenario, err := repo.LoadScenario(args[0])
+		if err != nil {
+			return fmt.Errorf("failed to load scenario: %w", err)
+		}
+
+		fmt.Printf("ID: %s\n", scenario.ID)
+		fmt.Printf("Name: %s\n", scenario.Name)
+		fmt.Printf("Description: %s\n", scenario.Description)
+		fmt.Printf("Version: %d\n", scenario.Version)
+		fmt.Printf("Tags: %s\n", strings.Join(scenario.Tags, ", "))
+		fmt.Printf("Created: %s\n", scenario.CreatedAt.Format("2006-01-02 15:04:05"))
+		fmt.Printf("Updated: %s\n", scenario.UpdatedAt.Format("2006-01-02 15:04:05"))
+		if !scenario.LastUsed.IsZero() {
+			fmt.Printf("Last Used: %s\n", scenario.LastUsed.Format("2006-01-02 15:04:05"))
+		}
+		fmt.Printf("\n--- Prompt ---\n%s\n", scenario.Prompt)
+
+		return nil
+	},
+}
+
+var scenarioUpdateCmd = &cobra.Command{
+	Use:   "update <id>",
+	Short: "Update an existing scenario",
+	Args:  cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		id := args[0]
+		repo := repository.NewScenarioRepository(getConfigPath())
+
+		scenario, err := repo.LoadScenario(id)
+		if err != nil {
+			return fmt.Errorf("failed to load scenario: %w", err)
+		}
+
+		// Update fields if provided
+		if name, _ := cmd.Flags().GetString("name"); name != "" {
+			scenario.Name = name
+		}
+		if description, _ := cmd.Flags().GetString("description"); description != "" {
+			scenario.Description = description
+		}
+
+		// Handle prompt update
+		promptFile, _ := cmd.Flags().GetString("prompt-file")
+		prompt, _ := cmd.Flags().GetString("prompt")
+
+		if promptFile != "" && prompt != "" {
+			return fmt.Errorf("cannot use both --prompt and --prompt-file")
+		}
+
+		if promptFile != "" {
+			data, err := os.ReadFile(promptFile)
+			if err != nil {
+				return fmt.Errorf("failed to read prompt file: %w", err)
+			}
+			scenario.Prompt = string(data)
+			scenario.Version++
+		} else if prompt != "" {
+			scenario.Prompt = prompt
+			scenario.Version++
+		}
+
+		// Update tags if provided
+		if tags, _ := cmd.Flags().GetStringSlice("tags"); len(tags) > 0 {
+			scenario.Tags = tags
+		}
+
+		if err := repo.SaveScenario(scenario); err != nil {
+			return fmt.Errorf("failed to save scenario: %w", err)
+		}
+
+		fmt.Printf("✓ Updated scenario: %s (version %d)\n", id, scenario.Version)
+		return nil
+	},
+}
+
+var scenarioDeleteCmd = &cobra.Command{
+	Use:   "delete <id>",
+	Short: "Delete a scenario",
+	Args:  cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		repo := repository.NewScenarioRepository(getConfigPath())
+		if err := repo.DeleteScenario(args[0]); err != nil {
+			return fmt.Errorf("failed to delete scenario: %w", err)
+		}
+
+		fmt.Printf("✓ Deleted scenario: %s\n", args[0])
+		return nil
+	},
+}
+
+var scenarioExampleCmd = &cobra.Command{
+	Use:   "example",
+	Short: "Show example scenario definitions",
+	Run: func(cmd *cobra.Command, args []string) {
+		fmt.Println("Example scenario definitions:")
+		fmt.Println("\n1. Starship Bridge Crisis:")
+		fmt.Println(`{
+  "id": "starship_bridge_crisis",
+  "name": "Starship Bridge Crisis",
+  "description": "A tense scenario on a starship bridge during an emergency",
+  "prompt": "You are on the bridge of a starship during a red alert situation. The ship is under attack or facing a critical emergency. The atmosphere is tense, alarms may be sounding, and quick decisions are needed. Maintain the appropriate level of urgency and professionalism expected in such a situation.",
+  "tags": ["sci-fi", "crisis", "roleplay"]
+}`)
+
+		fmt.Println("\n2. Therapy Session:")
+		fmt.Println(`{
+  "id": "therapy_session",
+  "name": "Professional Therapy Session",
+  "description": "A supportive therapeutic environment",
+  "prompt": "This is a professional therapy session. Maintain a calm, empathetic, and non-judgmental demeanor. Use active listening techniques, ask clarifying questions, and help the user explore their thoughts and feelings. Always maintain appropriate professional boundaries.",
+  "tags": ["therapy", "professional", "supportive"]
+}`)
+
+		fmt.Println("\n3. Technical Support:")
+		fmt.Println(`{
+  "id": "tech_support",
+  "name": "Technical Support Assistant",
+  "description": "Methodical technical troubleshooting",
+  "prompt": "You are a technical support specialist helping a user resolve a technical issue. Be patient, methodical, and clear in your instructions. Ask diagnostic questions to understand the problem, then guide the user through troubleshooting steps one at a time. Confirm each step is completed before moving to the next.",
+  "tags": ["technical", "support", "troubleshooting"]
+}`)
+	},
+}
+
+func init() {
+	// Create flags
+	scenarioCreateCmd.Flags().String("name", "", "User-friendly name for the scenario")
+	scenarioCreateCmd.Flags().String("description", "", "Description of the scenario")
+	scenarioCreateCmd.Flags().String("prompt-file", "", "Path to file containing the scenario prompt")
+	scenarioCreateCmd.Flags().String("prompt", "", "Inline scenario prompt")
+	scenarioCreateCmd.Flags().StringSlice("tags", []string{}, "Tags for categorizing the scenario")
+
+	scenarioUpdateCmd.Flags().String("name", "", "Update the scenario name")
+	scenarioUpdateCmd.Flags().String("description", "", "Update the scenario description")
+	scenarioUpdateCmd.Flags().String("prompt-file", "", "Path to file containing the updated prompt")
+	scenarioUpdateCmd.Flags().String("prompt", "", "Inline updated prompt")
+	scenarioUpdateCmd.Flags().StringSlice("tags", []string{}, "Update the scenario tags")
+
+	// Add subcommands
+	scenarioCmd.AddCommand(scenarioCreateCmd)
+	scenarioCmd.AddCommand(scenarioListCmd)
+	scenarioCmd.AddCommand(scenarioShowCmd)
+	scenarioCmd.AddCommand(scenarioUpdateCmd)
+	scenarioCmd.AddCommand(scenarioDeleteCmd)
+	scenarioCmd.AddCommand(scenarioExampleCmd)
+
+	// Add to root
+	rootCmd.AddCommand(scenarioCmd)
+}
+
+// getConfigPath returns the configuration directory path
+func getConfigPath() string {
+	home, _ := os.UserHomeDir()
+	return filepath.Join(home, ".config", "roleplay")
+}
+````
+
 ## File: examples/characters/adventurer.json
 ````json
 {
@@ -334,340 +769,391 @@ jobs:
 }
 ````
 
-## File: internal/factory/provider_test.go
-````go
-package factory
-
-import (
-	"os"
-	"testing"
-	"time"
-
-	"github.com/dotcommander/roleplay/internal/config"
-	"github.com/dotcommander/roleplay/internal/services"
-	"github.com/stretchr/testify/assert"
-)
-
-func TestCreateProvider(t *testing.T) {
-	tests := []struct {
-		name        string
-		cfg         *config.Config
-		envSetup    func()
-		envCleanup  func()
-		wantErr     bool
-		errContains string
-	}{
-		{
-			name: "anthropic provider with API key in config",
-			cfg: &config.Config{
-				DefaultProvider: "anthropic",
-				APIKey:          "test-anthropic-key",
-			},
-			wantErr: false,
-		},
-		{
-			name: "openai provider with API key and model in config",
-			cfg: &config.Config{
-				DefaultProvider: "openai",
-				APIKey:          "test-openai-key",
-				Model:           "gpt-4",
-			},
-			wantErr: false,
-		},
-		{
-			name: "openai provider with default model",
-			cfg: &config.Config{
-				DefaultProvider: "openai",
-				APIKey:          "test-openai-key",
-			},
-			wantErr: false,
-		},
-		{
-			name: "anthropic provider with API key from environment",
-			cfg: &config.Config{
-				DefaultProvider: "anthropic",
-			},
-			envSetup: func() {
-				os.Setenv("ANTHROPIC_API_KEY", "env-anthropic-key")
-			},
-			envCleanup: func() {
-				os.Unsetenv("ANTHROPIC_API_KEY")
-			},
-			wantErr: false,
-		},
-		{
-			name: "openai provider with API key from environment",
-			cfg: &config.Config{
-				DefaultProvider: "openai",
-			},
-			envSetup: func() {
-				os.Setenv("OPENAI_API_KEY", "env-openai-key")
-			},
-			envCleanup: func() {
-				os.Unsetenv("OPENAI_API_KEY")
-			},
-			wantErr: false,
-		},
-		{
-			name: "missing API key",
-			cfg: &config.Config{
-				DefaultProvider: "openai",
-			},
-			wantErr:     true,
-			errContains: "API key for provider openai not found",
-		},
-		{
-			name: "unsupported provider",
-			cfg: &config.Config{
-				DefaultProvider: "unsupported",
-				APIKey:          "test-key",
-			},
-			wantErr:     true,
-			errContains: "unsupported provider: unsupported",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if tt.envSetup != nil {
-				tt.envSetup()
-			}
-			if tt.envCleanup != nil {
-				defer tt.envCleanup()
-			}
-
-			provider, err := CreateProvider(tt.cfg)
-
-			if tt.wantErr {
-				assert.Error(t, err)
-				if tt.errContains != "" {
-					assert.Contains(t, err.Error(), tt.errContains)
-				}
-				assert.Nil(t, provider)
-			} else {
-				assert.NoError(t, err)
-				assert.NotNil(t, provider)
-				assert.Equal(t, tt.cfg.DefaultProvider, provider.Name())
-			}
-		})
-	}
-}
-
-func TestInitializeAndRegisterProvider(t *testing.T) {
-	cfg := &config.Config{
-		DefaultProvider: "openai",
-		APIKey:          "test-key",
-		Model:           "gpt-4",
-		CacheConfig: config.CacheConfig{
-			DefaultTTL: 5 * time.Minute,
-		},
-	}
-
-	bot := services.NewCharacterBot(cfg)
-
-	err := InitializeAndRegisterProvider(bot, cfg)
-	assert.NoError(t, err)
-
-	// Test with missing API key
-	cfg2 := &config.Config{
-		DefaultProvider: "anthropic",
-		CacheConfig: config.CacheConfig{
-			DefaultTTL: 5 * time.Minute,
-		},
-	}
-
-	err = InitializeAndRegisterProvider(bot, cfg2)
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "API key")
-}
-
-func TestCreateProviderWithFallback(t *testing.T) {
-	tests := []struct {
-		name         string
-		providerName string
-		apiKey       string
-		model        string
-		envSetup     func()
-		envCleanup   func()
-		wantErr      bool
-	}{
-		{
-			name:         "direct API key",
-			providerName: "openai",
-			apiKey:       "direct-key",
-			model:        "gpt-4",
-			wantErr:      false,
-		},
-		{
-			name:         "fallback to environment",
-			providerName: "anthropic",
-			apiKey:       "",
-			envSetup: func() {
-				os.Setenv("ANTHROPIC_API_KEY", "env-key")
-			},
-			envCleanup: func() {
-				os.Unsetenv("ANTHROPIC_API_KEY")
-			},
-			wantErr: false,
-		},
-		{
-			name:         "no API key available",
-			providerName: "openai",
-			apiKey:       "",
-			wantErr:      true,
-		},
-		{
-			name:         "unsupported provider",
-			providerName: "unsupported",
-			apiKey:       "key",
-			wantErr:      true,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if tt.envSetup != nil {
-				tt.envSetup()
-			}
-			if tt.envCleanup != nil {
-				defer tt.envCleanup()
-			}
-
-			provider, err := CreateProviderWithFallback(tt.providerName, tt.apiKey, tt.model)
-
-			if tt.wantErr {
-				assert.Error(t, err)
-				assert.Nil(t, provider)
-			} else {
-				assert.NoError(t, err)
-				assert.NotNil(t, provider)
-			}
-		})
-	}
-}
-
-func TestGetDefaultModel(t *testing.T) {
-	tests := []struct {
-		provider string
-		expected string
-	}{
-		{"openai", "gpt-4o-mini"},
-		{"anthropic", "claude-3-haiku-20240307"},
-		{"unknown", ""},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.provider, func(t *testing.T) {
-			model := GetDefaultModel(tt.provider)
-			assert.Equal(t, tt.expected, model)
-		})
-	}
+## File: examples/scenarios/creative_writing.json
+````json
+{
+  "id": "creative_writing_partner",
+  "name": "Creative Writing Partner",
+  "description": "Collaborative storytelling and creative writing assistance",
+  "prompt": "You are a creative writing partner engaged in collaborative storytelling. Your role is to help develop rich narratives, compelling characters, and immersive worlds. When the user provides plot points or ideas, expand on them with vivid descriptions, engaging dialogue, and creative details. Maintain consistency with established story elements, character voices, and narrative tone. Offer creative suggestions when asked, but always respect the user's vision for their story. Help with pacing, tension, character development, and world-building. Be an enthusiastic and supportive writing companion who brings stories to life.",
+  "version": 1,
+  "tags": ["creative", "writing", "storytelling", "collaboration"],
+  "created_at": "2024-01-01T00:00:00Z",
+  "updated_at": "2024-01-01T00:00:00Z"
 }
 ````
 
-## File: internal/factory/provider.go
+## File: examples/scenarios/starship_bridge.json
+````json
+{
+  "id": "starship_bridge_crisis",
+  "name": "Starship Bridge Crisis",
+  "description": "A tense scenario on a starship bridge during an emergency situation",
+  "prompt": "You are on the bridge of a starship during a red alert situation. The ship is under attack or facing a critical emergency. The atmosphere is tense, alarms may be sounding, and quick decisions are needed. Maintain the appropriate level of urgency and professionalism expected in such a situation. Use technical terminology consistent with sci-fi space operations. The crew looks to you for guidance and leadership during this crisis.",
+  "version": 1,
+  "tags": ["sci-fi", "crisis", "roleplay", "leadership"],
+  "created_at": "2024-01-01T00:00:00Z",
+  "updated_at": "2024-01-01T00:00:00Z"
+}
+````
+
+## File: examples/scenarios/tech_support.json
+````json
+{
+  "id": "tech_support",
+  "name": "Technical Support Assistant",
+  "description": "Methodical technical troubleshooting and support",
+  "prompt": "You are a technical support specialist helping a user resolve a technical issue. Be patient, methodical, and clear in your instructions. Start by gathering information about the problem through diagnostic questions. Understand the user's technical level and adjust your explanations accordingly. Guide the user through troubleshooting steps one at a time, confirming each step is completed before moving to the next. If a solution doesn't work, have alternative approaches ready. Document the issue and resolution process. Always maintain a helpful and professional tone, even if the user becomes frustrated.",
+  "version": 1,
+  "tags": ["technical", "support", "troubleshooting", "customer-service"],
+  "created_at": "2024-01-01T00:00:00Z",
+  "updated_at": "2024-01-01T00:00:00Z"
+}
+````
+
+## File: examples/scenarios/therapy_session.json
+````json
+{
+  "id": "therapy_session",
+  "name": "Professional Therapy Session",
+  "description": "A supportive therapeutic environment with professional boundaries",
+  "prompt": "This is a professional therapy session. You are a licensed therapist providing support to a client. Maintain a calm, empathetic, and non-judgmental demeanor at all times. Use active listening techniques, ask clarifying questions, and help the user explore their thoughts and feelings. Always maintain appropriate professional boundaries. Do not provide medical advice or diagnoses. Focus on creating a safe space for emotional expression and self-discovery. Use therapeutic techniques like reflection, validation, and gentle questioning to guide the conversation.",
+  "version": 1,
+  "tags": ["therapy", "professional", "supportive", "mental-health"],
+  "created_at": "2024-01-01T00:00:00Z",
+  "updated_at": "2024-01-01T00:00:00Z"
+}
+````
+
+## File: examples/config-with-user-profiles.yaml
+````yaml
+# Roleplay Configuration with User Profiles Enabled
+
+# Provider settings
+provider: openai
+model: gpt-4o-mini
+# api_key: YOUR_API_KEY_HERE  # Or set OPENAI_API_KEY environment variable
+
+# Cache configuration
+cache:
+  max_entries: 10000
+  cleanup_interval: 5m
+  default_ttl: 10m
+  adaptive_ttl: true
+
+# Memory configuration
+memory:
+  short_term_window: 20
+  medium_term_duration: 24h
+  consolidation_rate: 0.1
+
+# Personality evolution
+personality:
+  evolution_enabled: true
+  max_drift_rate: 0.02
+  stability_threshold: 10
+
+# User Profile Agent configuration
+user_profile:
+  enabled: true                    # Enable AI-powered user profiling
+  update_frequency: 5              # Update profile every 5 messages
+  turns_to_consider: 20            # Analyze last 20 conversation turns
+  confidence_threshold: 0.5        # Include facts with >50% confidence
+  prompt_cache_ttl: 1h             # Cache user profiles for 1 hour
+````
+
+## File: internal/models/scenario.go
 ````go
-package factory
+package models
+
+import "time"
+
+// Scenario represents a high-level operational framework or meta-prompt
+// that defines the overarching context for an entire class of interactions.
+// This is the highest cache layer, sitting above even system prompts.
+type Scenario struct {
+	ID          string    `json:"id"`          // e.g., "starship_bridge_crisis_v1"
+	Name        string    `json:"name"`        // User-friendly name
+	Description string    `json:"description"` // What this scenario is for
+	Prompt      string    `json:"prompt"`      // The actual meta-prompt content
+	Version     int       `json:"version"`     // Version number for tracking changes
+	Tags        []string  `json:"tags"`        // Tags for categorization
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
+	LastUsed    time.Time `json:"last_used"`
+}
+
+// ScenarioRequest represents a request that includes scenario context
+type ScenarioRequest struct {
+	ScenarioID string `json:"scenario_id,omitempty"`
+}
+````
+
+## File: internal/models/user_profile.go
+````go
+package models
+
+import "time"
+
+// UserFact represents a piece of information known about the user.
+type UserFact struct {
+	Key         string    `json:"key"`          // e.g., "PreferredColor", "StatedGoal", "MentionedPetName"
+	Value       string    `json:"value"`        // e.g., "Blue", "Learn Go programming", "Buddy"
+	SourceTurn  int       `json:"source_turn"`  // Turn number in conversation where this was inferred/stated
+	Confidence  float64   `json:"confidence"`   // LLM's confidence in this fact (0.0-1.0)
+	LastUpdated time.Time `json:"last_updated"`
+}
+
+// UserProfile holds synthesized information about a user.
+type UserProfile struct {
+	UserID           string     `json:"user_id"`
+	CharacterID      string     `json:"character_id"`      // Profile might be character-specific
+	Facts            []UserFact `json:"facts"`
+	OverallSummary   string     `json:"overall_summary"`   // A brief LLM-generated summary of the user
+	InteractionStyle string     `json:"interaction_style"` // e.g., "formal", "inquisitive", "humorous"
+	LastAnalyzed     time.Time  `json:"last_analyzed"`
+	Version          int        `json:"version"`
+}
+````
+
+## File: internal/repository/scenario_repo.go
+````go
+package repository
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
+	"time"
 
-	"github.com/dotcommander/roleplay/internal/config"
-	"github.com/dotcommander/roleplay/internal/providers"
-	"github.com/dotcommander/roleplay/internal/services"
+	"github.com/dotcommander/roleplay/internal/models"
 )
 
-// CreateProvider creates an AI provider based on the configuration
-func CreateProvider(cfg *config.Config) (providers.AIProvider, error) {
-	apiKey := getAPIKey(cfg)
-	if apiKey == "" {
-		return nil, fmt.Errorf("API key for provider %s not found. Set api_key in config or %s environment variable", 
-			cfg.DefaultProvider, getEnvVarName(cfg.DefaultProvider))
-	}
+type ScenarioRepository struct {
+	basePath string
+}
 
-	switch cfg.DefaultProvider {
-	case "anthropic":
-		return providers.NewAnthropicProvider(apiKey), nil
-	case "openai":
-		model := cfg.Model
-		if model == "" {
-			model = "gpt-4o-mini" // Centralized default
-		}
-		return providers.NewOpenAIProvider(apiKey, model), nil
-	default:
-		return nil, fmt.Errorf("unsupported provider: %s", cfg.DefaultProvider)
+// NewScenarioRepository creates a new scenario repository
+func NewScenarioRepository(basePath string) *ScenarioRepository {
+	return &ScenarioRepository{
+		basePath: filepath.Join(basePath, "scenarios"),
 	}
 }
 
-// InitializeAndRegisterProvider creates and registers a provider with the bot
-func InitializeAndRegisterProvider(bot *services.CharacterBot, cfg *config.Config) error {
-	provider, err := CreateProvider(cfg)
+// ensureDir ensures the scenarios directory exists
+func (r *ScenarioRepository) ensureDir() error {
+	return os.MkdirAll(r.basePath, 0755)
+}
+
+// SaveScenario saves a scenario to disk
+func (r *ScenarioRepository) SaveScenario(scenario *models.Scenario) error {
+	if err := r.ensureDir(); err != nil {
+		return fmt.Errorf("failed to create scenarios directory: %w", err)
+	}
+
+	if scenario.CreatedAt.IsZero() {
+		scenario.CreatedAt = time.Now()
+	}
+	scenario.UpdatedAt = time.Now()
+
+	data, err := json.MarshalIndent(scenario, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to marshal scenario: %w", err)
+	}
+
+	filename := filepath.Join(r.basePath, fmt.Sprintf("%s.json", scenario.ID))
+	if err := os.WriteFile(filename, data, 0644); err != nil {
+		return fmt.Errorf("failed to write scenario file: %w", err)
+	}
+
+	return nil
+}
+
+// LoadScenario loads a scenario by ID
+func (r *ScenarioRepository) LoadScenario(id string) (*models.Scenario, error) {
+	filename := filepath.Join(r.basePath, fmt.Sprintf("%s.json", id))
+	data, err := os.ReadFile(filename)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, fmt.Errorf("scenario not found: %s", id)
+		}
+		return nil, fmt.Errorf("failed to read scenario file: %w", err)
+	}
+
+	var scenario models.Scenario
+	if err := json.Unmarshal(data, &scenario); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal scenario: %w", err)
+	}
+
+	return &scenario, nil
+}
+
+// ListScenarios returns all available scenarios
+func (r *ScenarioRepository) ListScenarios() ([]*models.Scenario, error) {
+	if err := r.ensureDir(); err != nil {
+		return nil, fmt.Errorf("failed to create scenarios directory: %w", err)
+	}
+
+	files, err := os.ReadDir(r.basePath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read scenarios directory: %w", err)
+	}
+
+	var scenarios []*models.Scenario
+	for _, file := range files {
+		if filepath.Ext(file.Name()) != ".json" {
+			continue
+		}
+
+		data, err := os.ReadFile(filepath.Join(r.basePath, file.Name()))
+		if err != nil {
+			continue // Skip files we can't read
+		}
+
+		var scenario models.Scenario
+		if err := json.Unmarshal(data, &scenario); err != nil {
+			continue // Skip invalid JSON files
+		}
+
+		scenarios = append(scenarios, &scenario)
+	}
+
+	return scenarios, nil
+}
+
+// DeleteScenario deletes a scenario by ID
+func (r *ScenarioRepository) DeleteScenario(id string) error {
+	filename := filepath.Join(r.basePath, fmt.Sprintf("%s.json", id))
+	if err := os.Remove(filename); err != nil {
+		if os.IsNotExist(err) {
+			return fmt.Errorf("scenario not found: %s", id)
+		}
+		return fmt.Errorf("failed to delete scenario: %w", err)
+	}
+	return nil
+}
+
+// UpdateScenarioLastUsed updates the LastUsed timestamp for a scenario
+func (r *ScenarioRepository) UpdateScenarioLastUsed(id string) error {
+	scenario, err := r.LoadScenario(id)
 	if err != nil {
 		return err
 	}
 
-	bot.RegisterProvider(cfg.DefaultProvider, provider)
+	scenario.LastUsed = time.Now()
+	return r.SaveScenario(scenario)
+}
+````
+
+## File: internal/repository/user_profile_repo.go
+````go
+package repository
+
+import (
+	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
+
+	"github.com/dotcommander/roleplay/internal/models"
+)
+
+// UserProfileRepository manages persistence of user profiles
+type UserProfileRepository struct {
+	dataDir string
+}
+
+// NewUserProfileRepository creates a new repository instance
+func NewUserProfileRepository(dataDir string) *UserProfileRepository {
+	return &UserProfileRepository{
+		dataDir: dataDir,
+	}
+}
+
+// profileFilename generates the filename for a user profile
+func (r *UserProfileRepository) profileFilename(userID, characterID string) string {
+	return fmt.Sprintf("%s_%s.json", userID, characterID)
+}
+
+// SaveUserProfile saves a user profile to disk
+func (r *UserProfileRepository) SaveUserProfile(profile *models.UserProfile) error {
+	if err := os.MkdirAll(r.dataDir, 0755); err != nil {
+		return fmt.Errorf("failed to create user profiles directory: %w", err)
+	}
+
+	filename := r.profileFilename(profile.UserID, profile.CharacterID)
+	filepath := filepath.Join(r.dataDir, filename)
+
+	data, err := json.MarshalIndent(profile, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to marshal user profile: %w", err)
+	}
+
+	if err := os.WriteFile(filepath, data, 0644); err != nil {
+		return fmt.Errorf("failed to write user profile file: %w", err)
+	}
+
 	return nil
 }
 
-// CreateProviderWithFallback creates a provider with environment variable fallback
-// This is useful for commands that don't use the full config structure
-func CreateProviderWithFallback(providerName, apiKey, model string) (providers.AIProvider, error) {
-	// Try environment variable if API key not provided
-	if apiKey == "" {
-		apiKey = os.Getenv(getEnvVarName(providerName))
-	}
+// LoadUserProfile loads a user profile from disk
+func (r *UserProfileRepository) LoadUserProfile(userID, characterID string) (*models.UserProfile, error) {
+	filename := r.profileFilename(userID, characterID)
+	filepath := filepath.Join(r.dataDir, filename)
 
-	if apiKey == "" {
-		return nil, fmt.Errorf("API key for provider %s not found", providerName)
-	}
-
-	switch providerName {
-	case "anthropic":
-		return providers.NewAnthropicProvider(apiKey), nil
-	case "openai":
-		if model == "" {
-			model = "gpt-4o-mini"
+	data, err := os.ReadFile(filepath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, err // Let caller handle non-existence
 		}
-		return providers.NewOpenAIProvider(apiKey, model), nil
-	default:
-		return nil, fmt.Errorf("unsupported provider: %s", providerName)
+		return nil, fmt.Errorf("failed to read user profile file: %w", err)
 	}
+
+	var profile models.UserProfile
+	if err := json.Unmarshal(data, &profile); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal user profile: %w", err)
+	}
+
+	return &profile, nil
 }
 
-// GetDefaultModel returns the default model for a provider
-func GetDefaultModel(providerName string) string {
-	switch providerName {
-	case "openai":
-		return "gpt-4o-mini"
-	case "anthropic":
-		return "claude-3-haiku-20240307"
-	default:
-		return ""
+// DeleteUserProfile deletes a user profile from disk
+func (r *UserProfileRepository) DeleteUserProfile(userID, characterID string) error {
+	filename := r.profileFilename(userID, characterID)
+	filepath := filepath.Join(r.dataDir, filename)
+
+	if err := os.Remove(filepath); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("failed to delete user profile: %w", err)
 	}
+
+	return nil
 }
 
-// getAPIKey retrieves the API key from config or environment
-func getAPIKey(cfg *config.Config) string {
-	if cfg.APIKey != "" {
-		return cfg.APIKey
+// ListUserProfiles returns all user profiles for a given user
+func (r *UserProfileRepository) ListUserProfiles(userID string) ([]*models.UserProfile, error) {
+	pattern := filepath.Join(r.dataDir, fmt.Sprintf("%s_*.json", userID))
+	files, err := filepath.Glob(pattern)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list user profiles: %w", err)
 	}
 
-	// Fall back to environment variable
-	return os.Getenv(getEnvVarName(cfg.DefaultProvider))
-}
+	var profiles []*models.UserProfile
+	for _, file := range files {
+		data, err := os.ReadFile(file)
+		if err != nil {
+			continue // Skip files that can't be read
+		}
 
-// getEnvVarName returns the environment variable name for a provider
-func getEnvVarName(provider string) string {
-	switch provider {
-	case "openai":
-		return "OPENAI_API_KEY"
-	case "anthropic":
-		return "ANTHROPIC_API_KEY"
-	default:
-		return ""
+		var profile models.UserProfile
+		if err := json.Unmarshal(data, &profile); err != nil {
+			continue // Skip invalid JSON files
+		}
+
+		profiles = append(profiles, &profile)
 	}
+
+	return profiles, nil
 }
 ````
 
@@ -747,6 +1233,71 @@ Return ONLY valid JSON in this exact structure:
 - Do NOT include markdown code blocks (```) in your response
 - Do NOT include any text before or after the JSON
 - The response must be valid JSON that can be parsed directly
+````
+
+## File: prompts/user-profile-extraction.md
+````markdown
+# User Profile Extraction & Update Prompt
+
+You are an analytical AI tasked with building and maintaining a profile of a user based on their conversation with an AI character.
+
+## Existing User Profile (JSON):
+{{.ExistingProfileJSON}}
+
+## Recent Conversation History (last {{.HistoryTurnCount}} turns):
+---
+Character: {{.CharacterName}} (ID: {{.CharacterID}})
+User: {{.UserID}}
+---
+{{range .Messages}}
+{{.Role}}: {{.Content}} (Turn: {{.TurnNumber}}, Timestamp: {{.Timestamp}})
+{{end}}
+
+## Task:
+Analyze the **Recent Conversation History** in the context of the **Existing User Profile**.
+Identify new information, or updates/corrections to existing information about the **USER ({{.UserID}})**.
+
+Focus on extracting:
+- Explicitly stated facts (e.g., "My name is...", "I like...", "I work as...")
+- Preferences (e.g., likes, dislikes, hobbies)
+- Stated goals or problems
+- Key personality traits or emotional tendencies observed in the user's messages
+- User's typical interaction style with this character
+- Relationships mentioned by the user (e.g., family, friends, colleagues)
+- Significant life events or circumstances mentioned
+
+## Output Format:
+Return ONLY valid JSON representing the **UPDATED User Profile**.
+The JSON should follow this exact structure:
+```json
+{
+  "user_id": "{{.UserID}}",
+  "character_id": "{{.CharacterID}}",
+  "facts": [
+    {
+      "key": "Fact Key (e.g., PreferredDrink, MentionedHobby, StatedProblem)",
+      "value": "Fact Value",
+      "source_turn": {{/* Turn number from conversation */}},
+      "confidence": {{/* Your confidence 0.0-1.0 */}},
+      "last_updated": "{{/* Current ISO8601 Timestamp */}}"
+    }
+  ],
+  "overall_summary": "A concise, updated summary of the user based on all available information.",
+  "interaction_style": "Updated description of user's interaction style (e.g., formal, inquisitive, humorous, reserved).",
+  "last_analyzed": "{{/* Current ISO8601 Timestamp */}}",
+  "version": {{.NextVersion}}
+}
+```
+
+## Important Instructions:
+- **Merge, Don't Just Replace:** Integrate new information with existing facts. Update existing facts if new information clearly supersedes or refines them. If a fact seems outdated or contradicted, you can lower its confidence or update its value.
+- **Be Specific with Keys:** Use descriptive keys for facts (e.g., "PetName_Dog" instead of just "PetName").
+- **Source Turn:** Accurately reference the conversation turn number where the information was primarily derived.
+- **Confidence Score:** Provide a realistic confidence score for each extracted/updated fact.
+- **Timestamp:** Use the current timestamp for `last_updated` and `last_analyzed`.
+- **Version:** Increment the version number.
+- **Focus on the USER:** Extract information *about the user*, not about the character or the conversation topics in general, unless it reveals something about the user.
+- If no significant new information is found, you can return the existing profile with an updated `last_analyzed` timestamp and version, and potentially a slightly refined `overall_summary`.
 ````
 
 ## File: scripts/update-imports.sh
@@ -2331,98 +2882,236 @@ func (rc *ResponseCache) GetStats() (hits, misses int) {
 }
 ````
 
-## File: internal/cache/types.go
+## File: internal/factory/provider_test.go
 ````go
-package cache
+package factory
 
 import (
+	"os"
+	"testing"
 	"time"
+
+	"github.com/dotcommander/roleplay/internal/config"
+	"github.com/dotcommander/roleplay/internal/services"
+	"github.com/stretchr/testify/assert"
 )
 
-// CacheLayer represents different cache layers
-type CacheLayer string
+func TestCreateProvider(t *testing.T) {
+	tests := []struct {
+		name        string
+		cfg         *config.Config
+		envSetup    func()
+		envCleanup  func()
+		wantErr     bool
+		errContains string
+	}{
+		{
+			name: "anthropic provider with API key in config",
+			cfg: &config.Config{
+				DefaultProvider: "anthropic",
+				APIKey:          "test-anthropic-key",
+			},
+			wantErr: false,
+		},
+		{
+			name: "openai provider with API key and model in config",
+			cfg: &config.Config{
+				DefaultProvider: "openai",
+				APIKey:          "test-openai-key",
+				Model:           "gpt-4",
+			},
+			wantErr: false,
+		},
+		{
+			name: "openai provider with default model",
+			cfg: &config.Config{
+				DefaultProvider: "openai",
+				APIKey:          "test-openai-key",
+			},
+			wantErr: false,
+		},
+		{
+			name: "anthropic provider with API key from environment",
+			cfg: &config.Config{
+				DefaultProvider: "anthropic",
+			},
+			envSetup: func() {
+				os.Setenv("ANTHROPIC_API_KEY", "env-anthropic-key")
+			},
+			envCleanup: func() {
+				os.Unsetenv("ANTHROPIC_API_KEY")
+			},
+			wantErr: false,
+		},
+		{
+			name: "openai provider with API key from environment",
+			cfg: &config.Config{
+				DefaultProvider: "openai",
+			},
+			envSetup: func() {
+				os.Setenv("OPENAI_API_KEY", "env-openai-key")
+			},
+			envCleanup: func() {
+				os.Unsetenv("OPENAI_API_KEY")
+			},
+			wantErr: false,
+		},
+		{
+			name: "missing API key",
+			cfg: &config.Config{
+				DefaultProvider: "openai",
+			},
+			wantErr:     true,
+			errContains: "API key for provider openai not found",
+		},
+		{
+			name: "unsupported provider",
+			cfg: &config.Config{
+				DefaultProvider: "unsupported",
+				APIKey:          "test-key",
+			},
+			wantErr:     true,
+			errContains: "unsupported provider: unsupported",
+		},
+	}
 
-const (
-	CorePersonalityLayer CacheLayer = "core_personality"
-	LearnedBehaviorLayer CacheLayer = "learned_behavior"
-	EmotionalStateLayer  CacheLayer = "emotional_state"
-	UserMemoryLayer      CacheLayer = "user_memory"
-	ConversationLayer    CacheLayer = "conversation"
-)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.envSetup != nil {
+				tt.envSetup()
+			}
+			if tt.envCleanup != nil {
+				defer tt.envCleanup()
+			}
 
-// CacheBreakpoint represents a cache checkpoint
-type CacheBreakpoint struct {
-	Layer      CacheLayer    `json:"layer"`
-	Content    string        `json:"content"`
-	TokenCount int           `json:"token_count"`
-	TTL        time.Duration `json:"ttl"`
-	LastUsed   time.Time     `json:"last_used"`
+			provider, err := CreateProvider(tt.cfg)
+
+			if tt.wantErr {
+				assert.Error(t, err)
+				if tt.errContains != "" {
+					assert.Contains(t, err.Error(), tt.errContains)
+				}
+				assert.Nil(t, provider)
+			} else {
+				assert.NoError(t, err)
+				assert.NotNil(t, provider)
+				assert.Equal(t, tt.cfg.DefaultProvider, provider.Name())
+			}
+		})
+	}
 }
 
-// CacheEntry represents a cached prompt entry
-type CacheEntry struct {
-	Breakpoints []CacheBreakpoint
-	Hash        string
-	CreatedAt   time.Time
-	LastAccess  time.Time
-	HitCount    int
-	UserID      string
+func TestInitializeAndRegisterProvider(t *testing.T) {
+	cfg := &config.Config{
+		DefaultProvider: "openai",
+		APIKey:          "test-key",
+		Model:           "gpt-4",
+		CacheConfig: config.CacheConfig{
+			DefaultTTL:      5 * time.Minute,
+			CleanupInterval: 1 * time.Minute,
+		},
+	}
+
+	bot := services.NewCharacterBot(cfg)
+
+	err := InitializeAndRegisterProvider(bot, cfg)
+	assert.NoError(t, err)
+
+	// Test with missing API key
+	cfg2 := &config.Config{
+		DefaultProvider: "anthropic",
+		CacheConfig: config.CacheConfig{
+			DefaultTTL:      5 * time.Minute,
+			CleanupInterval: 1 * time.Minute,
+		},
+	}
+
+	err = InitializeAndRegisterProvider(bot, cfg2)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "API key")
 }
 
-// TTLManager handles dynamic TTL calculations
-type TTLManager struct {
-	BaseTTL         time.Duration
-	ActiveBonus     float64 // 50% bonus for active conversations
-	ComplexityBonus float64 // 20% bonus for complex characters
-	MinTTL          time.Duration
-	MaxTTL          time.Duration
+func TestCreateProviderWithFallback(t *testing.T) {
+	tests := []struct {
+		name         string
+		providerName string
+		apiKey       string
+		model        string
+		envSetup     func()
+		envCleanup   func()
+		wantErr      bool
+	}{
+		{
+			name:         "direct API key",
+			providerName: "openai",
+			apiKey:       "direct-key",
+			model:        "gpt-4",
+			wantErr:      false,
+		},
+		{
+			name:         "fallback to environment",
+			providerName: "anthropic",
+			apiKey:       "",
+			envSetup: func() {
+				os.Setenv("ANTHROPIC_API_KEY", "env-key")
+			},
+			envCleanup: func() {
+				os.Unsetenv("ANTHROPIC_API_KEY")
+			},
+			wantErr: false,
+		},
+		{
+			name:         "no API key available",
+			providerName: "openai",
+			apiKey:       "",
+			wantErr:      true,
+		},
+		{
+			name:         "unsupported provider",
+			providerName: "unsupported",
+			apiKey:       "key",
+			wantErr:      true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.envSetup != nil {
+				tt.envSetup()
+			}
+			if tt.envCleanup != nil {
+				defer tt.envCleanup()
+			}
+
+			provider, err := CreateProviderWithFallback(tt.providerName, tt.apiKey, tt.model)
+
+			if tt.wantErr {
+				assert.Error(t, err)
+				assert.Nil(t, provider)
+			} else {
+				assert.NoError(t, err)
+				assert.NotNil(t, provider)
+			}
+		})
+	}
 }
 
-// CacheMetrics tracks cache performance
-type CacheMetrics struct {
-	Hit         bool
-	Layers      []CacheLayer
-	SavedTokens int
-	Latency     time.Duration
-}
-````
+func TestGetDefaultModel(t *testing.T) {
+	tests := []struct {
+		provider string
+		expected string
+	}{
+		{"openai", "gpt-4o-mini"},
+		{"anthropic", "claude-3-haiku-20240307"},
+		{"unknown", ""},
+	}
 
-## File: internal/config/config.go
-````go
-package config
-
-import "time"
-
-// Config holds all application configuration
-type Config struct {
-	DefaultProvider   string
-	Model             string
-	APIKey            string
-	CacheConfig       CacheConfig
-	MemoryConfig      MemoryConfig
-	PersonalityConfig PersonalityConfig
-}
-
-// CacheConfig holds cache-related configuration
-type CacheConfig struct {
-	MaxEntries        int
-	CleanupInterval   time.Duration
-	DefaultTTL        time.Duration
-	EnableAdaptiveTTL bool
-}
-
-// MemoryConfig holds memory management configuration
-type MemoryConfig struct {
-	ShortTermWindow    int           // Number of messages
-	MediumTermDuration time.Duration // How long to keep
-	ConsolidationRate  float64       // Learning rate for personality evolution
-}
-
-// PersonalityConfig holds personality evolution configuration
-type PersonalityConfig struct {
-	EvolutionEnabled   bool
-	MaxDriftRate       float64 // Maximum personality change per interaction
-	StabilityThreshold float64 // Minimum interactions before evolution
+	for _, tt := range tests {
+		t.Run(tt.provider, func(t *testing.T) {
+			model := GetDefaultModel(tt.provider)
+			assert.Equal(t, tt.expected, model)
+		})
+	}
 }
 ````
 
@@ -2921,35 +3610,6 @@ func clamp(val, min, max float64) float64 {
 		return max
 	}
 	return val
-}
-````
-
-## File: internal/models/conversation.go
-````go
-package models
-
-import "time"
-
-// Message represents a single message in a conversation
-type Message struct {
-	Role      string    `json:"role"`
-	Content   string    `json:"content"`
-	Timestamp time.Time `json:"timestamp"`
-}
-
-// ConversationContext holds the current conversation state
-type ConversationContext struct {
-	RecentMessages []Message
-	SessionID      string
-	StartTime      time.Time
-}
-
-// ConversationRequest represents a user request to the character bot
-type ConversationRequest struct {
-	CharacterID string
-	UserID      string
-	Message     string
-	Context     ConversationContext
 }
 ````
 
@@ -3694,596 +4354,202 @@ func (s *SessionRepository) GetLatestSession(characterID string) (*Session, erro
 }
 ````
 
-## File: internal/services/bot.go
+## File: internal/services/user_profile_agent.go
 ````go
 package services
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
+	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
-	"sync"
+	"text/template"
 	"time"
 
-	"github.com/dotcommander/roleplay/internal/cache"
-	"github.com/dotcommander/roleplay/internal/config"
 	"github.com/dotcommander/roleplay/internal/models"
 	"github.com/dotcommander/roleplay/internal/providers"
+	"github.com/dotcommander/roleplay/internal/repository"
 )
 
-// CharacterBot is the main service for managing characters and conversations
-type CharacterBot struct {
-	characters    map[string]*models.Character
-	cache         *cache.PromptCache
-	responseCache *cache.ResponseCache
-	providers     map[string]providers.AIProvider
-	config        *config.Config
-	mu            sync.RWMutex
-	cacheHits     int
-	cacheMisses   int
+// UserProfileAgent handles AI-powered user profile extraction and updates
+type UserProfileAgent struct {
+	provider   providers.AIProvider
+	repo       *repository.UserProfileRepository
+	promptPath string
 }
 
-// NewCharacterBot creates a new character bot instance
-func NewCharacterBot(cfg *config.Config) *CharacterBot {
-	cb := &CharacterBot{
-		characters: make(map[string]*models.Character),
-		cache: cache.NewPromptCache(
-			cfg.CacheConfig.DefaultTTL,
-			5*time.Minute,
-			1*time.Hour,
-		),
-		responseCache: cache.NewResponseCache(cfg.CacheConfig.DefaultTTL),
-		providers:     make(map[string]providers.AIProvider),
-		config:        cfg,
-		cacheHits:     0,
-		cacheMisses:   0,
+// NewUserProfileAgent creates a new user profile agent
+func NewUserProfileAgent(provider providers.AIProvider, repo *repository.UserProfileRepository) *UserProfileAgent {
+	// Find prompt file relative to executable
+	promptFile := "prompts/user-profile-extraction.md"
+	
+	// Try multiple locations for the prompt file
+	possiblePaths := []string{
+		promptFile,
+		filepath.Join(".", promptFile),
+		filepath.Join("..", promptFile),
+		filepath.Join(os.Getenv("HOME"), "go", "src", "roleplay", promptFile),
+	}
+	
+	var finalPath string
+	for _, path := range possiblePaths {
+		if _, err := os.Stat(path); err == nil {
+			finalPath = path
+			break
+		}
+	}
+	
+	if finalPath == "" {
+		// Fallback to the first option
+		finalPath = promptFile
 	}
 
-	// Start background workers
-	go cb.cache.CleanupWorker(cfg.CacheConfig.CleanupInterval)
-	go cb.memoryConsolidationWorker()
-
-	return cb
+	return &UserProfileAgent{
+		provider:   provider,
+		repo:       repo,
+		promptPath: finalPath,
+	}
 }
 
-// RegisterProvider adds a new AI provider
-func (cb *CharacterBot) RegisterProvider(name string, provider providers.AIProvider) {
-	cb.mu.Lock()
-	defer cb.mu.Unlock()
-	cb.providers[name] = provider
+type profilePromptData struct {
+	ExistingProfileJSON string
+	HistoryTurnCount    int
+	Messages            []profileMessageData
+	CharacterName       string
+	CharacterID         string
+	UserID              string
+	NextVersion         int
+	CurrentTimestamp    string
 }
 
-// CreateCharacter adds a new character to the bot
-func (cb *CharacterBot) CreateCharacter(char *models.Character) error {
-	cb.mu.Lock()
-	defer cb.mu.Unlock()
+type profileMessageData struct {
+	Role       string
+	Content    string
+	TurnNumber int
+	Timestamp  string
+}
 
-	if _, exists := cb.characters[char.ID]; exists {
-		return fmt.Errorf("character %s already exists", char.ID)
+// UpdateUserProfile analyzes conversation history and updates the user profile
+func (upa *UserProfileAgent) UpdateUserProfile(
+	ctx context.Context,
+	userID string,
+	character *models.Character,
+	sessionMessages []repository.SessionMessage,
+	turnsToConsider int,
+) (*models.UserProfile, error) {
+	
+	if len(sessionMessages) == 0 {
+		return nil, fmt.Errorf("no conversation history provided to update user profile")
 	}
 
-	char.LastModified = time.Now()
-	cb.characters[char.ID] = char
-
-	// Pre-cache core personality
-	cb.warmupCache(char)
-
-	return nil
-}
-
-// GetCharacter retrieves a character by ID
-func (cb *CharacterBot) GetCharacter(id string) (*models.Character, error) {
-	cb.mu.RLock()
-	defer cb.mu.RUnlock()
-
-	char, exists := cb.characters[id]
-	if !exists {
-		return nil, fmt.Errorf("character %s not found", id)
-	}
-
-	return char, nil
-}
-
-// ProcessRequest handles a conversation request
-func (cb *CharacterBot) ProcessRequest(ctx context.Context, req *models.ConversationRequest) (*providers.AIResponse, error) {
-	// Check response cache first
-	responseCacheKey := cb.responseCache.GenerateKey(req.CharacterID, req.UserID, req.Message)
-	if cachedResp, found := cb.responseCache.Get(responseCacheKey); found {
-		cb.mu.Lock()
-		cb.cacheHits++
-		cb.mu.Unlock()
-
-		// Return cached response with cache hit metrics
-		return &providers.AIResponse{
-			Content: cachedResp.Content,
-			TokensUsed: providers.TokenUsage{
-				Prompt:       0,
-				Completion:   0,
-				CachedPrompt: cachedResp.TokensUsed.Prompt,
-				Total:        0,
-			},
-			CacheMetrics: cache.CacheMetrics{
-				Hit:         true,
-				Layers:      []cache.CacheLayer{cache.ConversationLayer},
-				SavedTokens: cachedResp.TokensUsed.Total,
-				Latency:     time.Since(cachedResp.CachedAt),
-			},
-		}, nil
-	}
-
-	cb.mu.Lock()
-	cb.cacheMisses++
-	cb.mu.Unlock()
-
-	// Build prompt with cache awareness
-	prompt, breakpoints, err := cb.BuildPrompt(req)
+	// Load existing profile or create new one
+	existingProfile, err := upa.repo.LoadUserProfile(userID, character.ID)
 	if err != nil {
-		return nil, err
+		if os.IsNotExist(err) {
+			existingProfile = &models.UserProfile{
+				UserID:      userID,
+				CharacterID: character.ID,
+				Facts:       []models.UserFact{},
+				Version:     0,
+			}
+		} else {
+			return nil, fmt.Errorf("failed to load existing user profile: %w", err)
+		}
 	}
 
-	// Generate cache key for static layers only
-	cacheKey := cb.generateCacheKey(req.CharacterID, req.UserID, breakpoints)
-	cachedEntry, hit := cb.cache.Get(cacheKey)
+	existingProfileJSON, _ := json.MarshalIndent(existingProfile, "", "  ")
 
-	// Get character for complexity check
-	char, err := cb.GetCharacter(req.CharacterID)
-	if err != nil {
-		return nil, err
+	// Prepare recent conversation history
+	startIndex := 0
+	if len(sessionMessages) > turnsToConsider {
+		startIndex = len(sessionMessages) - turnsToConsider
 	}
+	recentHistory := sessionMessages[startIndex:]
 
-	// Cache hit tracking is now done internally
-
-	// Adaptive TTL based on conversation activity
-	effectiveTTL := cb.cache.CalculateAdaptiveTTL(cachedEntry, len(char.Memories) > 50)
-
-	// Select provider
-	provider := cb.selectProvider()
-	if provider == nil {
-		return nil, fmt.Errorf("no AI provider available")
-	}
-
-	// Prepare API request
-	apiReq := &providers.PromptRequest{
-		CharacterID:      req.CharacterID,
-		UserID:           req.UserID,
-		Message:          req.Message,
-		Context:          req.Context,
-		SystemPrompt:     prompt,
-		CacheBreakpoints: breakpoints,
-	}
-
-	// Send request
-	start := time.Now()
-	resp, err := provider.SendRequest(ctx, apiReq)
-	if err != nil {
-		return nil, err
-	}
-
-	// Update cache metrics
-	resp.CacheMetrics.Latency = time.Since(start)
-
-	// Update character state based on response
-	cb.updateCharacterState(req.CharacterID, resp)
-
-	// Store in cache with adaptive TTL
-	if !hit {
-		cb.cache.StoreWithTTL(cacheKey, breakpoints, effectiveTTL)
-	}
-
-	// Store response in response cache
-	cb.responseCache.Store(responseCacheKey, resp.Content, cache.TokenUsage{
-		Prompt:       resp.TokensUsed.Prompt,
-		Completion:   resp.TokensUsed.Completion,
-		CachedPrompt: resp.TokensUsed.CachedPrompt,
-		Total:        resp.TokensUsed.Total,
-	})
-
-	return resp, nil
-}
-
-// BuildPrompt constructs a layered prompt with cache breakpoints
-func (cb *CharacterBot) BuildPrompt(req *models.ConversationRequest) (string, []cache.CacheBreakpoint, error) {
-	char, err := cb.GetCharacter(req.CharacterID)
-	if err != nil {
-		return "", nil, err
-	}
-
-	breakpoints := make([]cache.CacheBreakpoint, 0, 4)
-
-	// Layer 1: Core Personality (static, long TTL)
-	personality := cb.buildPersonalityPrompt(char)
-	breakpoints = append(breakpoints, cache.CacheBreakpoint{
-		Layer:      cache.CorePersonalityLayer,
-		Content:    personality,
-		TokenCount: cache.EstimateTokens(personality),
-		TTL:        cb.cache.CalculateAdaptiveTTL(nil, true),
-	})
-
-	// Layer 2: Learned Behaviors (semi-static, medium TTL)
-	behaviors := cb.buildLearnedBehaviors(char)
-	if behaviors != "" {
-		breakpoints = append(breakpoints, cache.CacheBreakpoint{
-			Layer:      cache.LearnedBehaviorLayer,
-			Content:    behaviors,
-			TokenCount: cache.EstimateTokens(behaviors),
-			TTL:        cb.config.CacheConfig.DefaultTTL * 2,
+	var promptMessages []profileMessageData
+	for i, msg := range recentHistory {
+		promptMessages = append(promptMessages, profileMessageData{
+			Role:       msg.Role,
+			Content:    msg.Content,
+			TurnNumber: startIndex + i + 1,
+			Timestamp:  msg.Timestamp.Format(time.RFC3339),
 		})
 	}
 
-	// Layer 3: Emotional State (dynamic, short TTL)
-	emotional := cb.buildEmotionalContext(char)
-	breakpoints = append(breakpoints, cache.CacheBreakpoint{
-		Layer:      cache.EmotionalStateLayer,
-		Content:    emotional,
-		TokenCount: cache.EstimateTokens(emotional),
-		TTL:        5 * time.Minute,
-	})
-
-	// Layer 4: User Context (semi-dynamic, medium TTL)
-	userContext := cb.buildUserContext(req.UserID, char)
-	breakpoints = append(breakpoints, cache.CacheBreakpoint{
-		Layer:      cache.UserMemoryLayer,
-		Content:    userContext,
-		TokenCount: cache.EstimateTokens(userContext),
-		TTL:        cb.config.CacheConfig.DefaultTTL,
-	})
-
-	// Layer 5: Conversation History (dynamic, no cache)
-	conversation := cb.buildConversationHistory(req.Context)
-	if conversation != "" {
-		breakpoints = append(breakpoints, cache.CacheBreakpoint{
-			Layer:      cache.ConversationLayer,
-			Content:    conversation,
-			TokenCount: cache.EstimateTokens(conversation),
-			TTL:        0, // No caching for conversation
-		})
-	}
-
-	// Combine all layers
-	fullPrompt := cb.assemblePrompt(breakpoints, req.UserID, req.Message)
-
-	return fullPrompt, breakpoints, nil
-}
-
-func (cb *CharacterBot) warmupCache(char *models.Character) {
-	// Build personality prompt and create a cache key for this character
-	personality := cb.buildPersonalityPrompt(char)
-
-	// Create a stable cache key for just the personality layer
-	h := sha256.New()
-	h.Write([]byte(char.ID))
-	h.Write([]byte("personality"))
-	h.Write([]byte(personality))
-	key := hex.EncodeToString(h.Sum(nil))
-
-	// Store with a long TTL since personality is static
-	cb.cache.Store(key, cache.CorePersonalityLayer, personality, 24*time.Hour)
-}
-
-func (cb *CharacterBot) buildPersonalityPrompt(char *models.Character) string {
-	return fmt.Sprintf(`[CHARACTER PROFILE]
-Name: %s
-Personality Traits:
-- Openness: %.2f
-- Conscientiousness: %.2f
-- Extraversion: %.2f
-- Agreeableness: %.2f
-- Neuroticism: %.2f
-
-Backstory: %s
-
-Speech Style: %s
-
-Core Quirks: %s
-
-[INTERACTION RULES]
-- Always stay in character
-- Express personality traits consistently
-- Use characteristic speech patterns
-- React based on emotional state`,
-		char.Name,
-		char.Personality.Openness,
-		char.Personality.Conscientiousness,
-		char.Personality.Extraversion,
-		char.Personality.Agreeableness,
-		char.Personality.Neuroticism,
-		char.Backstory,
-		char.SpeechStyle,
-		joinQuirks(char.Quirks),
-	)
-}
-
-func (cb *CharacterBot) buildLearnedBehaviors(char *models.Character) string {
-	// Extract patterns from medium-term memories
-	patterns := make([]string, 0)
-	for _, mem := range char.Memories {
-		if mem.Type == models.MediumTermMemory {
-			patterns = append(patterns, mem.Content)
-		}
-	}
-
-	if len(patterns) == 0 {
-		return ""
-	}
-
-	return fmt.Sprintf("[LEARNED PATTERNS]\n%s", strings.Join(patterns, "\n"))
-}
-
-func (cb *CharacterBot) buildEmotionalContext(char *models.Character) string {
-	return fmt.Sprintf(`[EMOTIONAL STATE]
-Current Mood:
-- Joy: %.2f
-- Surprise: %.2f
-- Anger: %.2f
-- Fear: %.2f
-- Sadness: %.2f
-- Disgust: %.2f`,
-		char.CurrentMood.Joy,
-		char.CurrentMood.Surprise,
-		char.CurrentMood.Anger,
-		char.CurrentMood.Fear,
-		char.CurrentMood.Sadness,
-		char.CurrentMood.Disgust,
-	)
-}
-
-func (cb *CharacterBot) buildConversationHistory(ctx models.ConversationContext) string {
-	if len(ctx.RecentMessages) == 0 {
-		return ""
-	}
-
-	history := "[CONVERSATION HISTORY]\n"
-	for _, msg := range ctx.RecentMessages {
-		history += fmt.Sprintf("%s: %s\n", msg.Role, msg.Content)
-	}
-
-	return history
-}
-
-func (cb *CharacterBot) buildUserContext(userID string, char *models.Character) string {
-	context := fmt.Sprintf(`[USER CONTEXT]
-You are speaking with: %s
-
-Remember to address them by their name throughout the conversation.`, userID)
-
-	// Add any user-specific memories
-	var userMemories []string
-	for _, mem := range char.Memories {
-		if mem.Type == models.LongTermMemory && mem.Content != "" {
-			// Check if memory mentions this user (simple check)
-			// In a more advanced system, you'd have user-specific memory storage
-			userMemories = append(userMemories, mem.Content)
-		}
-	}
-
-	if len(userMemories) > 0 {
-		context += "\n\nShared experiences:\n" + strings.Join(userMemories, "\n")
-	}
-
-	return context
-}
-
-func (cb *CharacterBot) assemblePrompt(breakpoints []cache.CacheBreakpoint, userID, message string) string {
-	var parts []string
-
-	// Add all breakpoint content
-	for _, bp := range breakpoints {
-		parts = append(parts, bp.Content)
-	}
-
-	// Add current message
-	parts = append(parts, fmt.Sprintf("[CURRENT MESSAGE]\n%s: %s", userID, message))
-
-	return strings.Join(parts, "\n\n")
-}
-
-func (cb *CharacterBot) generateCacheKey(charID, userID string, breakpoints []cache.CacheBreakpoint) string {
-	// Generate cache key based only on static/semi-static layers
-	// Don't include conversation layer which changes every time
-	h := sha256.New()
-	h.Write([]byte(charID))
-	h.Write([]byte(userID))
-
-	// Only hash content from cacheable layers (not conversation)
-	for _, bp := range breakpoints {
-		if bp.Layer != cache.ConversationLayer {
-			h.Write([]byte(bp.Content))
-		}
-	}
-
-	return hex.EncodeToString(h.Sum(nil))
-}
-
-func (cb *CharacterBot) selectProvider() providers.AIProvider {
-	cb.mu.RLock()
-	defer cb.mu.RUnlock()
-
-	// Try to get the default provider
-	if provider, exists := cb.providers[cb.config.DefaultProvider]; exists {
-		return provider
-	}
-
-	// Fallback to first available provider
-	for _, p := range cb.providers {
-		return p
-	}
-
-	return nil
-}
-
-func (cb *CharacterBot) updateCharacterState(charID string, resp *providers.AIResponse) {
-	char, err := cb.GetCharacter(charID)
+	// Load and parse prompt template
+	promptTemplateBytes, err := os.ReadFile(upa.promptPath)
 	if err != nil {
-		return
+		return nil, fmt.Errorf("failed to read user profile prompt template '%s': %w", upa.promptPath, err)
 	}
 
-	char.Lock()
-	defer char.Unlock()
-
-	// Update emotional state with decay
-	char.CurrentMood = cb.blendEmotions(char.CurrentMood, resp.Emotions, 0.3)
-
-	// Add to short-term memory
-	memory := models.Memory{
-		Type:      models.ShortTermMemory,
-		Content:   resp.Content,
-		Timestamp: time.Now(),
-		Emotional: cb.calculateEmotionalWeight(resp.Emotions),
-	}
-	char.Memories = append(char.Memories, memory)
-
-	// Trigger consolidation if needed
-	if len(char.Memories) > cb.config.MemoryConfig.ShortTermWindow {
-		go cb.consolidateMemories(char)
+	tmpl, err := template.New("userProfile").Parse(string(promptTemplateBytes))
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse user profile prompt template: %w", err)
 	}
 
-	// Evolution logic
-	if cb.config.PersonalityConfig.EvolutionEnabled {
-		cb.evolvePersonality(char, resp)
+	data := profilePromptData{
+		ExistingProfileJSON: string(existingProfileJSON),
+		Messages:            promptMessages,
+		HistoryTurnCount:    len(promptMessages),
+		CharacterName:       character.Name,
+		CharacterID:         character.ID,
+		UserID:              userID,
+		NextVersion:         existingProfile.Version + 1,
+		CurrentTimestamp:    time.Now().Format(time.RFC3339),
 	}
 
-	char.LastModified = time.Now()
-}
-
-func (cb *CharacterBot) blendEmotions(current, new models.EmotionalState, rate float64) models.EmotionalState {
-	return models.EmotionalState{
-		Joy:      current.Joy*(1-rate) + new.Joy*rate,
-		Surprise: current.Surprise*(1-rate) + new.Surprise*rate,
-		Anger:    current.Anger*(1-rate) + new.Anger*rate,
-		Fear:     current.Fear*(1-rate) + new.Fear*rate,
-		Sadness:  current.Sadness*(1-rate) + new.Sadness*rate,
-		Disgust:  current.Disgust*(1-rate) + new.Disgust*rate,
-	}
-}
-
-func (cb *CharacterBot) calculateEmotionalWeight(emotions models.EmotionalState) float64 {
-	// Simple average of emotion intensities
-	total := emotions.Joy + emotions.Surprise + emotions.Anger +
-		emotions.Fear + emotions.Sadness + emotions.Disgust
-	return total / 6.0
-}
-
-func (cb *CharacterBot) evolvePersonality(char *models.Character, resp *providers.AIResponse) {
-	// Calculate trait impacts based on interaction
-	impacts := cb.analyzeInteractionImpacts(resp)
-
-	// Apply bounded evolution
-	driftRate := cb.config.PersonalityConfig.MaxDriftRate
-	char.Personality.Openness += impacts.Openness * driftRate
-	char.Personality.Conscientiousness += impacts.Conscientiousness * driftRate
-	char.Personality.Extraversion += impacts.Extraversion * driftRate
-	char.Personality.Agreeableness += impacts.Agreeableness * driftRate
-	char.Personality.Neuroticism += impacts.Neuroticism * driftRate
-
-	// Normalize to keep traits in [0, 1] range
-	char.Personality = models.NormalizePersonality(char.Personality)
-}
-
-func (cb *CharacterBot) analyzeInteractionImpacts(resp *providers.AIResponse) models.PersonalityTraits {
-	// Simplified impact analysis based on emotional response
-	return models.PersonalityTraits{
-		Openness:          resp.Emotions.Surprise * 0.5,
-		Conscientiousness: (1 - resp.Emotions.Anger) * 0.3,
-		Extraversion:      resp.Emotions.Joy * 0.4,
-		Agreeableness:     (1 - resp.Emotions.Disgust) * 0.3,
-		Neuroticism:       (resp.Emotions.Fear + resp.Emotions.Sadness) * 0.3,
-	}
-}
-
-// Background workers
-
-func (cb *CharacterBot) memoryConsolidationWorker() {
-	ticker := time.NewTicker(1 * time.Hour)
-	defer ticker.Stop()
-
-	for range ticker.C {
-		cb.consolidateAllMemories()
-	}
-}
-
-func (cb *CharacterBot) consolidateAllMemories() {
-	cb.mu.RLock()
-	chars := make([]*models.Character, 0, len(cb.characters))
-	for _, char := range cb.characters {
-		chars = append(chars, char)
-	}
-	cb.mu.RUnlock()
-
-	for _, char := range chars {
-		cb.consolidateMemories(char)
-	}
-}
-
-func (cb *CharacterBot) consolidateMemories(char *models.Character) {
-	char.Lock()
-	defer char.Unlock()
-
-	// Group memories by emotional significance
-	emotionalMemories := make([]models.Memory, 0)
-
-	threshold := 0.7 // Emotional weight threshold
-
-	for _, mem := range char.Memories {
-		if mem.Type == models.ShortTermMemory && mem.Emotional > threshold {
-			emotionalMemories = append(emotionalMemories, mem)
-		}
+	var promptBuilder strings.Builder
+	if err := tmpl.Execute(&promptBuilder, data); err != nil {
+		return nil, fmt.Errorf("failed to execute user profile prompt template: %w", err)
 	}
 
-	// Consolidate emotional memories into medium-term
-	if len(emotionalMemories) > 3 {
-		consolidated := models.Memory{
-			Type:      models.MediumTermMemory,
-			Content:   cb.synthesizeMemories(emotionalMemories),
-			Timestamp: time.Now(),
-			Emotional: cb.averageEmotionalWeight(emotionalMemories),
-		}
-		char.Memories = append(char.Memories, consolidated)
+	// Make LLM call
+	request := &providers.PromptRequest{
+		CharacterID:  "system-user-profiler",
+		UserID:       userID,
+		Message:      promptBuilder.String(),
+		SystemPrompt: "You are an analytical AI. Your task is to extract and update user profile information based on the provided conversation history and existing profile. Respond ONLY with the updated JSON profile.",
 	}
 
-	// Prune old short-term memories
-	cutoff := time.Now().Add(-cb.config.MemoryConfig.MediumTermDuration)
-	filtered := make([]models.Memory, 0)
-
-	for _, mem := range char.Memories {
-		if mem.Type != models.ShortTermMemory || mem.Timestamp.After(cutoff) {
-			filtered = append(filtered, mem)
-		}
+	response, err := upa.provider.SendRequest(ctx, request)
+	if err != nil {
+		return nil, fmt.Errorf("LLM call for user profile extraction failed: %w", err)
 	}
 
-	char.Memories = filtered
-}
-
-func (cb *CharacterBot) synthesizeMemories(memories []models.Memory) string {
-	// In a real implementation, this would use NLP to create a coherent summary
-	contents := make([]string, 0, len(memories))
-	for _, mem := range memories {
-		contents = append(contents, mem.Content)
-	}
-	return fmt.Sprintf("Consolidated memories: %s", strings.Join(contents, "; "))
-}
-
-func (cb *CharacterBot) averageEmotionalWeight(memories []models.Memory) float64 {
-	if len(memories) == 0 {
-		return 0
+	// Clean and parse JSON response
+	jsonContent := strings.TrimSpace(response.Content)
+	
+	// Remove markdown code blocks if present
+	if strings.HasPrefix(jsonContent, "```json") {
+		jsonContent = strings.TrimPrefix(jsonContent, "```json")
+		jsonContent = strings.TrimSuffix(jsonContent, "```")
+		jsonContent = strings.TrimSpace(jsonContent)
+	} else if strings.HasPrefix(jsonContent, "```") {
+		jsonContent = strings.TrimPrefix(jsonContent, "```")
+		jsonContent = strings.TrimSuffix(jsonContent, "```")
+		jsonContent = strings.TrimSpace(jsonContent)
 	}
 
-	total := 0.0
-	for _, mem := range memories {
-		total += mem.Emotional
+	var updatedProfile models.UserProfile
+	if err := json.Unmarshal([]byte(jsonContent), &updatedProfile); err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to parse LLM response for user profile. Raw content:\n%s\n", jsonContent)
+		return nil, fmt.Errorf("failed to parse LLM response as JSON for user profile: %w", err)
 	}
 
-	return total / float64(len(memories))
-}
-
-// Utility functions
-
-func joinQuirks(quirks []string) string {
-	if len(quirks) == 0 {
-		return "None"
+	// Validate the response
+	if updatedProfile.UserID != userID || updatedProfile.CharacterID != character.ID {
+		return nil, fmt.Errorf("LLM returned profile for incorrect user/character. Expected %s/%s, got %s/%s",
+			userID, character.ID, updatedProfile.UserID, updatedProfile.CharacterID)
 	}
-	return strings.Join(quirks, ", ")
+
+	// Save the updated profile
+	if err := upa.repo.SaveUserProfile(&updatedProfile); err != nil {
+		return nil, fmt.Errorf("failed to save updated user profile: %w", err)
+	}
+
+	return &updatedProfile, nil
 }
 ````
 
@@ -4328,56 +4594,6 @@ func WrapText(text string, width int) string {
 
 	return strings.Join(lines, "\n")
 }
-````
-
-## File: CHANGELOG.md
-````markdown
-# Changelog
-
-All notable changes to this project will be documented in this file.
-
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
-and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
-
-## [Unreleased]
-
-### Fixed
-- Fixed `character show` command to load characters from repository instead of expecting them in memory
-- Fixed interactive mode to load all available characters on startup for proper `/list` and `/switch` functionality
-
-### Added
-- Initial release of Roleplay character bot system
-- OCEAN personality model implementation
-- Multi-tier memory system (short, medium, long-term)
-- 4-layer caching architecture for 90% cost reduction
-- Support for OpenAI and Anthropic providers
-- Interactive TUI chat interface
-- Character import from markdown files using AI
-- Session management and statistics
-- Personality evolution with bounded drift
-- Emotional state tracking and blending
-- Example character files
-- Comprehensive documentation
-
-### Features
-- `character` command for managing characters
-  - `create` - Create character from JSON
-  - `list` - List all characters
-  - `show` - Show character details
-  - `example` - Generate example JSON
-- `import` command for AI-powered markdown import
-- `chat` command for single message interactions
-- `interactive` command for TUI chat interface
-- `demo` command for caching demonstration
-- `session` command for session management
-  - `list` - List all sessions
-  - `stats` - Show caching statistics
-- `api-test` command for testing API connectivity
-- `status` command for configuration status
-
-## [0.1.0] - TBD
-
-Initial public release.
 ````
 
 ## File: main.go
@@ -4468,394 +4684,6 @@ func runAPITest(cmd *cobra.Command, args []string) error {
 	fmt.Printf("\nResponse:\n%s\n", utils.WrapText(resp.Content, 80))
 
 	return nil
-}
-````
-
-## File: cmd/demo.go
-````go
-package cmd
-
-import (
-	"context"
-	"fmt"
-	"strings"
-	"time"
-
-	"github.com/charmbracelet/lipgloss"
-	"github.com/dotcommander/roleplay/internal/factory"
-	"github.com/dotcommander/roleplay/internal/manager"
-	"github.com/dotcommander/roleplay/internal/models"
-	"github.com/dotcommander/roleplay/internal/providers"
-	"github.com/dotcommander/roleplay/internal/repository"
-	"github.com/dotcommander/roleplay/internal/services"
-	"github.com/dotcommander/roleplay/internal/utils"
-	"github.com/spf13/cobra"
-)
-
-var demoCmd = &cobra.Command{
-	Use:   "demo",
-	Short: "Run a caching demonstration",
-	Long: `Demonstrates the prompt caching system with a series of interactions
-that showcase cache hits, misses, and cost savings.`,
-	RunE: runDemo,
-}
-
-func init() {
-	rootCmd.AddCommand(demoCmd)
-	demoCmd.Flags().String("character", "rick-c137", "Character ID to use for demo")
-	demoCmd.Flags().Bool("create-character", true, "Create demo character if it doesn't exist")
-}
-
-func runDemo(cmd *cobra.Command, args []string) error {
-	characterID, _ := cmd.Flags().GetString("character")
-	createChar, _ := cmd.Flags().GetBool("create-character")
-
-	// Initialize configuration
-	cfg := GetConfig()
-
-	// Create manager
-	mgr, err := manager.NewCharacterManager(cfg)
-	if err != nil {
-		return err
-	}
-
-	// Setup provider
-	// Initialize provider using factory
-	if err := factory.InitializeAndRegisterProvider(mgr.GetBot(), cfg); err != nil {
-		return fmt.Errorf("failed to initialize provider: %w", err)
-	}
-
-	// Create or load demo character
-	if createChar {
-		if err := createDemoCharacter(mgr, characterID); err != nil {
-			return err
-		}
-	}
-
-	// Ensure character is loaded
-	char, err := mgr.GetOrLoadCharacter(characterID)
-	if err != nil {
-		return fmt.Errorf("failed to load character: %w", err)
-	}
-
-	// Create demo session
-	sessionID := fmt.Sprintf("demo-%d", time.Now().Unix())
-	session := &repository.Session{
-		ID:           sessionID,
-		CharacterID:  characterID,
-		UserID:       "demo-user",
-		StartTime:    time.Now(),
-		LastActivity: time.Now(),
-		Messages:     []repository.SessionMessage{},
-		CacheMetrics: repository.CacheMetrics{},
-	}
-
-	// Initialize styles
-	styles := newDemoStyles()
-
-	// Display demo header
-	displayDemoHeader(styles, char)
-
-	// Get demo messages
-	demoMessages := getDemoMessages()
-
-
-	// Run demo interactions
-	ctx := context.Background()
-	for i, demo := range demoMessages {
-		if demo.delay > 0 {
-			time.Sleep(demo.delay)
-		}
-
-		// Display interaction header
-		fmt.Printf("\n%s[Message %d] %s\n",
-			styles.separator.Render(""),
-			i+1,
-			demo.description,
-		)
-		fmt.Printf("%sUser: %s\n",
-			styles.bold.Render(""),
-			styles.message.Render(demo.message),
-		)
-
-		// Process request
-		req := models.ConversationRequest{
-			CharacterID: characterID,
-			UserID:      "demo-user",
-			Message:     demo.message,
-		}
-
-		resp, _, err := processDemoMessage(ctx, mgr.GetBot(), &req, char, styles)
-		if err != nil {
-			fmt.Printf("Error: %v\n", err)
-			continue
-		}
-
-		// Update session metrics
-		updateSessionMetrics(session, demo.message, resp)
-	}
-
-	// Calculate and save final metrics
-	if session.CacheMetrics.TotalRequests > 0 {
-		session.CacheMetrics.HitRate = float64(session.CacheMetrics.CacheHits) /
-			float64(session.CacheMetrics.TotalRequests)
-	}
-	session.CacheMetrics.CostSaved = float64(session.CacheMetrics.TokensSaved) * 0.000003 // Approximate cost per token
-	session.LastActivity = time.Now()
-
-	// Save session
-	if err := mgr.GetSessionRepository().SaveSession(session); err != nil {
-		fmt.Printf("\nWarning: Failed to save session: %v\n", err)
-	}
-
-	// Display summary
-	displayDemoSummary(session, styles)
-
-	return nil
-}
-
-func createDemoCharacter(mgr *manager.CharacterManager, characterID string) error {
-	// Check if already exists
-	if _, err := mgr.GetOrLoadCharacter(characterID); err == nil {
-		return nil // Already exists
-	}
-
-	// Create Rick Sanchez for demo
-	if characterID == "rick-c137" {
-		char := &models.Character{
-			ID:        "rick-c137",
-			Name:      "Rick Sanchez",
-			Backstory: `The smartest man in the universe from dimension C-137. Cynical, alcoholic mad scientist who drags his grandson Morty on dangerous adventures across dimensions. Inventor of portal gun technology. Believes that nothing matters and science is the only truth. Has complex family relationships and deep-seated emotional issues masked by nihilism and substance abuse.`,
-			Personality: models.PersonalityTraits{
-				Openness:          1.0,
-				Conscientiousness: 0.2,
-				Extraversion:      0.7,
-				Agreeableness:     0.1,
-				Neuroticism:       0.9,
-			},
-			CurrentMood: models.EmotionalState{
-				Joy:      0.2,
-				Surprise: 0.1,
-				Anger:    0.4,
-				Fear:     0.1,
-				Sadness:  0.3,
-				Disgust:  0.5,
-			},
-			Quirks: []string{
-				"Burps frequently mid-sentence (*burp*)",
-				"Uses people's names as punctuation when talking",
-				"Drinks from a flask constantly",
-				"Makes pop culture references from multiple dimensions",
-				"Dismisses emotions as 'chemical reactions'",
-				"Uses scientific terminology casually",
-			},
-			SpeechStyle: "Cynical, sarcastic, frequently interrupted by burps. Uses complex scientific terms mixed with crude language. Often goes on nihilistic rants.",
-		}
-		return mgr.CreateCharacter(char)
-	}
-
-	// Default demo character
-	char := &models.Character{
-		ID:   characterID,
-		Name: "Cache Demo Assistant",
-		Backstory: `A helpful AI assistant designed to demonstrate prompt caching capabilities. 
-I have a consistent personality and knowledge base that can be efficiently cached.`,
-		Personality: models.PersonalityTraits{
-			Openness:          0.9,
-			Conscientiousness: 0.8,
-			Extraversion:      0.7,
-			Agreeableness:     0.9,
-			Neuroticism:       0.2,
-		},
-		CurrentMood: models.EmotionalState{
-			Joy:      0.7,
-			Surprise: 0.3,
-			Anger:    0.1,
-			Fear:     0.1,
-			Sadness:  0.1,
-			Disgust:  0.1,
-		},
-		Quirks: []string{"helpful", "efficient", "knowledgeable"},
-	}
-
-	return mgr.CreateCharacter(char)
-}
-
-// demoStyles holds all the Lipgloss styles used in the demo command
-type demoStyles struct {
-	title      lipgloss.Style
-	cacheHit   lipgloss.Style
-	cacheMiss  lipgloss.Style
-	metrics    lipgloss.Style
-	message    lipgloss.Style
-	separator  lipgloss.Style
-	bold       lipgloss.Style
-}
-
-// newDemoStyles creates and initializes all demo styles
-func newDemoStyles() *demoStyles {
-	return &demoStyles{
-		title: lipgloss.NewStyle().
-			Bold(true).
-			Foreground(lipgloss.Color("#7c6f64")).
-			Background(lipgloss.Color("#3c3836")).
-			Padding(0, 1),
-		
-		cacheHit: lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#b8bb26")).
-			Bold(true),
-		
-		cacheMiss: lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#fb4934")).
-			Bold(true),
-		
-		metrics: lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#83a598")),
-		
-		message: lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#ebdbb2")),
-		
-		separator: lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#665c54")),
-		
-		bold: lipgloss.NewStyle().Bold(true),
-	}
-}
-
-// demoMessage represents a single demo interaction
-type demoMessage struct {
-	message     string
-	description string
-	delay       time.Duration
-}
-
-// getDemoMessages returns the predefined demo message sequence
-func getDemoMessages() []demoMessage {
-	return []demoMessage{
-		{
-			"Tell me about yourself",
-			"Initial request - establishes cache layers",
-			0,
-		},
-		{
-			"Tell me about yourself",
-			"Exact repeat - should hit response cache",
-			1 * time.Second,
-		},
-		{
-			"What are your core values?",
-			"New question - cache miss",
-			1 * time.Second,
-		},
-		{
-			"What are your core values?",
-			"Repeat question - should hit cache",
-			1 * time.Second,
-		},
-		{
-			"Tell me about yourself",
-			"Third repeat - should hit cache with high savings",
-			1 * time.Second,
-		},
-	}
-}
-
-// displayDemoHeader shows the demo title and character info
-func displayDemoHeader(styles *demoStyles, char *models.Character) {
-	fmt.Println(styles.title.Render("🚀 Roleplay Prompt Caching Demo"))
-	fmt.Printf("\nCharacter: %s (%s)\n", char.Name, char.ID)
-	fmt.Println(strings.Repeat("─", 60))
-}
-
-// processDemoMessage handles a single demo interaction
-func processDemoMessage(
-	ctx context.Context,
-	bot *services.CharacterBot,
-	req *models.ConversationRequest,
-	char *models.Character,
-	styles *demoStyles,
-) (*providers.AIResponse, time.Duration, error) {
-	start := time.Now()
-	resp, err := bot.ProcessRequest(ctx, req)
-	elapsed := time.Since(start)
-	
-	if err != nil {
-		return nil, elapsed, err
-	}
-	
-	// Display response
-	fmt.Printf("%s%s:\n", styles.bold.Render(""), char.Name)
-	fmt.Printf("%s\n", styles.message.Render(utils.WrapText(resp.Content, 80)))
-	
-	// Display cache metrics
-	cacheStatus := "MISS"
-	style := styles.cacheMiss
-	if resp.CacheMetrics.Hit {
-		cacheStatus = fmt.Sprintf("HIT (%d layers)", len(resp.CacheMetrics.Layers))
-		style = styles.cacheHit
-	}
-	
-	fmt.Printf("\n%s\n", styles.metrics.Render(fmt.Sprintf(
-		"  ⚡ Response Time: %v | Cache: %s | Tokens: %d (saved: %d)",
-		elapsed,
-		style.Render(cacheStatus),
-		resp.TokensUsed.Total,
-		resp.CacheMetrics.SavedTokens,
-	)))
-	
-	return resp, elapsed, nil
-}
-
-// updateSessionMetrics updates the session with response metrics
-func updateSessionMetrics(
-	session *repository.Session,
-	userMessage string,
-	resp *providers.AIResponse,
-) {
-	// Add messages to session
-	session.Messages = append(session.Messages, repository.SessionMessage{
-		Timestamp: time.Now(),
-		Role:      "user",
-		Content:   userMessage,
-	})
-	
-	cacheHits := 0
-	cacheMisses := 0
-	if resp.CacheMetrics.Hit {
-		cacheHits = 1
-	} else {
-		cacheMisses = 1
-	}
-	
-	session.Messages = append(session.Messages, repository.SessionMessage{
-		Timestamp:   time.Now(),
-		Role:        "character",
-		Content:     resp.Content,
-		TokensUsed:  resp.TokensUsed.Total,
-		CacheHits:   cacheHits,
-		CacheMisses: cacheMisses,
-	})
-	
-	// Update cumulative metrics
-	session.CacheMetrics.TotalRequests++
-	if resp.CacheMetrics.Hit {
-		session.CacheMetrics.CacheHits++
-	} else {
-		session.CacheMetrics.CacheMisses++
-	}
-	session.CacheMetrics.TokensSaved += resp.CacheMetrics.SavedTokens
-}
-
-// displayDemoSummary shows the final summary of the demo
-func displayDemoSummary(session *repository.Session, styles *demoStyles) {
-	fmt.Println("\n" + strings.Repeat("═", 60))
-	fmt.Println(styles.title.Render("📊 Demo Summary"))
-	fmt.Printf("\nTotal Interactions: %d\n", session.CacheMetrics.TotalRequests)
-	fmt.Printf("Overall Cache Hit Rate: %.1f%%\n", session.CacheMetrics.HitRate*100)
-	fmt.Printf("Total Tokens Saved: %d\n", session.CacheMetrics.TokensSaved)
-	fmt.Printf("Estimated Cost Saved: $%.4f\n", session.CacheMetrics.CostSaved)
-	fmt.Printf("\nSession saved as: %s\n", session.ID)
-	fmt.Println("\nView detailed metrics with: roleplay session stats")
 }
 ````
 
@@ -4958,148 +4786,249 @@ func runImport(cmd *cobra.Command, args []string) error {
 }
 ````
 
-## File: cmd/root.go
+## File: internal/cache/types.go
 ````go
-package cmd
+package cache
+
+import (
+	"time"
+)
+
+// CacheLayer represents different cache layers
+type CacheLayer string
+
+const (
+	ScenarioContextLayer CacheLayer = "scenario_context" // Highest layer - meta-prompts
+	CorePersonalityLayer CacheLayer = "core_personality"
+	LearnedBehaviorLayer CacheLayer = "learned_behavior"
+	EmotionalStateLayer  CacheLayer = "emotional_state"
+	UserMemoryLayer      CacheLayer = "user_memory"
+	ConversationLayer    CacheLayer = "conversation"
+)
+
+// CacheBreakpoint represents a cache checkpoint
+type CacheBreakpoint struct {
+	Layer      CacheLayer    `json:"layer"`
+	Content    string        `json:"content"`
+	TokenCount int           `json:"token_count"`
+	TTL        time.Duration `json:"ttl"`
+	LastUsed   time.Time     `json:"last_used"`
+}
+
+// CacheEntry represents a cached prompt entry
+type CacheEntry struct {
+	Breakpoints []CacheBreakpoint
+	Hash        string
+	CreatedAt   time.Time
+	LastAccess  time.Time
+	HitCount    int
+	UserID      string
+}
+
+// TTLManager handles dynamic TTL calculations
+type TTLManager struct {
+	BaseTTL         time.Duration
+	ActiveBonus     float64 // 50% bonus for active conversations
+	ComplexityBonus float64 // 20% bonus for complex characters
+	MinTTL          time.Duration
+	MaxTTL          time.Duration
+}
+
+// CacheMetrics tracks cache performance
+type CacheMetrics struct {
+	Hit         bool
+	Layers      []CacheLayer
+	SavedTokens int
+	Latency     time.Duration
+}
+````
+
+## File: internal/config/config.go
+````go
+package config
+
+import "time"
+
+// Config holds all application configuration
+type Config struct {
+	DefaultProvider   string
+	Model             string
+	APIKey            string
+	CacheConfig       CacheConfig
+	MemoryConfig      MemoryConfig
+	PersonalityConfig PersonalityConfig
+	UserProfileConfig UserProfileConfig
+}
+
+// CacheConfig holds cache-related configuration
+type CacheConfig struct {
+	MaxEntries        int
+	CleanupInterval   time.Duration
+	DefaultTTL        time.Duration
+	EnableAdaptiveTTL bool
+}
+
+// MemoryConfig holds memory management configuration
+type MemoryConfig struct {
+	ShortTermWindow    int           // Number of messages
+	MediumTermDuration time.Duration // How long to keep
+	ConsolidationRate  float64       // Learning rate for personality evolution
+}
+
+// PersonalityConfig holds personality evolution configuration
+type PersonalityConfig struct {
+	EvolutionEnabled   bool
+	MaxDriftRate       float64 // Maximum personality change per interaction
+	StabilityThreshold float64 // Minimum interactions before evolution
+}
+
+// UserProfileConfig holds user profile agent configuration
+type UserProfileConfig struct {
+	Enabled              bool          `mapstructure:"enabled"`
+	UpdateFrequency      int           `mapstructure:"update_frequency_messages"` // Update every N messages
+	TurnsToConsider      int           `mapstructure:"turns_to_consider"`         // How many past turns to analyze
+	ConfidenceThreshold  float64       `mapstructure:"confidence_threshold"`      // Min confidence for facts
+	PromptCacheTTL       time.Duration `mapstructure:"prompt_cache_ttl"`
+}
+````
+
+## File: internal/factory/provider.go
+````go
+package factory
 
 import (
 	"fmt"
 	"os"
-	"path/filepath"
-	"time"
 
 	"github.com/dotcommander/roleplay/internal/config"
-	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
+	"github.com/dotcommander/roleplay/internal/providers"
+	"github.com/dotcommander/roleplay/internal/services"
 )
 
-var (
-	cfgFile string
-	cfg     *config.Config
-)
+// CreateProvider creates an AI provider based on the configuration
+func CreateProvider(cfg *config.Config) (providers.AIProvider, error) {
+	apiKey := getAPIKey(cfg)
+	if apiKey == "" {
+		return nil, fmt.Errorf("API key for provider %s not found. Set api_key in config or %s environment variable",
+			cfg.DefaultProvider, getEnvVarName(cfg.DefaultProvider))
+	}
 
-var rootCmd = &cobra.Command{
-	Use:   "roleplay",
-	Short: "A sophisticated character bot with psychological modeling",
-	Long: `Roleplay is a character bot system that implements psychologically-realistic 
-AI characters with personality evolution, emotional states, and multi-layered memory systems.
-
-Features:
-- OCEAN personality model with dynamic evolution
-- Multi-tier memory system (short, medium, long-term)
-- Sophisticated 4-layer caching for 90% cost reduction
-- Support for multiple AI providers (Anthropic, OpenAI)
-- Adaptive TTL based on conversation patterns`,
-}
-
-func Execute() {
-	if err := rootCmd.Execute(); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
+	switch cfg.DefaultProvider {
+	case "anthropic":
+		return providers.NewAnthropicProvider(apiKey), nil
+	case "openai":
+		model := cfg.Model
+		if model == "" {
+			model = "gpt-4o-mini" // Centralized default
+		}
+		return providers.NewOpenAIProvider(apiKey, model), nil
+	default:
+		return nil, fmt.Errorf("unsupported provider: %s", cfg.DefaultProvider)
 	}
 }
 
-func init() {
-	cobra.OnInitialize(initConfig)
+// InitializeAndRegisterProvider creates and registers a provider with the bot
+func InitializeAndRegisterProvider(bot *services.CharacterBot, cfg *config.Config) error {
+	provider, err := CreateProvider(cfg)
+	if err != nil {
+		return err
+	}
 
-	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is $HOME/.roleplay.yaml)")
-	rootCmd.PersistentFlags().String("provider", "openai", "AI provider to use (anthropic, openai)")
-	rootCmd.PersistentFlags().String("model", "", "Model to use (e.g., gpt-4o-mini, gpt-4 for OpenAI)")
-	rootCmd.PersistentFlags().String("api-key", "", "API key for the AI provider")
-	rootCmd.PersistentFlags().Duration("cache-ttl", 10*time.Minute, "Default cache TTL")
-	rootCmd.PersistentFlags().Bool("adaptive-ttl", true, "Enable adaptive TTL for cache")
-	rootCmd.PersistentFlags().BoolP("verbose", "v", false, "Enable verbose output")
+	bot.RegisterProvider(cfg.DefaultProvider, provider)
+	
+	// Initialize user profile agent after provider is registered
+	bot.InitializeUserProfileAgent()
+	
+	return nil
+}
 
-	if err := viper.BindPFlag("provider", rootCmd.PersistentFlags().Lookup("provider")); err != nil {
-		fmt.Fprintf(os.Stderr, "Error binding provider flag: %v\n", err)
+// CreateProviderWithFallback creates a provider with environment variable fallback
+// This is useful for commands that don't use the full config structure
+func CreateProviderWithFallback(providerName, apiKey, model string) (providers.AIProvider, error) {
+	// Try environment variable if API key not provided
+	if apiKey == "" {
+		apiKey = os.Getenv(getEnvVarName(providerName))
 	}
-	if err := viper.BindPFlag("model", rootCmd.PersistentFlags().Lookup("model")); err != nil {
-		fmt.Fprintf(os.Stderr, "Error binding model flag: %v\n", err)
+
+	if apiKey == "" {
+		return nil, fmt.Errorf("API key for provider %s not found", providerName)
 	}
-	if err := viper.BindPFlag("api_key", rootCmd.PersistentFlags().Lookup("api-key")); err != nil {
-		fmt.Fprintf(os.Stderr, "Error binding api_key flag: %v\n", err)
-	}
-	if err := viper.BindPFlag("cache.default_ttl", rootCmd.PersistentFlags().Lookup("cache-ttl")); err != nil {
-		fmt.Fprintf(os.Stderr, "Error binding cache.default_ttl flag: %v\n", err)
-	}
-	if err := viper.BindPFlag("cache.adaptive_ttl", rootCmd.PersistentFlags().Lookup("adaptive-ttl")); err != nil {
-		fmt.Fprintf(os.Stderr, "Error binding cache.adaptive_ttl flag: %v\n", err)
+
+	switch providerName {
+	case "anthropic":
+		return providers.NewAnthropicProvider(apiKey), nil
+	case "openai":
+		if model == "" {
+			model = "gpt-4o-mini"
+		}
+		return providers.NewOpenAIProvider(apiKey, model), nil
+	default:
+		return nil, fmt.Errorf("unsupported provider: %s", providerName)
 	}
 }
 
-func initConfig() {
-	if cfgFile != "" {
-		viper.SetConfigFile(cfgFile)
-	} else {
-		home, err := os.UserHomeDir()
-		cobra.CheckErr(err)
-
-		viper.AddConfigPath(filepath.Join(home, ".config", "roleplay"))
-		viper.SetConfigType("yaml")
-		viper.SetConfigName("config")
-	}
-
-	viper.SetEnvPrefix("ROLEPLAY")
-	viper.AutomaticEnv()
-
-	if err := viper.ReadInConfig(); err == nil {
-		fmt.Fprintln(os.Stderr, "Using config file:", viper.ConfigFileUsed())
-	}
-
-	// Check for OPENAI_API_KEY environment variable if no API key is set
-	apiKey := viper.GetString("api_key")
-	if apiKey == "" && viper.GetString("provider") == "openai" {
-		apiKey = os.Getenv("OPENAI_API_KEY")
-	}
-
-	cfg = &config.Config{
-		DefaultProvider: viper.GetString("provider"),
-		Model:           viper.GetString("model"),
-		APIKey:          apiKey,
-		CacheConfig: config.CacheConfig{
-			MaxEntries:        viper.GetInt("cache.max_entries"),
-			CleanupInterval:   viper.GetDuration("cache.cleanup_interval"),
-			DefaultTTL:        viper.GetDuration("cache.default_ttl"),
-			EnableAdaptiveTTL: viper.GetBool("cache.adaptive_ttl"),
-		},
-		MemoryConfig: config.MemoryConfig{
-			ShortTermWindow:    viper.GetInt("memory.short_term_window"),
-			MediumTermDuration: viper.GetDuration("memory.medium_term_duration"),
-			ConsolidationRate:  viper.GetFloat64("memory.consolidation_rate"),
-		},
-		PersonalityConfig: config.PersonalityConfig{
-			EvolutionEnabled:   viper.GetBool("personality.evolution_enabled"),
-			MaxDriftRate:       viper.GetFloat64("personality.max_drift_rate"),
-			StabilityThreshold: viper.GetFloat64("personality.stability_threshold"),
-		},
-	}
-
-	// Set defaults if not configured
-	if cfg.CacheConfig.MaxEntries == 0 {
-		cfg.CacheConfig.MaxEntries = 10000
-	}
-	if cfg.CacheConfig.CleanupInterval == 0 {
-		cfg.CacheConfig.CleanupInterval = 5 * time.Minute
-	}
-	if cfg.MemoryConfig.ShortTermWindow == 0 {
-		cfg.MemoryConfig.ShortTermWindow = 20
-	}
-	if cfg.MemoryConfig.MediumTermDuration == 0 {
-		cfg.MemoryConfig.MediumTermDuration = 24 * time.Hour
-	}
-	if cfg.MemoryConfig.ConsolidationRate == 0 {
-		cfg.MemoryConfig.ConsolidationRate = 0.1
-	}
-	if cfg.PersonalityConfig.MaxDriftRate == 0 {
-		cfg.PersonalityConfig.MaxDriftRate = 0.02
-	}
-	if cfg.PersonalityConfig.StabilityThreshold == 0 {
-		cfg.PersonalityConfig.StabilityThreshold = 10
+// GetDefaultModel returns the default model for a provider
+func GetDefaultModel(providerName string) string {
+	switch providerName {
+	case "openai":
+		return "gpt-4o-mini"
+	case "anthropic":
+		return "claude-3-haiku-20240307"
+	default:
+		return ""
 	}
 }
 
-func GetConfig() *config.Config {
-	return cfg
+// getAPIKey retrieves the API key from config or environment
+func getAPIKey(cfg *config.Config) string {
+	if cfg.APIKey != "" {
+		return cfg.APIKey
+	}
+
+	// Fall back to environment variable
+	return os.Getenv(getEnvVarName(cfg.DefaultProvider))
+}
+
+// getEnvVarName returns the environment variable name for a provider
+func getEnvVarName(provider string) string {
+	switch provider {
+	case "openai":
+		return "OPENAI_API_KEY"
+	case "anthropic":
+		return "ANTHROPIC_API_KEY"
+	default:
+		return ""
+	}
+}
+````
+
+## File: internal/models/conversation.go
+````go
+package models
+
+import "time"
+
+// Message represents a single message in a conversation
+type Message struct {
+	Role      string    `json:"role"`
+	Content   string    `json:"content"`
+	Timestamp time.Time `json:"timestamp"`
+}
+
+// ConversationContext holds the current conversation state
+type ConversationContext struct {
+	RecentMessages []Message
+	SessionID      string
+	StartTime      time.Time
+}
+
+// ConversationRequest represents a user request to the character bot
+type ConversationRequest struct {
+	CharacterID string
+	UserID      string
+	Message     string
+	Context     ConversationContext
+	ScenarioID  string // Optional scenario context
 }
 ````
 
@@ -5479,275 +5408,6 @@ test_data/
 !examples/
 ````
 
-## File: CLAUDE.md
-````markdown
-# CLAUDE.md
-
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
-
-## Project Overview
-
-This is a sophisticated Go-based character bot architecture that implements psychologically-realistic AI characters with personality evolution, emotional states, and multi-layered memory systems. The codebase demonstrates advanced caching strategies to achieve 90% cost reduction in LLM API usage.
-
-## Architecture
-
-### Core Components
-
-1. **Character System**
-   - OCEAN personality model (Openness, Conscientiousness, Extraversion, Agreeableness, Neuroticism)
-   - Emotional states with dynamic blending
-   - Three-tier memory system (short-term, medium-term, long-term)
-   - Personality evolution with bounded drift
-
-2. **4-Layer Prompt Caching Architecture**
-   Our sophisticated caching system implements 4 strategic layers for maximum token savings:
-   
-   **Layer 1: Admin/System Layer** - Global system prompts and admin instructions (longest TTL)
-   **Layer 2: Character Personality Layer** - Core character traits, backstory, personality (long TTL)
-   **Layer 3: User Memory Layer** - User-specific memories, relationships, context (medium TTL)
-   **Layer 4: Current Chat History** - Recent conversation context (short TTL/no cache)
-
-3. **Dual Caching System**
-   - **Response Cache**: Stores complete API responses to avoid duplicate requests
-   - **Prompt Cache**: Layers prompts with strategic breakpoints for provider caching
-   - Automatic cache hit detection and metrics tracking
-   - Adaptive TTL based on conversation activity and character complexity
-
-4. **Provider Abstraction**
-   - Interface-based design supporting multiple AI providers
-   - Anthropic implementation with prompt caching (4 breakpoints)
-   - OpenAI implementation with response caching and parameter optimization
-   - Smart routing based on features, cost, or latency
-
-5. **Performance Optimizations**
-   - Adaptive TTL: 50% extension for active conversations, 20% for complex characters
-   - Background workers for cache cleanup and memory consolidation
-   - Thread-safe operations with proper mutex usage
-   - Token tracking and optimization
-   - Response deduplication for identical requests
-
-## Development Commands
-
-```bash
-# Build the application
-go build -o roleplay
-
-# Run commands directly
-go run main.go character example
-go run main.go character create thorin.json
-go run main.go chat "Hello!" --character warrior-123 --user user-789
-
-# Install globally
-go install
-
-# Format code
-go fmt ./...
-
-# Download dependencies
-go mod download
-go mod tidy
-```
-
-## Key Design Patterns
-
-- **Clean Architecture**: Separation between domain models, business logic, and external providers
-- **Dependency Injection**: Providers registered at runtime
-- **Interface-First Design**: All major components defined as interfaces
-- **Concurrent Design**: Thread-safe operations throughout
-- **Factory Pattern**: Centralized provider initialization through `internal/factory`
-
-## Important Implementation Details
-
-### Provider Factory Pattern
-The codebase uses a centralized factory pattern for AI provider initialization:
-
-```go
-// Create provider using factory
-provider, err := factory.CreateProvider(config)
-
-// Or initialize and register with bot
-err := factory.InitializeAndRegisterProvider(bot, config)
-```
-
-This pattern eliminates code duplication and ensures consistent provider setup across all commands.
-
-### 4-Layer Cache Implementation
-The caching system uses strategic breakpoints aligned with our 4-layer architecture:
-
-**Layer 1: Admin/System Layer**
-- Global system instructions and safety guidelines
-- Administrative prompts and framework instructions
-- Longest TTL (24+ hours) - rarely changes
-
-**Layer 2: Character Personality Layer** 
-- Character backstory, personality traits (OCEAN model)
-- Core behavioral patterns and speech style
-- Character-specific quirks and mannerisms
-- Long TTL (6-12 hours) - stable character traits
-
-**Layer 3: User Memory Layer**
-- User-specific relationship dynamics
-- Conversation history and shared memories
-- User preferences and interaction patterns
-- Medium TTL (1-3 hours) - evolves with relationship
-
-**Layer 4: Current Chat History**
-- Recent conversation turns and immediate context
-- Current emotional state and active topics
-- Short TTL (5-15 minutes) or no caching for real-time responses
-
-### Memory Consolidation
-- Automatic consolidation when short-term memory exceeds 10 entries
-- Emotional weighting preserves important memories
-- Background process runs every 5 minutes
-
-### Personality Evolution
-- Bounded drift prevents radical personality changes
-- Learning rate of 0.1 for gradual adaptation
-- Trait changes capped at ±0.2 from baseline
-
-## Project Structure
-
-The codebase follows clean Go CLI architecture with global configuration:
-
-```
-roleplay/
-├── main.go                 # Entry point (<20 lines)
-├── cmd/                    # Command definitions
-│   ├── root.go            # Root command + shared config
-│   ├── chat.go            # Chat command handler
-│   ├── character.go       # Character management commands
-│   ├── demo.go            # Caching demonstration
-│   ├── interactive.go     # TUI chat interface
-│   ├── session.go         # Session management
-│   ├── status.go          # Configuration status
-│   └── apitest.go         # API connectivity testing
-├── internal/              # Private packages
-│   ├── cache/             # Dual caching system (prompt + response)
-│   ├── config/            # Configuration structures
-│   ├── factory/           # Provider factory for centralized initialization
-│   ├── importer/          # AI-powered character import from markdown
-│   ├── models/            # Domain models (Character, Memory, etc.)
-│   ├── providers/         # AI provider implementations
-│   ├── services/          # Core bot service and business logic
-│   ├── repository/        # Character and session persistence
-│   ├── manager/           # High-level character management
-│   └── utils/             # Shared utilities (text wrapping, etc.)
-├── examples/              # Example character files
-│   └── characters/        # Example character JSON files
-├── prompts/               # LLM prompt templates (externalized)
-├── scripts/               # Utility scripts
-├── migrate-config.sh      # Configuration migration script
-├── chat-with-rick.sh      # Quick Rick Sanchez demo script
-└── go.mod
-
-### Global Configuration
-- Config directory: `~/.config/roleplay/`
-- Character storage: `~/.config/roleplay/characters/`
-- Session storage: `~/.config/roleplay/sessions/`
-- Cache storage: `~/.config/roleplay/cache/`
-- Global binary: `~/go/bin/roleplay` (symlinked)
-```
-
-## Command Structure
-
-```bash
-roleplay
-├── character              # Character management
-│   ├── create            # Create from JSON file  
-│   ├── list              # List all available characters
-│   ├── show              # Display character details
-│   └── example           # Generate example JSON
-├── import                 # Import character from markdown using AI
-├── session                # Session management
-│   ├── list              # List sessions for character(s)
-│   └── stats             # Show caching performance metrics
-├── interactive            # TUI chat interface (auto-creates Rick)
-├── chat                   # Single message chat
-├── demo                   # Caching demonstration (uses Rick by default)
-├── api-test               # Test API connectivity
-└── status                 # Show current configuration
-```
-
-## Cache Performance Features
-
-### Demo Mode
-- `roleplay demo` - Interactive demonstration of 4-layer caching
-- Shows cache hits/misses in real-time with visual feedback
-- Demonstrates token savings and cost reduction
-- Uses Rick Sanchez character for engaging demo experience
-
-### Session Persistence
-- All conversations saved with cache metrics
-- `roleplay session stats` shows aggregate caching performance
-- Tracks hit rates, tokens saved, and cost savings across sessions
-- Session data persists between application runs
-
-### Cache Metrics Tracking
-- Real-time cache hit/miss tracking
-- Token usage optimization
-- Cost savings calculations
-- Performance latency measurements
-
-## Usage Example
-
-```go
-// Initialize bot
-config := Config{
-    MaxShortTermMemory: 10,
-    MaxMediumTermMemory: 50,
-    MaxLongTermMemory: 200,
-    CacheTTL: 5 * time.Minute,
-}
-bot := NewCharacterBot(config)
-
-// Register providers using factory
-err := factory.InitializeAndRegisterProvider(bot, config)
-
-// Create character
-character := Character{
-    ID: "warrior-maiden",
-    Name: "Lyra",
-    Personality: PersonalityTraits{
-        Openness: 0.7,
-        Conscientiousness: 0.8,
-        Extraversion: 0.6,
-        Agreeableness: 0.5,
-        Neuroticism: 0.3,
-    },
-    // ... other fields
-}
-bot.CreateCharacter(character)
-
-// Process conversation
-request := ConversationRequest{
-    CharacterID: "warrior-maiden",
-    UserID: "user123",
-    Message: "Tell me about your adventures",
-}
-response, err := bot.ProcessRequest(ctx, request)
-```
-
-## Prompt Caching Strategy
-
-Our goal is to implement prompt-caching in 4 layers:
-- Admin layer
-- System character prompt layer
-- User memory layer
-- Current chat history layer
-
-## Refactoring Best Practices
-
-When refactoring this codebase:
-
-1. **Use the Factory Pattern**: Always use `internal/factory` for provider initialization
-2. **Extract Helper Functions**: Break down long functions into smaller, focused helpers
-3. **Maintain Test Coverage**: Add tests for any new packages or major changes
-4. **Document TUI Changes**: The TUI is complex; document any architectural changes
-
-See `TUI_REFACTORING_PLAN.md` for detailed guidance on refactoring the interactive mode.
-````
-
 ## File: README.md
 ````markdown
 # Roleplay - Advanced AI Character Bot with Psychological Modeling
@@ -6010,367 +5670,556 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 Made with ❤️ by the Roleplay team
 ````
 
-## File: cmd/character.go
-````go
-package cmd
-
-import (
-	"encoding/json"
-	"fmt"
-	"os"
-	"path/filepath"
-	"text/tabwriter"
-
-	"github.com/dotcommander/roleplay/internal/factory"
-	"github.com/dotcommander/roleplay/internal/models"
-	"github.com/dotcommander/roleplay/internal/repository"
-	"github.com/dotcommander/roleplay/internal/services"
-	"github.com/spf13/cobra"
-)
-
-var characterCmd = &cobra.Command{
-	Use:   "character",
-	Short: "Manage characters",
-	Long:  `Create, list, and manage character profiles for the roleplay bot.`,
-}
-
-var listCharactersCmd = &cobra.Command{
-	Use:   "list",
-	Short: "List all available characters",
-	RunE:  runListCharacters,
-}
-
-var createCharacterCmd = &cobra.Command{
-	Use:   "create [character-file.json]",
-	Short: "Create a new character from a JSON file",
-	Long: `Create a new character by loading their profile from a JSON file.
-
-The JSON file should contain:
-{
-  "id": "warrior-123",
-  "name": "Thorin Ironforge",
-  "backstory": "A veteran dwarf warrior...",
-  "personality": {
-    "openness": 0.3,
-    "conscientiousness": 0.8,
-    "extraversion": 0.4,
-    "agreeableness": 0.6,
-    "neuroticism": 0.7
-  },
-  "current_mood": {
-    "joy": 0.2,
-    "anger": 0.4,
-    "sadness": 0.3
-  },
-  "quirks": ["Always checks exits", "Touches scars when nervous"],
-  "speech_style": "Formal, archaic. Uses 'ye' and 'aye'."
-}`,
-	Args: cobra.ExactArgs(1),
-	RunE: runCreateCharacter,
-}
-
-var showCharacterCmd = &cobra.Command{
-	Use:   "show [character-id]",
-	Short: "Show character details",
-	Args:  cobra.ExactArgs(1),
-	RunE:  runShowCharacter,
-}
-
-var exampleCharacterCmd = &cobra.Command{
-	Use:   "example",
-	Short: "Generate an example character JSON file",
-	RunE:  runExampleCharacter,
-}
-
-func init() {
-	rootCmd.AddCommand(characterCmd)
-	characterCmd.AddCommand(createCharacterCmd)
-	characterCmd.AddCommand(showCharacterCmd)
-	characterCmd.AddCommand(exampleCharacterCmd)
-	characterCmd.AddCommand(listCharactersCmd)
-}
-
-func runCreateCharacter(cmd *cobra.Command, args []string) error {
-	filename := args[0]
-	config := GetConfig()
-
-	// Read character file
-	data, err := os.ReadFile(filename)
-	if err != nil {
-		return fmt.Errorf("failed to read character file: %w", err)
-	}
-
-	// Parse character
-	var char models.Character
-	if err := json.Unmarshal(data, &char); err != nil {
-		return fmt.Errorf("failed to parse character JSON: %w", err)
-	}
-
-	// Initialize bot
-	bot := services.NewCharacterBot(config)
-
-	// Register provider using factory (needed for character creation warmup)
-	if err := factory.InitializeAndRegisterProvider(bot, config); err != nil {
-		return fmt.Errorf("failed to initialize provider: %w", err)
-	}
-
-	// Create character
-	if err := bot.CreateCharacter(&char); err != nil {
-		return fmt.Errorf("failed to create character: %w", err)
-	}
-
-	// Save to repository for persistence
-	dataDir := filepath.Join(os.Getenv("HOME"), ".config", "roleplay")
-	repo, err := repository.NewCharacterRepository(dataDir)
-	if err != nil {
-		return fmt.Errorf("failed to initialize repository: %w", err)
-	}
-
-	if err := repo.SaveCharacter(&char); err != nil {
-		return fmt.Errorf("failed to save character: %w", err)
-	}
-
-	fmt.Printf("Character '%s' (ID: %s) created and saved successfully!\n", char.Name, char.ID)
-	return nil
-}
-
-func runShowCharacter(cmd *cobra.Command, args []string) error {
-	characterID := args[0]
-	
-	// Initialize repository to load from disk
-	dataDir := filepath.Join(os.Getenv("HOME"), ".config", "roleplay")
-	repo, err := repository.NewCharacterRepository(dataDir)
-	if err != nil {
-		return fmt.Errorf("failed to initialize repository: %w", err)
-	}
-
-	// Load character from repository
-	char, err := repo.LoadCharacter(characterID)
-	if err != nil {
-		return fmt.Errorf("character %s not found", characterID)
-	}
-
-	// Display character
-	output, err := json.MarshalIndent(char, "", "  ")
-	if err != nil {
-		return fmt.Errorf("failed to format character: %w", err)
-	}
-
-	fmt.Println(string(output))
-	return nil
-}
-
-func runExampleCharacter(cmd *cobra.Command, args []string) error {
-	example := models.Character{
-		ID:   "warrior-123",
-		Name: "Thorin Ironforge",
-		Backstory: `A veteran dwarf warrior from the Mountain Kingdoms. 
-Survived the Battle of Five Armies. Gruff exterior hiding a heart of gold.
-Lost his brother in battle, carries survivor's guilt.`,
-		Personality: models.PersonalityTraits{
-			Openness:          0.3,
-			Conscientiousness: 0.8,
-			Extraversion:      0.4,
-			Agreeableness:     0.6,
-			Neuroticism:       0.7,
-		},
-		CurrentMood: models.EmotionalState{
-			Joy:     0.2,
-			Anger:   0.4,
-			Sadness: 0.3,
-		},
-		Quirks: []string{
-			"Always checks exits when entering a room",
-			"Unconsciously touches battle scars when nervous",
-			"Refuses to sit with back to the door",
-		},
-		SpeechStyle: "Formal, archaic. Uses 'ye' and 'aye'. Short sentences. Military precision.",
-		Memories: []models.Memory{
-			{
-				Type:      models.LongTermMemory,
-				Content:   "Brother's last words: 'Protect the clan'",
-				Emotional: 0.95,
-			},
-		},
-	}
-
-	output, err := json.MarshalIndent(&example, "", "  ")
-	if err != nil {
-		return fmt.Errorf("failed to format example: %w", err)
-	}
-
-	fmt.Println(string(output))
-	fmt.Fprintln(os.Stderr, "\nSave this to a file (e.g., thorin.json) and use 'roleplay character create thorin.json'")
-	return nil
-}
-
-func runListCharacters(cmd *cobra.Command, args []string) error {
-	dataDir := filepath.Join(os.Getenv("HOME"), ".config", "roleplay")
-	repo, err := repository.NewCharacterRepository(dataDir)
-	if err != nil {
-		return err
-	}
-
-	characters, err := repo.GetCharacterInfo()
-	if err != nil {
-		return err
-	}
-
-	if len(characters) == 0 {
-		fmt.Println("No characters found. Create one with 'roleplay character create <file.json>'")
-		return nil
-	}
-
-	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, "ID\tNAME\tDESCRIPTION")
-
-	for _, char := range characters {
-		fmt.Fprintf(w, "%s\t%s\t%s\n", char.ID, char.Name, char.Description)
-	}
-
-	w.Flush()
-	return nil
-}
-````
-
-## File: cmd/chat.go
+## File: cmd/demo.go
 ````go
 package cmd
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"os"
+	"strings"
 	"time"
 
+	"github.com/charmbracelet/lipgloss"
 	"github.com/dotcommander/roleplay/internal/factory"
 	"github.com/dotcommander/roleplay/internal/manager"
 	"github.com/dotcommander/roleplay/internal/models"
+	"github.com/dotcommander/roleplay/internal/providers"
+	"github.com/dotcommander/roleplay/internal/repository"
+	"github.com/dotcommander/roleplay/internal/services"
+	"github.com/dotcommander/roleplay/internal/utils"
 	"github.com/spf13/cobra"
 )
 
-var (
-	characterID string
-	userID      string
-	sessionID   string
-	format      string
-)
-
-var chatCmd = &cobra.Command{
-	Use:   "chat [message]",
-	Short: "Chat with a character",
-	Long: `Start a conversation with a character. The character will respond based on their
-personality, emotional state, and conversation history.
-
-Examples:
-  roleplay chat "Hello, how are you?" --character warrior-123 --user user-789
-  roleplay chat "Tell me about your adventures" -c warrior-123 -u user-789`,
-	Args: cobra.ExactArgs(1),
-	RunE: runChat,
+var demoCmd = &cobra.Command{
+	Use:   "demo",
+	Short: "Run a caching demonstration",
+	Long: `Demonstrates the prompt caching system with a series of interactions
+that showcase cache hits, misses, and cost savings.`,
+	RunE: runDemo,
 }
 
 func init() {
-	rootCmd.AddCommand(chatCmd)
-
-	chatCmd.Flags().StringVarP(&characterID, "character", "c", "", "Character ID to chat with (required)")
-	chatCmd.Flags().StringVarP(&userID, "user", "u", "", "User ID for the conversation (required)")
-	chatCmd.Flags().StringVarP(&sessionID, "session", "s", "", "Session ID (optional, generates new if not provided)")
-	chatCmd.Flags().StringVarP(&format, "format", "f", "text", "Output format: text or json")
-
-	if err := chatCmd.MarkFlagRequired("character"); err != nil {
-		fmt.Fprintf(os.Stderr, "Error marking character flag as required: %v\n", err)
-	}
-	if err := chatCmd.MarkFlagRequired("user"); err != nil {
-		fmt.Fprintf(os.Stderr, "Error marking user flag as required: %v\n", err)
-	}
+	rootCmd.AddCommand(demoCmd)
+	demoCmd.Flags().String("character", "rick-c137", "Character ID to use for demo")
+	demoCmd.Flags().Bool("create-character", true, "Create demo character if it doesn't exist")
 }
 
-func runChat(cmd *cobra.Command, args []string) error {
-	message := args[0]
-	config := GetConfig()
+func runDemo(cmd *cobra.Command, args []string) error {
+	characterID, _ := cmd.Flags().GetString("character")
+	createChar, _ := cmd.Flags().GetBool("create-character")
 
-	// Validate API key
-	if config.APIKey == "" {
-		return fmt.Errorf("API key not configured. Set ROLEPLAY_API_KEY or use --api-key")
-	}
+	// Initialize configuration
+	cfg := GetConfig()
 
-	// Initialize manager
-	mgr, err := manager.NewCharacterManager(config)
+	// Create manager
+	mgr, err := manager.NewCharacterManager(cfg)
 	if err != nil {
-		return fmt.Errorf("failed to initialize manager: %w", err)
+		return err
 	}
 
-	// Register provider using factory
-	bot := mgr.GetBot()
-	if err := factory.InitializeAndRegisterProvider(bot, config); err != nil {
+	// Setup provider
+	// Initialize provider using factory
+	if err := factory.InitializeAndRegisterProvider(mgr.GetBot(), cfg); err != nil {
 		return fmt.Errorf("failed to initialize provider: %w", err)
 	}
 
+	// Create or load demo character
+	if createChar {
+		if err := createDemoCharacter(mgr, characterID); err != nil {
+			return err
+		}
+	}
+
 	// Ensure character is loaded
-	if _, err := mgr.GetOrLoadCharacter(characterID); err != nil {
-		return fmt.Errorf("character %s not found. Create it first with 'roleplay character create'", characterID)
+	char, err := mgr.GetOrLoadCharacter(characterID)
+	if err != nil {
+		return fmt.Errorf("failed to load character: %w", err)
 	}
 
-	// Generate session ID if not provided
-	if sessionID == "" {
-		sessionID = fmt.Sprintf("session-%d", time.Now().Unix())
+	// Create demo session
+	sessionID := fmt.Sprintf("demo-%d", time.Now().Unix())
+	session := &repository.Session{
+		ID:           sessionID,
+		CharacterID:  characterID,
+		UserID:       "demo-user",
+		StartTime:    time.Now(),
+		LastActivity: time.Now(),
+		Messages:     []repository.SessionMessage{},
+		CacheMetrics: repository.CacheMetrics{},
 	}
 
-	// Create conversation request
-	req := &models.ConversationRequest{
-		CharacterID: characterID,
-		UserID:      userID,
-		Message:     message,
-		Context: models.ConversationContext{
-			SessionID:      sessionID,
-			StartTime:      time.Now(),
-			RecentMessages: []models.Message{}, // Could load from history
+	// Initialize styles
+	styles := newDemoStyles()
+
+	// Display demo header
+	displayDemoHeader(styles, char)
+
+	// Get demo messages
+	demoMessages := getDemoMessages()
+
+	// Run demo interactions
+	ctx := context.Background()
+	for i, demo := range demoMessages {
+		if demo.delay > 0 {
+			time.Sleep(demo.delay)
+		}
+
+		// Display interaction header
+		fmt.Printf("\n%s[Message %d] %s\n",
+			styles.separator.Render(""),
+			i+1,
+			demo.description,
+		)
+		fmt.Printf("%sUser: %s\n",
+			styles.bold.Render(""),
+			styles.message.Render(demo.message),
+		)
+
+		// Process request
+		req := models.ConversationRequest{
+			CharacterID: characterID,
+			UserID:      "demo-user",
+			Message:     demo.message,
+		}
+
+		resp, _, err := processDemoMessage(ctx, mgr.GetBot(), &req, char, styles)
+		if err != nil {
+			fmt.Printf("Error: %v\n", err)
+			continue
+		}
+
+		// Update session metrics
+		updateSessionMetrics(session, demo.message, resp)
+	}
+
+	// Calculate and save final metrics
+	if session.CacheMetrics.TotalRequests > 0 {
+		session.CacheMetrics.HitRate = float64(session.CacheMetrics.CacheHits) /
+			float64(session.CacheMetrics.TotalRequests)
+	}
+	session.CacheMetrics.CostSaved = float64(session.CacheMetrics.TokensSaved) * 0.000003 // Approximate cost per token
+	session.LastActivity = time.Now()
+
+	// Save session
+	if err := mgr.GetSessionRepository().SaveSession(session); err != nil {
+		fmt.Printf("\nWarning: Failed to save session: %v\n", err)
+	}
+
+	// Display summary
+	displayDemoSummary(session, styles)
+
+	return nil
+}
+
+func createDemoCharacter(mgr *manager.CharacterManager, characterID string) error {
+	// Check if already exists
+	if _, err := mgr.GetOrLoadCharacter(characterID); err == nil {
+		return nil // Already exists
+	}
+
+	// Create Rick Sanchez for demo
+	if characterID == "rick-c137" {
+		char := &models.Character{
+			ID:        "rick-c137",
+			Name:      "Rick Sanchez",
+			Backstory: `The smartest man in the universe from dimension C-137. Cynical, alcoholic mad scientist who drags his grandson Morty on dangerous adventures across dimensions. Inventor of portal gun technology. Believes that nothing matters and science is the only truth. Has complex family relationships and deep-seated emotional issues masked by nihilism and substance abuse.`,
+			Personality: models.PersonalityTraits{
+				Openness:          1.0,
+				Conscientiousness: 0.2,
+				Extraversion:      0.7,
+				Agreeableness:     0.1,
+				Neuroticism:       0.9,
+			},
+			CurrentMood: models.EmotionalState{
+				Joy:      0.2,
+				Surprise: 0.1,
+				Anger:    0.4,
+				Fear:     0.1,
+				Sadness:  0.3,
+				Disgust:  0.5,
+			},
+			Quirks: []string{
+				"Burps frequently mid-sentence (*burp*)",
+				"Uses people's names as punctuation when talking",
+				"Drinks from a flask constantly",
+				"Makes pop culture references from multiple dimensions",
+				"Dismisses emotions as 'chemical reactions'",
+				"Uses scientific terminology casually",
+			},
+			SpeechStyle: "Cynical, sarcastic, frequently interrupted by burps. Uses complex scientific terms mixed with crude language. Often goes on nihilistic rants.",
+		}
+		return mgr.CreateCharacter(char)
+	}
+
+	// Default demo character
+	char := &models.Character{
+		ID:   characterID,
+		Name: "Cache Demo Assistant",
+		Backstory: `A helpful AI assistant designed to demonstrate prompt caching capabilities. 
+I have a consistent personality and knowledge base that can be efficiently cached.`,
+		Personality: models.PersonalityTraits{
+			Openness:          0.9,
+			Conscientiousness: 0.8,
+			Extraversion:      0.7,
+			Agreeableness:     0.9,
+			Neuroticism:       0.2,
+		},
+		CurrentMood: models.EmotionalState{
+			Joy:      0.7,
+			Surprise: 0.3,
+			Anger:    0.1,
+			Fear:     0.1,
+			Sadness:  0.1,
+			Disgust:  0.1,
+		},
+		Quirks: []string{"helpful", "efficient", "knowledgeable"},
+	}
+
+	return mgr.CreateCharacter(char)
+}
+
+// demoStyles holds all the Lipgloss styles used in the demo command
+type demoStyles struct {
+	title     lipgloss.Style
+	cacheHit  lipgloss.Style
+	cacheMiss lipgloss.Style
+	metrics   lipgloss.Style
+	message   lipgloss.Style
+	separator lipgloss.Style
+	bold      lipgloss.Style
+}
+
+// newDemoStyles creates and initializes all demo styles
+func newDemoStyles() *demoStyles {
+	return &demoStyles{
+		title: lipgloss.NewStyle().
+			Bold(true).
+			Foreground(lipgloss.Color("#7c6f64")).
+			Background(lipgloss.Color("#3c3836")).
+			Padding(0, 1),
+
+		cacheHit: lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#b8bb26")).
+			Bold(true),
+
+		cacheMiss: lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#fb4934")).
+			Bold(true),
+
+		metrics: lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#83a598")),
+
+		message: lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#ebdbb2")),
+
+		separator: lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#665c54")),
+
+		bold: lipgloss.NewStyle().Bold(true),
+	}
+}
+
+// demoMessage represents a single demo interaction
+type demoMessage struct {
+	message     string
+	description string
+	delay       time.Duration
+}
+
+// getDemoMessages returns the predefined demo message sequence
+func getDemoMessages() []demoMessage {
+	return []demoMessage{
+		{
+			"Tell me about yourself",
+			"Initial request - establishes cache layers",
+			0,
+		},
+		{
+			"Tell me about yourself",
+			"Exact repeat - should hit response cache",
+			1 * time.Second,
+		},
+		{
+			"What are your core values?",
+			"New question - cache miss",
+			1 * time.Second,
+		},
+		{
+			"What are your core values?",
+			"Repeat question - should hit cache",
+			1 * time.Second,
+		},
+		{
+			"Tell me about yourself",
+			"Third repeat - should hit cache with high savings",
+			1 * time.Second,
+		},
+	}
+}
+
+// displayDemoHeader shows the demo title and character info
+func displayDemoHeader(styles *demoStyles, char *models.Character) {
+	fmt.Println(styles.title.Render("🚀 Roleplay Prompt Caching Demo"))
+	fmt.Printf("\nCharacter: %s (%s)\n", char.Name, char.ID)
+	fmt.Println(strings.Repeat("─", 60))
+}
+
+// processDemoMessage handles a single demo interaction
+func processDemoMessage(
+	ctx context.Context,
+	bot *services.CharacterBot,
+	req *models.ConversationRequest,
+	char *models.Character,
+	styles *demoStyles,
+) (*providers.AIResponse, time.Duration, error) {
+	start := time.Now()
+	resp, err := bot.ProcessRequest(ctx, req)
+	elapsed := time.Since(start)
+
+	if err != nil {
+		return nil, elapsed, err
+	}
+
+	// Display response
+	fmt.Printf("%s%s:\n", styles.bold.Render(""), char.Name)
+	fmt.Printf("%s\n", styles.message.Render(utils.WrapText(resp.Content, 80)))
+
+	// Display cache metrics
+	cacheStatus := "MISS"
+	style := styles.cacheMiss
+	if resp.CacheMetrics.Hit {
+		cacheStatus = fmt.Sprintf("HIT (%d layers)", len(resp.CacheMetrics.Layers))
+		style = styles.cacheHit
+	}
+
+	fmt.Printf("\n%s\n", styles.metrics.Render(fmt.Sprintf(
+		"  ⚡ Response Time: %v | Cache: %s | Tokens: %d (saved: %d)",
+		elapsed,
+		style.Render(cacheStatus),
+		resp.TokensUsed.Total,
+		resp.CacheMetrics.SavedTokens,
+	)))
+
+	return resp, elapsed, nil
+}
+
+// updateSessionMetrics updates the session with response metrics
+func updateSessionMetrics(
+	session *repository.Session,
+	userMessage string,
+	resp *providers.AIResponse,
+) {
+	// Add messages to session
+	session.Messages = append(session.Messages, repository.SessionMessage{
+		Timestamp: time.Now(),
+		Role:      "user",
+		Content:   userMessage,
+	})
+
+	cacheHits := 0
+	cacheMisses := 0
+	if resp.CacheMetrics.Hit {
+		cacheHits = 1
+	} else {
+		cacheMisses = 1
+	}
+
+	session.Messages = append(session.Messages, repository.SessionMessage{
+		Timestamp:   time.Now(),
+		Role:        "character",
+		Content:     resp.Content,
+		TokensUsed:  resp.TokensUsed.Total,
+		CacheHits:   cacheHits,
+		CacheMisses: cacheMisses,
+	})
+
+	// Update cumulative metrics
+	session.CacheMetrics.TotalRequests++
+	if resp.CacheMetrics.Hit {
+		session.CacheMetrics.CacheHits++
+	} else {
+		session.CacheMetrics.CacheMisses++
+	}
+	session.CacheMetrics.TokensSaved += resp.CacheMetrics.SavedTokens
+}
+
+// displayDemoSummary shows the final summary of the demo
+func displayDemoSummary(session *repository.Session, styles *demoStyles) {
+	fmt.Println("\n" + strings.Repeat("═", 60))
+	fmt.Println(styles.title.Render("📊 Demo Summary"))
+	fmt.Printf("\nTotal Interactions: %d\n", session.CacheMetrics.TotalRequests)
+	fmt.Printf("Overall Cache Hit Rate: %.1f%%\n", session.CacheMetrics.HitRate*100)
+	fmt.Printf("Total Tokens Saved: %d\n", session.CacheMetrics.TokensSaved)
+	fmt.Printf("Estimated Cost Saved: $%.4f\n", session.CacheMetrics.CostSaved)
+	fmt.Printf("\nSession saved as: %s\n", session.ID)
+	fmt.Println("\nView detailed metrics with: roleplay session stats")
+}
+````
+
+## File: cmd/root.go
+````go
+package cmd
+
+import (
+	"fmt"
+	"os"
+	"path/filepath"
+	"time"
+
+	"github.com/dotcommander/roleplay/internal/config"
+	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
+)
+
+var (
+	cfgFile string
+	cfg     *config.Config
+)
+
+var rootCmd = &cobra.Command{
+	Use:   "roleplay",
+	Short: "A sophisticated character bot with psychological modeling",
+	Long: `Roleplay is a character bot system that implements psychologically-realistic 
+AI characters with personality evolution, emotional states, and multi-layered memory systems.
+
+Features:
+- OCEAN personality model with dynamic evolution
+- Multi-tier memory system (short, medium, long-term)
+- Sophisticated 4-layer caching for 90% cost reduction
+- Support for multiple AI providers (Anthropic, OpenAI)
+- Adaptive TTL based on conversation patterns`,
+}
+
+func Execute() {
+	if err := rootCmd.Execute(); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+}
+
+func init() {
+	cobra.OnInitialize(initConfig)
+
+	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is $HOME/.roleplay.yaml)")
+	rootCmd.PersistentFlags().String("provider", "openai", "AI provider to use (anthropic, openai)")
+	rootCmd.PersistentFlags().String("model", "", "Model to use (e.g., gpt-4o-mini, gpt-4 for OpenAI)")
+	rootCmd.PersistentFlags().String("api-key", "", "API key for the AI provider")
+	rootCmd.PersistentFlags().Duration("cache-ttl", 10*time.Minute, "Default cache TTL")
+	rootCmd.PersistentFlags().Bool("adaptive-ttl", true, "Enable adaptive TTL for cache")
+	rootCmd.PersistentFlags().BoolP("verbose", "v", false, "Enable verbose output")
+
+	if err := viper.BindPFlag("provider", rootCmd.PersistentFlags().Lookup("provider")); err != nil {
+		fmt.Fprintf(os.Stderr, "Error binding provider flag: %v\n", err)
+	}
+	if err := viper.BindPFlag("model", rootCmd.PersistentFlags().Lookup("model")); err != nil {
+		fmt.Fprintf(os.Stderr, "Error binding model flag: %v\n", err)
+	}
+	if err := viper.BindPFlag("api_key", rootCmd.PersistentFlags().Lookup("api-key")); err != nil {
+		fmt.Fprintf(os.Stderr, "Error binding api_key flag: %v\n", err)
+	}
+	if err := viper.BindPFlag("cache.default_ttl", rootCmd.PersistentFlags().Lookup("cache-ttl")); err != nil {
+		fmt.Fprintf(os.Stderr, "Error binding cache.default_ttl flag: %v\n", err)
+	}
+	if err := viper.BindPFlag("cache.adaptive_ttl", rootCmd.PersistentFlags().Lookup("adaptive-ttl")); err != nil {
+		fmt.Fprintf(os.Stderr, "Error binding cache.adaptive_ttl flag: %v\n", err)
+	}
+}
+
+func initConfig() {
+	if cfgFile != "" {
+		viper.SetConfigFile(cfgFile)
+	} else {
+		home, err := os.UserHomeDir()
+		cobra.CheckErr(err)
+
+		viper.AddConfigPath(filepath.Join(home, ".config", "roleplay"))
+		viper.SetConfigType("yaml")
+		viper.SetConfigName("config")
+	}
+
+	viper.SetEnvPrefix("ROLEPLAY")
+	viper.AutomaticEnv()
+
+	if err := viper.ReadInConfig(); err == nil {
+		fmt.Fprintln(os.Stderr, "Using config file:", viper.ConfigFileUsed())
+	}
+
+	// Check for OPENAI_API_KEY environment variable if no API key is set
+	apiKey := viper.GetString("api_key")
+	if apiKey == "" && viper.GetString("provider") == "openai" {
+		apiKey = os.Getenv("OPENAI_API_KEY")
+	}
+
+	cfg = &config.Config{
+		DefaultProvider: viper.GetString("provider"),
+		Model:           viper.GetString("model"),
+		APIKey:          apiKey,
+		CacheConfig: config.CacheConfig{
+			MaxEntries:        viper.GetInt("cache.max_entries"),
+			CleanupInterval:   viper.GetDuration("cache.cleanup_interval"),
+			DefaultTTL:        viper.GetDuration("cache.default_ttl"),
+			EnableAdaptiveTTL: viper.GetBool("cache.adaptive_ttl"),
+		},
+		MemoryConfig: config.MemoryConfig{
+			ShortTermWindow:    viper.GetInt("memory.short_term_window"),
+			MediumTermDuration: viper.GetDuration("memory.medium_term_duration"),
+			ConsolidationRate:  viper.GetFloat64("memory.consolidation_rate"),
+		},
+		PersonalityConfig: config.PersonalityConfig{
+			EvolutionEnabled:   viper.GetBool("personality.evolution_enabled"),
+			MaxDriftRate:       viper.GetFloat64("personality.max_drift_rate"),
+			StabilityThreshold: viper.GetFloat64("personality.stability_threshold"),
+		},
+		UserProfileConfig: config.UserProfileConfig{
+			Enabled:             viper.GetBool("user_profile.enabled"),
+			UpdateFrequency:     viper.GetInt("user_profile.update_frequency"),
+			TurnsToConsider:     viper.GetInt("user_profile.turns_to_consider"),
+			ConfidenceThreshold: viper.GetFloat64("user_profile.confidence_threshold"),
+			PromptCacheTTL:      viper.GetDuration("user_profile.prompt_cache_ttl"),
 		},
 	}
 
-	// Process request
-	ctx := context.Background()
-	resp, err := bot.ProcessRequest(ctx, req)
-	if err != nil {
-		return fmt.Errorf("failed to process request: %w", err)
+	// Set defaults if not configured
+	if cfg.CacheConfig.MaxEntries == 0 {
+		cfg.CacheConfig.MaxEntries = 10000
 	}
-
-	// Display response based on format
-	if format == "json" {
-		output := map[string]interface{}{
-			"response": resp.Content,
-			"cache_metrics": map[string]interface{}{
-				"cache_hit":    resp.CacheMetrics.Hit,
-				"layers":       resp.CacheMetrics.Layers,
-				"saved_tokens": resp.CacheMetrics.SavedTokens,
-				"latency_ms":   resp.CacheMetrics.Latency.Milliseconds(),
-			},
-			"token_usage": map[string]interface{}{
-				"prompt":        resp.TokensUsed.Prompt,
-				"completion":    resp.TokensUsed.Completion,
-				"cached_prompt": resp.TokensUsed.CachedPrompt,
-				"total":         resp.TokensUsed.Total,
-			},
-		}
-		jsonBytes, _ := json.MarshalIndent(output, "", "  ")
-		fmt.Println(string(jsonBytes))
-	} else {
-		// Display response
-		fmt.Fprintf(os.Stdout, "\n%s\n", resp.Content)
-
-		// Show cache metrics if verbose
-		if verbose, _ := cmd.Flags().GetBool("verbose"); verbose {
-			fmt.Fprintf(os.Stderr, "\n--- Performance Metrics ---\n")
-			fmt.Fprintf(os.Stderr, "Cache Hit: %v\n", resp.CacheMetrics.Hit)
-			fmt.Fprintf(os.Stderr, "Tokens Used: %d (cached: %d)\n",
-				resp.TokensUsed.Total, resp.TokensUsed.CachedPrompt)
-			fmt.Fprintf(os.Stderr, "Tokens Saved: %d\n", resp.CacheMetrics.SavedTokens)
-			fmt.Fprintf(os.Stderr, "Latency: %v\n", resp.CacheMetrics.Latency)
-		}
+	if cfg.CacheConfig.CleanupInterval == 0 {
+		cfg.CacheConfig.CleanupInterval = 5 * time.Minute
 	}
+	if cfg.MemoryConfig.ShortTermWindow == 0 {
+		cfg.MemoryConfig.ShortTermWindow = 20
+	}
+	if cfg.MemoryConfig.MediumTermDuration == 0 {
+		cfg.MemoryConfig.MediumTermDuration = 24 * time.Hour
+	}
+	if cfg.MemoryConfig.ConsolidationRate == 0 {
+		cfg.MemoryConfig.ConsolidationRate = 0.1
+	}
+	if cfg.PersonalityConfig.MaxDriftRate == 0 {
+		cfg.PersonalityConfig.MaxDriftRate = 0.02
+	}
+	if cfg.PersonalityConfig.StabilityThreshold == 0 {
+		cfg.PersonalityConfig.StabilityThreshold = 10
+	}
+	
+	// Set defaults for UserProfileConfig
+	if cfg.UserProfileConfig.UpdateFrequency == 0 {
+		cfg.UserProfileConfig.UpdateFrequency = 5 // Update every 5 messages
+	}
+	if cfg.UserProfileConfig.TurnsToConsider == 0 {
+		cfg.UserProfileConfig.TurnsToConsider = 20 // Analyze last 20 turns
+	}
+	if cfg.UserProfileConfig.ConfidenceThreshold == 0 {
+		cfg.UserProfileConfig.ConfidenceThreshold = 0.5 // Include facts with >50% confidence
+	}
+	if cfg.UserProfileConfig.PromptCacheTTL == 0 {
+		cfg.UserProfileConfig.PromptCacheTTL = 1 * time.Hour // Cache user profiles for 1 hour
+	}
+}
 
-	return nil
+func GetConfig() *config.Config {
+	return cfg
 }
 ````
 
@@ -6520,6 +6369,1288 @@ func TestOpenAIProviderRequest(t *testing.T) {
 }
 ````
 
+## File: CLAUDE.md
+````markdown
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## Project Overview
+
+This is a sophisticated Go-based character bot architecture that implements psychologically-realistic AI characters with personality evolution, emotional states, and multi-layered memory systems. The codebase demonstrates advanced caching strategies to achieve 90% cost reduction in LLM API usage.
+
+## Architecture
+
+### Core Components
+
+1. **Character System**
+   - OCEAN personality model (Openness, Conscientiousness, Extraversion, Agreeableness, Neuroticism)
+   - Emotional states with dynamic blending
+   - Three-tier memory system (short-term, medium-term, long-term)
+   - Personality evolution with bounded drift
+
+2. **4-Layer Prompt Caching Architecture**
+   Our sophisticated caching system implements 4 strategic layers for maximum token savings:
+   
+   **Layer 1: Admin/System Layer** - Global system prompts and admin instructions (longest TTL)
+   **Layer 2: Character Personality Layer** - Core character traits, backstory, personality (long TTL)
+   **Layer 3: User Memory Layer** - User-specific memories, relationships, context (medium TTL)
+   **Layer 4: Current Chat History** - Recent conversation context (short TTL/no cache)
+
+3. **Dual Caching System**
+   - **Response Cache**: Stores complete API responses to avoid duplicate requests
+   - **Prompt Cache**: Layers prompts with strategic breakpoints for provider caching
+   - Automatic cache hit detection and metrics tracking
+   - Adaptive TTL based on conversation activity and character complexity
+
+4. **Provider Abstraction**
+   - Interface-based design supporting multiple AI providers
+   - Anthropic implementation with prompt caching (4 breakpoints)
+   - OpenAI implementation with response caching and parameter optimization
+   - Smart routing based on features, cost, or latency
+
+5. **Performance Optimizations**
+   - Adaptive TTL: 50% extension for active conversations, 20% for complex characters
+   - Background workers for cache cleanup and memory consolidation
+   - Thread-safe operations with proper mutex usage
+   - Token tracking and optimization
+   - Response deduplication for identical requests
+
+## Development Commands
+
+```bash
+# Build the application
+go build -o roleplay
+
+# Run commands directly
+go run main.go character example
+go run main.go character create thorin.json
+go run main.go chat "Hello!" --character warrior-123 --user user-789
+
+# Install globally
+go install
+
+# Format code
+go fmt ./...
+
+# Download dependencies
+go mod download
+go mod tidy
+```
+
+## Key Design Patterns
+
+- **Clean Architecture**: Separation between domain models, business logic, and external providers
+- **Dependency Injection**: Providers registered at runtime
+- **Interface-First Design**: All major components defined as interfaces
+- **Concurrent Design**: Thread-safe operations throughout
+- **Factory Pattern**: Centralized provider initialization through `internal/factory`
+
+## Important Implementation Details
+
+### Provider Factory Pattern
+The codebase uses a centralized factory pattern for AI provider initialization:
+
+```go
+// Create provider using factory
+provider, err := factory.CreateProvider(config)
+
+// Or initialize and register with bot
+err := factory.InitializeAndRegisterProvider(bot, config)
+```
+
+This pattern eliminates code duplication and ensures consistent provider setup across all commands.
+
+### AI-Powered User Profile Agent
+The system includes an intelligent user profile agent that automatically:
+- Analyzes conversation history to extract key information about users
+- Builds character-specific profiles (how each character perceives the user)
+- Updates profiles dynamically as conversations evolve
+- Enriches future interactions with learned context
+
+**Key Features:**
+- **Automatic Extraction**: LLM analyzes conversations to identify user facts, preferences, goals
+- **Confidence Scoring**: Each extracted fact has a confidence score (0.0-1.0)
+- **Character-Specific**: Each character maintains their own perception of the user
+- **Privacy-Aware**: Users can view, manage, and delete their profiles
+
+**Configuration:**
+```yaml
+user_profile:
+  enabled: true                    # Enable AI-powered user profiling
+  update_frequency: 5              # Update profile every 5 messages
+  turns_to_consider: 20            # Analyze last 20 conversation turns
+  confidence_threshold: 0.5        # Include facts with >50% confidence
+  prompt_cache_ttl: 1h             # Cache user profiles for 1 hour
+```
+
+**Usage:**
+- Profiles are automatically created/updated during interactive and demo modes
+- View profiles: `roleplay profile show <user-id> <character-id>`
+- List all profiles: `roleplay profile list <user-id>`
+- Delete profile: `roleplay profile delete <user-id> <character-id>`
+
+### 4-Layer Cache Implementation
+The caching system uses strategic breakpoints aligned with our 4-layer architecture:
+
+**Layer 1: Admin/System Layer**
+- Global system instructions and safety guidelines
+- Administrative prompts and framework instructions
+- Longest TTL (24+ hours) - rarely changes
+
+**Layer 2: Character Personality Layer** 
+- Character backstory, personality traits (OCEAN model)
+- Core behavioral patterns and speech style
+- Character-specific quirks and mannerisms
+- Long TTL (6-12 hours) - stable character traits
+
+**Layer 3: User Memory Layer**
+- User-specific relationship dynamics
+- Conversation history and shared memories
+- User preferences and interaction patterns
+- Medium TTL (1-3 hours) - evolves with relationship
+
+**Layer 4: Current Chat History**
+- Recent conversation turns and immediate context
+- Current emotional state and active topics
+- Short TTL (5-15 minutes) or no caching for real-time responses
+
+### Memory Consolidation
+- Automatic consolidation when short-term memory exceeds 10 entries
+- Emotional weighting preserves important memories
+- Background process runs every 5 minutes
+
+### Personality Evolution
+- Bounded drift prevents radical personality changes
+- Learning rate of 0.1 for gradual adaptation
+- Trait changes capped at ±0.2 from baseline
+
+## Project Structure
+
+The codebase follows clean Go CLI architecture with global configuration:
+
+```
+roleplay/
+├── main.go                 # Entry point (<20 lines)
+├── cmd/                    # Command definitions
+│   ├── root.go            # Root command + shared config
+│   ├── chat.go            # Chat command handler
+│   ├── character.go       # Character management commands
+│   ├── demo.go            # Caching demonstration
+│   ├── interactive.go     # TUI chat interface
+│   ├── session.go         # Session management
+│   ├── status.go          # Configuration status
+│   └── apitest.go         # API connectivity testing
+├── internal/              # Private packages
+│   ├── cache/             # Dual caching system (prompt + response)
+│   ├── config/            # Configuration structures
+│   ├── factory/           # Provider factory for centralized initialization
+│   ├── importer/          # AI-powered character import from markdown
+│   ├── models/            # Domain models (Character, Memory, etc.)
+│   ├── providers/         # AI provider implementations
+│   ├── services/          # Core bot service and business logic
+│   ├── repository/        # Character and session persistence
+│   ├── manager/           # High-level character management
+│   └── utils/             # Shared utilities (text wrapping, etc.)
+├── examples/              # Example character files
+│   └── characters/        # Example character JSON files
+├── prompts/               # LLM prompt templates (externalized)
+├── scripts/               # Utility scripts
+├── migrate-config.sh      # Configuration migration script
+├── chat-with-rick.sh      # Quick Rick Sanchez demo script
+└── go.mod
+
+### Global Configuration
+- Config directory: `~/.config/roleplay/`
+- Character storage: `~/.config/roleplay/characters/`
+- Session storage: `~/.config/roleplay/sessions/`
+- Cache storage: `~/.config/roleplay/cache/`
+- User profiles: `~/.config/roleplay/user_profiles/`
+- Global binary: `~/go/bin/roleplay` (symlinked)
+```
+
+## Command Structure
+
+```bash
+roleplay
+├── character              # Character management
+│   ├── create            # Create from JSON file  
+│   ├── list              # List all available characters
+│   ├── show              # Display character details
+│   └── example           # Generate example JSON
+├── import                 # Import character from markdown using AI
+├── profile                # User profile management
+│   ├── show              # Display specific user profile
+│   ├── list              # List all profiles for a user
+│   └── delete            # Delete a user profile
+├── session                # Session management
+│   ├── list              # List sessions for character(s)
+│   └── stats             # Show caching performance metrics
+├── interactive            # TUI chat interface (auto-creates Rick)
+├── chat                   # Single message chat
+├── demo                   # Caching demonstration (uses Rick by default)
+├── api-test               # Test API connectivity
+└── status                 # Show current configuration
+```
+
+## Cache Performance Features
+
+### Demo Mode
+- `roleplay demo` - Interactive demonstration of 4-layer caching
+- Shows cache hits/misses in real-time with visual feedback
+- Demonstrates token savings and cost reduction
+- Uses Rick Sanchez character for engaging demo experience
+
+### Session Persistence
+- All conversations saved with cache metrics
+- `roleplay session stats` shows aggregate caching performance
+- Tracks hit rates, tokens saved, and cost savings across sessions
+- Session data persists between application runs
+
+### Cache Metrics Tracking
+- Real-time cache hit/miss tracking
+- Token usage optimization
+- Cost savings calculations
+- Performance latency measurements
+
+## Usage Example
+
+```go
+// Initialize bot
+config := Config{
+    MaxShortTermMemory: 10,
+    MaxMediumTermMemory: 50,
+    MaxLongTermMemory: 200,
+    CacheTTL: 5 * time.Minute,
+}
+bot := NewCharacterBot(config)
+
+// Register providers using factory
+err := factory.InitializeAndRegisterProvider(bot, config)
+
+// Create character
+character := Character{
+    ID: "warrior-maiden",
+    Name: "Lyra",
+    Personality: PersonalityTraits{
+        Openness: 0.7,
+        Conscientiousness: 0.8,
+        Extraversion: 0.6,
+        Agreeableness: 0.5,
+        Neuroticism: 0.3,
+    },
+    // ... other fields
+}
+bot.CreateCharacter(character)
+
+// Process conversation
+request := ConversationRequest{
+    CharacterID: "warrior-maiden",
+    UserID: "user123",
+    Message: "Tell me about your adventures",
+}
+response, err := bot.ProcessRequest(ctx, request)
+```
+
+## Prompt Caching Strategy
+
+Our goal is to implement prompt-caching in 4 layers:
+- Admin layer
+- System character prompt layer
+- User memory layer
+- Current chat history layer
+
+## Refactoring Best Practices
+
+When refactoring this codebase:
+
+1. **Use the Factory Pattern**: Always use `internal/factory` for provider initialization
+2. **Extract Helper Functions**: Break down long functions into smaller, focused helpers
+3. **Maintain Test Coverage**: Add tests for any new packages or major changes
+4. **Document TUI Changes**: The TUI is complex; document any architectural changes
+
+See `TUI_REFACTORING_PLAN.md` for detailed guidance on refactoring the interactive mode.
+````
+
+## File: cmd/character.go
+````go
+package cmd
+
+import (
+	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
+	"text/tabwriter"
+
+	"github.com/dotcommander/roleplay/internal/factory"
+	"github.com/dotcommander/roleplay/internal/models"
+	"github.com/dotcommander/roleplay/internal/repository"
+	"github.com/dotcommander/roleplay/internal/services"
+	"github.com/spf13/cobra"
+)
+
+var characterCmd = &cobra.Command{
+	Use:   "character",
+	Short: "Manage characters",
+	Long:  `Create, list, and manage character profiles for the roleplay bot.`,
+}
+
+var listCharactersCmd = &cobra.Command{
+	Use:   "list",
+	Short: "List all available characters",
+	RunE:  runListCharacters,
+}
+
+var createCharacterCmd = &cobra.Command{
+	Use:   "create [character-file.json]",
+	Short: "Create a new character from a JSON file",
+	Long: `Create a new character by loading their profile from a JSON file.
+
+The JSON file should contain:
+{
+  "id": "warrior-123",
+  "name": "Thorin Ironforge",
+  "backstory": "A veteran dwarf warrior...",
+  "personality": {
+    "openness": 0.3,
+    "conscientiousness": 0.8,
+    "extraversion": 0.4,
+    "agreeableness": 0.6,
+    "neuroticism": 0.7
+  },
+  "current_mood": {
+    "joy": 0.2,
+    "anger": 0.4,
+    "sadness": 0.3
+  },
+  "quirks": ["Always checks exits", "Touches scars when nervous"],
+  "speech_style": "Formal, archaic. Uses 'ye' and 'aye'."
+}`,
+	Args: cobra.ExactArgs(1),
+	RunE: runCreateCharacter,
+}
+
+var showCharacterCmd = &cobra.Command{
+	Use:   "show [character-id]",
+	Short: "Show character details",
+	Args:  cobra.ExactArgs(1),
+	RunE:  runShowCharacter,
+}
+
+var exampleCharacterCmd = &cobra.Command{
+	Use:   "example",
+	Short: "Generate an example character JSON file",
+	RunE:  runExampleCharacter,
+}
+
+func init() {
+	rootCmd.AddCommand(characterCmd)
+	characterCmd.AddCommand(createCharacterCmd)
+	characterCmd.AddCommand(showCharacterCmd)
+	characterCmd.AddCommand(exampleCharacterCmd)
+	characterCmd.AddCommand(listCharactersCmd)
+}
+
+func runCreateCharacter(cmd *cobra.Command, args []string) error {
+	filename := args[0]
+	config := GetConfig()
+
+	// Read character file
+	data, err := os.ReadFile(filename)
+	if err != nil {
+		return fmt.Errorf("failed to read character file: %w", err)
+	}
+
+	// Parse character
+	var char models.Character
+	if err := json.Unmarshal(data, &char); err != nil {
+		return fmt.Errorf("failed to parse character JSON: %w", err)
+	}
+
+	// Initialize bot
+	bot := services.NewCharacterBot(config)
+
+	// Register provider using factory (needed for character creation warmup)
+	if err := factory.InitializeAndRegisterProvider(bot, config); err != nil {
+		return fmt.Errorf("failed to initialize provider: %w", err)
+	}
+
+	// Create character
+	if err := bot.CreateCharacter(&char); err != nil {
+		return fmt.Errorf("failed to create character: %w", err)
+	}
+
+	// Save to repository for persistence
+	dataDir := filepath.Join(os.Getenv("HOME"), ".config", "roleplay")
+	repo, err := repository.NewCharacterRepository(dataDir)
+	if err != nil {
+		return fmt.Errorf("failed to initialize repository: %w", err)
+	}
+
+	if err := repo.SaveCharacter(&char); err != nil {
+		return fmt.Errorf("failed to save character: %w", err)
+	}
+
+	fmt.Printf("Character '%s' (ID: %s) created and saved successfully!\n", char.Name, char.ID)
+	return nil
+}
+
+func runShowCharacter(cmd *cobra.Command, args []string) error {
+	characterID := args[0]
+
+	// Initialize repository to load from disk
+	dataDir := filepath.Join(os.Getenv("HOME"), ".config", "roleplay")
+	repo, err := repository.NewCharacterRepository(dataDir)
+	if err != nil {
+		return fmt.Errorf("failed to initialize repository: %w", err)
+	}
+
+	// Load character from repository
+	char, err := repo.LoadCharacter(characterID)
+	if err != nil {
+		return fmt.Errorf("character %s not found", characterID)
+	}
+
+	// Display character
+	output, err := json.MarshalIndent(char, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to format character: %w", err)
+	}
+
+	fmt.Println(string(output))
+	return nil
+}
+
+func runExampleCharacter(cmd *cobra.Command, args []string) error {
+	example := models.Character{
+		ID:   "warrior-123",
+		Name: "Thorin Ironforge",
+		Backstory: `A veteran dwarf warrior from the Mountain Kingdoms. 
+Survived the Battle of Five Armies. Gruff exterior hiding a heart of gold.
+Lost his brother in battle, carries survivor's guilt.`,
+		Personality: models.PersonalityTraits{
+			Openness:          0.3,
+			Conscientiousness: 0.8,
+			Extraversion:      0.4,
+			Agreeableness:     0.6,
+			Neuroticism:       0.7,
+		},
+		CurrentMood: models.EmotionalState{
+			Joy:     0.2,
+			Anger:   0.4,
+			Sadness: 0.3,
+		},
+		Quirks: []string{
+			"Always checks exits when entering a room",
+			"Unconsciously touches battle scars when nervous",
+			"Refuses to sit with back to the door",
+		},
+		SpeechStyle: "Formal, archaic. Uses 'ye' and 'aye'. Short sentences. Military precision.",
+		Memories: []models.Memory{
+			{
+				Type:      models.LongTermMemory,
+				Content:   "Brother's last words: 'Protect the clan'",
+				Emotional: 0.95,
+			},
+		},
+	}
+
+	output, err := json.MarshalIndent(&example, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to format example: %w", err)
+	}
+
+	fmt.Println(string(output))
+	fmt.Fprintln(os.Stderr, "\nSave this to a file (e.g., thorin.json) and use 'roleplay character create thorin.json'")
+	return nil
+}
+
+func runListCharacters(cmd *cobra.Command, args []string) error {
+	dataDir := filepath.Join(os.Getenv("HOME"), ".config", "roleplay")
+	repo, err := repository.NewCharacterRepository(dataDir)
+	if err != nil {
+		return err
+	}
+
+	characters, err := repo.GetCharacterInfo()
+	if err != nil {
+		return err
+	}
+
+	if len(characters) == 0 {
+		fmt.Println("No characters found. Create one with 'roleplay character create <file.json>'")
+		return nil
+	}
+
+	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(w, "ID\tNAME\tDESCRIPTION")
+
+	for _, char := range characters {
+		fmt.Fprintf(w, "%s\t%s\t%s\n", char.ID, char.Name, char.Description)
+	}
+
+	w.Flush()
+	return nil
+}
+````
+
+## File: internal/services/bot.go
+````go
+package services
+
+import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/dotcommander/roleplay/internal/cache"
+	"github.com/dotcommander/roleplay/internal/config"
+	"github.com/dotcommander/roleplay/internal/models"
+	"github.com/dotcommander/roleplay/internal/providers"
+	"github.com/dotcommander/roleplay/internal/repository"
+)
+
+// CharacterBot is the main service for managing characters and conversations
+type CharacterBot struct {
+	characters       map[string]*models.Character
+	cache            *cache.PromptCache
+	responseCache    *cache.ResponseCache
+	providers        map[string]providers.AIProvider
+	config           *config.Config
+	scenarioRepo     *repository.ScenarioRepository
+	userProfileRepo  *repository.UserProfileRepository
+	userProfileAgent *UserProfileAgent
+	mu               sync.RWMutex
+	cacheHits        int
+	cacheMisses      int
+}
+
+// NewCharacterBot creates a new character bot instance
+func NewCharacterBot(cfg *config.Config) *CharacterBot {
+	// Get config path for scenario repository
+	home, _ := os.UserHomeDir()
+	configPath := filepath.Join(home, ".config", "roleplay")
+	userProfileDataDir := filepath.Join(configPath, "user_profiles")
+
+	// Create user profiles directory if it doesn't exist
+	if err := os.MkdirAll(userProfileDataDir, 0755); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: Could not create user_profiles directory: %v\n", err)
+	}
+
+	userProfileRepo := repository.NewUserProfileRepository(userProfileDataDir)
+
+	cb := &CharacterBot{
+		characters:      make(map[string]*models.Character),
+		cache: cache.NewPromptCache(
+			cfg.CacheConfig.DefaultTTL,
+			5*time.Minute,
+			1*time.Hour,
+		),
+		responseCache:   cache.NewResponseCache(cfg.CacheConfig.DefaultTTL),
+		providers:       make(map[string]providers.AIProvider),
+		config:          cfg,
+		scenarioRepo:    repository.NewScenarioRepository(configPath),
+		userProfileRepo: userProfileRepo,
+		cacheHits:       0,
+		cacheMisses:     0,
+	}
+
+	// Start background workers
+	go cb.cache.CleanupWorker(cfg.CacheConfig.CleanupInterval)
+	go cb.memoryConsolidationWorker()
+
+	return cb
+}
+
+// InitializeUserProfileAgent initializes the user profile agent with a provider
+func (cb *CharacterBot) InitializeUserProfileAgent() {
+	cb.mu.Lock()
+	defer cb.mu.Unlock()
+
+	if !cb.config.UserProfileConfig.Enabled {
+		return
+	}
+
+	// Get the default provider for the UserProfileAgent
+	if provider, ok := cb.providers[cb.config.DefaultProvider]; ok {
+		cb.userProfileAgent = NewUserProfileAgent(provider, cb.userProfileRepo)
+	} else {
+		fmt.Fprintf(os.Stderr, "Warning: Default provider %s not found for UserProfileAgent\n", cb.config.DefaultProvider)
+	}
+}
+
+// RegisterProvider adds a new AI provider
+func (cb *CharacterBot) RegisterProvider(name string, provider providers.AIProvider) {
+	cb.mu.Lock()
+	defer cb.mu.Unlock()
+	cb.providers[name] = provider
+}
+
+// CreateCharacter adds a new character to the bot
+func (cb *CharacterBot) CreateCharacter(char *models.Character) error {
+	cb.mu.Lock()
+	defer cb.mu.Unlock()
+
+	if _, exists := cb.characters[char.ID]; exists {
+		return fmt.Errorf("character %s already exists", char.ID)
+	}
+
+	char.LastModified = time.Now()
+	cb.characters[char.ID] = char
+
+	// Pre-cache core personality
+	cb.warmupCache(char)
+
+	return nil
+}
+
+// GetCharacter retrieves a character by ID
+func (cb *CharacterBot) GetCharacter(id string) (*models.Character, error) {
+	cb.mu.RLock()
+	defer cb.mu.RUnlock()
+
+	char, exists := cb.characters[id]
+	if !exists {
+		return nil, fmt.Errorf("character %s not found", id)
+	}
+
+	return char, nil
+}
+
+// ProcessRequest handles a conversation request
+func (cb *CharacterBot) ProcessRequest(ctx context.Context, req *models.ConversationRequest) (*providers.AIResponse, error) {
+	// Check response cache first
+	responseCacheKey := cb.responseCache.GenerateKey(req.CharacterID, req.UserID, req.Message)
+	if cachedResp, found := cb.responseCache.Get(responseCacheKey); found {
+		cb.mu.Lock()
+		cb.cacheHits++
+		cb.mu.Unlock()
+
+		// Return cached response with cache hit metrics
+		return &providers.AIResponse{
+			Content: cachedResp.Content,
+			TokensUsed: providers.TokenUsage{
+				Prompt:       0,
+				Completion:   0,
+				CachedPrompt: cachedResp.TokensUsed.Prompt,
+				Total:        0,
+			},
+			CacheMetrics: cache.CacheMetrics{
+				Hit:         true,
+				Layers:      []cache.CacheLayer{cache.ConversationLayer},
+				SavedTokens: cachedResp.TokensUsed.Total,
+				Latency:     time.Since(cachedResp.CachedAt),
+			},
+		}, nil
+	}
+
+	cb.mu.Lock()
+	cb.cacheMisses++
+	cb.mu.Unlock()
+
+	// Build prompt with cache awareness
+	prompt, breakpoints, err := cb.BuildPrompt(req)
+	if err != nil {
+		return nil, err
+	}
+
+	// Generate cache key for static layers only (including scenario if present)
+	cacheKey := cb.generateCacheKey(req.CharacterID, req.UserID, req.ScenarioID, breakpoints)
+	cachedEntry, hit := cb.cache.Get(cacheKey)
+
+	// Get character for complexity check
+	char, err := cb.GetCharacter(req.CharacterID)
+	if err != nil {
+		return nil, err
+	}
+
+	// Cache hit tracking is now done internally
+
+	// Adaptive TTL based on conversation activity
+	effectiveTTL := cb.cache.CalculateAdaptiveTTL(cachedEntry, len(char.Memories) > 50)
+
+	// Select provider
+	provider := cb.selectProvider()
+	if provider == nil {
+		return nil, fmt.Errorf("no AI provider available")
+	}
+
+	// Prepare API request
+	apiReq := &providers.PromptRequest{
+		CharacterID:      req.CharacterID,
+		UserID:           req.UserID,
+		Message:          req.Message,
+		Context:          req.Context,
+		SystemPrompt:     prompt,
+		CacheBreakpoints: breakpoints,
+	}
+
+	// Send request
+	start := time.Now()
+	resp, err := provider.SendRequest(ctx, apiReq)
+	if err != nil {
+		return nil, err
+	}
+
+	// Update cache metrics
+	resp.CacheMetrics.Latency = time.Since(start)
+
+	// Update character state based on response
+	cb.updateCharacterState(req.CharacterID, resp)
+
+	// Store in cache with adaptive TTL
+	if !hit {
+		cb.cache.StoreWithTTL(cacheKey, breakpoints, effectiveTTL)
+	}
+
+	// Store response in response cache
+	cb.responseCache.Store(responseCacheKey, resp.Content, cache.TokenUsage{
+		Prompt:       resp.TokensUsed.Prompt,
+		Completion:   resp.TokensUsed.Completion,
+		CachedPrompt: resp.TokensUsed.CachedPrompt,
+		Total:        resp.TokensUsed.Total,
+	})
+
+	// Trigger user profile update asynchronously if enabled
+	if cb.userProfileAgent != nil && cb.config.UserProfileConfig.Enabled {
+		go cb.updateUserProfileAsync(req.UserID, char, req.Context.SessionID)
+	}
+
+	return resp, nil
+}
+
+// BuildPrompt constructs a layered prompt with cache breakpoints
+func (cb *CharacterBot) BuildPrompt(req *models.ConversationRequest) (string, []cache.CacheBreakpoint, error) {
+	char, err := cb.GetCharacter(req.CharacterID)
+	if err != nil {
+		return "", nil, err
+	}
+
+	breakpoints := make([]cache.CacheBreakpoint, 0, 6)
+
+	// Layer 0: Scenario Context (highest layer, meta-prompts, longest TTL)
+	if req.ScenarioID != "" {
+		scenario, err := cb.scenarioRepo.LoadScenario(req.ScenarioID)
+		if err != nil {
+			// Log warning but continue without scenario
+			fmt.Fprintf(os.Stderr, "Warning: Failed to load scenario %s: %v\n", req.ScenarioID, err)
+		} else if scenario.Prompt != "" {
+			// Very long TTL for scenario context (7 days by default)
+			scenarioTTL := 168 * time.Hour
+
+			breakpoints = append(breakpoints, cache.CacheBreakpoint{
+				Layer:      cache.ScenarioContextLayer,
+				Content:    scenario.Prompt,
+				TokenCount: cache.EstimateTokens(scenario.Prompt),
+				TTL:        scenarioTTL,
+				LastUsed:   time.Now(),
+			})
+
+			// Update scenario last used timestamp asynchronously
+			go func(id string) {
+				_ = cb.scenarioRepo.UpdateScenarioLastUsed(id)
+			}(req.ScenarioID)
+		}
+	}
+
+	// Layer 1: Core Personality (static, long TTL)
+	personality := cb.buildPersonalityPrompt(char)
+	breakpoints = append(breakpoints, cache.CacheBreakpoint{
+		Layer:      cache.CorePersonalityLayer,
+		Content:    personality,
+		TokenCount: cache.EstimateTokens(personality),
+		TTL:        cb.cache.CalculateAdaptiveTTL(nil, true),
+	})
+
+	// Layer 2: Learned Behaviors (semi-static, medium TTL)
+	behaviors := cb.buildLearnedBehaviors(char)
+	if behaviors != "" {
+		breakpoints = append(breakpoints, cache.CacheBreakpoint{
+			Layer:      cache.LearnedBehaviorLayer,
+			Content:    behaviors,
+			TokenCount: cache.EstimateTokens(behaviors),
+			TTL:        cb.config.CacheConfig.DefaultTTL * 2,
+		})
+	}
+
+	// Layer 3: Emotional State (dynamic, short TTL)
+	emotional := cb.buildEmotionalContext(char)
+	breakpoints = append(breakpoints, cache.CacheBreakpoint{
+		Layer:      cache.EmotionalStateLayer,
+		Content:    emotional,
+		TokenCount: cache.EstimateTokens(emotional),
+		TTL:        5 * time.Minute,
+	})
+
+	// Layer 4: User Context (semi-dynamic, medium TTL)
+	userContext := cb.buildUserContext(req.UserID, char)
+	breakpoints = append(breakpoints, cache.CacheBreakpoint{
+		Layer:      cache.UserMemoryLayer,
+		Content:    userContext,
+		TokenCount: cache.EstimateTokens(userContext),
+		TTL:        cb.config.CacheConfig.DefaultTTL,
+	})
+
+	// Layer 5: Conversation History (dynamic, no cache)
+	conversation := cb.buildConversationHistory(req.Context)
+	if conversation != "" {
+		breakpoints = append(breakpoints, cache.CacheBreakpoint{
+			Layer:      cache.ConversationLayer,
+			Content:    conversation,
+			TokenCount: cache.EstimateTokens(conversation),
+			TTL:        0, // No caching for conversation
+		})
+	}
+
+	// Combine all layers
+	fullPrompt := cb.assemblePrompt(breakpoints, req.UserID, req.Message)
+
+	return fullPrompt, breakpoints, nil
+}
+
+func (cb *CharacterBot) warmupCache(char *models.Character) {
+	// Build personality prompt and create a cache key for this character
+	personality := cb.buildPersonalityPrompt(char)
+
+	// Create a stable cache key for just the personality layer
+	h := sha256.New()
+	h.Write([]byte(char.ID))
+	h.Write([]byte("personality"))
+	h.Write([]byte(personality))
+	key := hex.EncodeToString(h.Sum(nil))
+
+	// Store with a long TTL since personality is static
+	cb.cache.Store(key, cache.CorePersonalityLayer, personality, 24*time.Hour)
+}
+
+func (cb *CharacterBot) buildPersonalityPrompt(char *models.Character) string {
+	return fmt.Sprintf(`[CHARACTER PROFILE]
+Name: %s
+Personality Traits:
+- Openness: %.2f
+- Conscientiousness: %.2f
+- Extraversion: %.2f
+- Agreeableness: %.2f
+- Neuroticism: %.2f
+
+Backstory: %s
+
+Speech Style: %s
+
+Core Quirks: %s
+
+[INTERACTION RULES]
+- Always stay in character
+- Express personality traits consistently
+- Use characteristic speech patterns
+- React based on emotional state`,
+		char.Name,
+		char.Personality.Openness,
+		char.Personality.Conscientiousness,
+		char.Personality.Extraversion,
+		char.Personality.Agreeableness,
+		char.Personality.Neuroticism,
+		char.Backstory,
+		char.SpeechStyle,
+		joinQuirks(char.Quirks),
+	)
+}
+
+func (cb *CharacterBot) buildLearnedBehaviors(char *models.Character) string {
+	// Extract patterns from medium-term memories
+	patterns := make([]string, 0)
+	for _, mem := range char.Memories {
+		if mem.Type == models.MediumTermMemory {
+			patterns = append(patterns, mem.Content)
+		}
+	}
+
+	if len(patterns) == 0 {
+		return ""
+	}
+
+	return fmt.Sprintf("[LEARNED PATTERNS]\n%s", strings.Join(patterns, "\n"))
+}
+
+func (cb *CharacterBot) buildEmotionalContext(char *models.Character) string {
+	return fmt.Sprintf(`[EMOTIONAL STATE]
+Current Mood:
+- Joy: %.2f
+- Surprise: %.2f
+- Anger: %.2f
+- Fear: %.2f
+- Sadness: %.2f
+- Disgust: %.2f`,
+		char.CurrentMood.Joy,
+		char.CurrentMood.Surprise,
+		char.CurrentMood.Anger,
+		char.CurrentMood.Fear,
+		char.CurrentMood.Sadness,
+		char.CurrentMood.Disgust,
+	)
+}
+
+func (cb *CharacterBot) buildConversationHistory(ctx models.ConversationContext) string {
+	if len(ctx.RecentMessages) == 0 {
+		return ""
+	}
+
+	history := "[CONVERSATION HISTORY]\n"
+	for _, msg := range ctx.RecentMessages {
+		history += fmt.Sprintf("%s: %s\n", msg.Role, msg.Content)
+	}
+
+	return history
+}
+
+func (cb *CharacterBot) buildUserContext(userID string, char *models.Character) string {
+	// Try to load user profile if available
+	if cb.userProfileRepo != nil && cb.config.UserProfileConfig.Enabled {
+		profile, err := cb.userProfileRepo.LoadUserProfile(userID, char.ID)
+		if err == nil && profile != nil {
+			return cb.buildUserProfileLayer(userID, char.ID, profile)
+		}
+	}
+
+	// Fallback to basic user context
+	context := fmt.Sprintf(`[USER CONTEXT]
+You are speaking with: %s
+
+Remember to address them by their name throughout the conversation.`, userID)
+
+	// Add any user-specific memories
+	var userMemories []string
+	for _, mem := range char.Memories {
+		if mem.Type == models.LongTermMemory && mem.Content != "" {
+			// Check if memory mentions this user (simple check)
+			// In a more advanced system, you'd have user-specific memory storage
+			userMemories = append(userMemories, mem.Content)
+		}
+	}
+
+	if len(userMemories) > 0 {
+		context += "\n\nShared experiences:\n" + strings.Join(userMemories, "\n")
+	}
+
+	return context
+}
+
+func (cb *CharacterBot) buildUserProfileLayer(userID, characterID string, profile *models.UserProfile) string {
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("[USER PROFILE FOR %s (as perceived by character %s)]\n", userID, characterID))
+	
+	if profile.OverallSummary != "" {
+		sb.WriteString(fmt.Sprintf("Summary: %s\n", profile.OverallSummary))
+	}
+	
+	if profile.InteractionStyle != "" {
+		sb.WriteString(fmt.Sprintf("Interaction Style: %s\n", profile.InteractionStyle))
+	}
+
+	if len(profile.Facts) > 0 {
+		sb.WriteString("\nKey Facts Remembered About User:\n")
+		for _, fact := range profile.Facts {
+			// Only include facts with confidence above threshold
+			if fact.Confidence >= cb.config.UserProfileConfig.ConfidenceThreshold {
+				sb.WriteString(fmt.Sprintf("- %s: %s (Confidence: %.1f)\n", fact.Key, fact.Value, fact.Confidence))
+			}
+		}
+	}
+	
+	return sb.String()
+}
+
+func (cb *CharacterBot) assemblePrompt(breakpoints []cache.CacheBreakpoint, userID, message string) string {
+	var parts []string
+
+	// Add all breakpoint content
+	for _, bp := range breakpoints {
+		parts = append(parts, bp.Content)
+	}
+
+	// Add current message
+	parts = append(parts, fmt.Sprintf("[CURRENT MESSAGE]\n%s: %s", userID, message))
+
+	return strings.Join(parts, "\n\n")
+}
+
+func (cb *CharacterBot) generateCacheKey(charID, userID, scenarioID string, breakpoints []cache.CacheBreakpoint) string {
+	// Generate cache key based only on static/semi-static layers
+	// Don't include conversation layer which changes every time
+	h := sha256.New()
+	h.Write([]byte(charID))
+	h.Write([]byte(userID))
+
+	// Include scenario ID in the cache key if present
+	// This ensures different scenarios create different cache entries
+	if scenarioID != "" {
+		h.Write([]byte(scenarioID))
+	}
+
+	// Only hash content from cacheable layers (not conversation)
+	// Note: If scenario content is the first breakpoint, it's already included
+	for _, bp := range breakpoints {
+		if bp.Layer != cache.ConversationLayer {
+			h.Write([]byte(bp.Content))
+		}
+	}
+
+	return hex.EncodeToString(h.Sum(nil))
+}
+
+func (cb *CharacterBot) selectProvider() providers.AIProvider {
+	cb.mu.RLock()
+	defer cb.mu.RUnlock()
+
+	// Try to get the default provider
+	if provider, exists := cb.providers[cb.config.DefaultProvider]; exists {
+		return provider
+	}
+
+	// Fallback to first available provider
+	for _, p := range cb.providers {
+		return p
+	}
+
+	return nil
+}
+
+func (cb *CharacterBot) updateCharacterState(charID string, resp *providers.AIResponse) {
+	char, err := cb.GetCharacter(charID)
+	if err != nil {
+		return
+	}
+
+	char.Lock()
+	defer char.Unlock()
+
+	// Update emotional state with decay
+	char.CurrentMood = cb.blendEmotions(char.CurrentMood, resp.Emotions, 0.3)
+
+	// Add to short-term memory
+	memory := models.Memory{
+		Type:      models.ShortTermMemory,
+		Content:   resp.Content,
+		Timestamp: time.Now(),
+		Emotional: cb.calculateEmotionalWeight(resp.Emotions),
+	}
+	char.Memories = append(char.Memories, memory)
+
+	// Trigger consolidation if needed
+	if len(char.Memories) > cb.config.MemoryConfig.ShortTermWindow {
+		go cb.consolidateMemories(char)
+	}
+
+	// Evolution logic
+	if cb.config.PersonalityConfig.EvolutionEnabled {
+		cb.evolvePersonality(char, resp)
+	}
+
+	char.LastModified = time.Now()
+}
+
+func (cb *CharacterBot) blendEmotions(current, new models.EmotionalState, rate float64) models.EmotionalState {
+	return models.EmotionalState{
+		Joy:      current.Joy*(1-rate) + new.Joy*rate,
+		Surprise: current.Surprise*(1-rate) + new.Surprise*rate,
+		Anger:    current.Anger*(1-rate) + new.Anger*rate,
+		Fear:     current.Fear*(1-rate) + new.Fear*rate,
+		Sadness:  current.Sadness*(1-rate) + new.Sadness*rate,
+		Disgust:  current.Disgust*(1-rate) + new.Disgust*rate,
+	}
+}
+
+func (cb *CharacterBot) calculateEmotionalWeight(emotions models.EmotionalState) float64 {
+	// Simple average of emotion intensities
+	total := emotions.Joy + emotions.Surprise + emotions.Anger +
+		emotions.Fear + emotions.Sadness + emotions.Disgust
+	return total / 6.0
+}
+
+func (cb *CharacterBot) evolvePersonality(char *models.Character, resp *providers.AIResponse) {
+	// Calculate trait impacts based on interaction
+	impacts := cb.analyzeInteractionImpacts(resp)
+
+	// Apply bounded evolution
+	driftRate := cb.config.PersonalityConfig.MaxDriftRate
+	char.Personality.Openness += impacts.Openness * driftRate
+	char.Personality.Conscientiousness += impacts.Conscientiousness * driftRate
+	char.Personality.Extraversion += impacts.Extraversion * driftRate
+	char.Personality.Agreeableness += impacts.Agreeableness * driftRate
+	char.Personality.Neuroticism += impacts.Neuroticism * driftRate
+
+	// Normalize to keep traits in [0, 1] range
+	char.Personality = models.NormalizePersonality(char.Personality)
+}
+
+func (cb *CharacterBot) analyzeInteractionImpacts(resp *providers.AIResponse) models.PersonalityTraits {
+	// Simplified impact analysis based on emotional response
+	return models.PersonalityTraits{
+		Openness:          resp.Emotions.Surprise * 0.5,
+		Conscientiousness: (1 - resp.Emotions.Anger) * 0.3,
+		Extraversion:      resp.Emotions.Joy * 0.4,
+		Agreeableness:     (1 - resp.Emotions.Disgust) * 0.3,
+		Neuroticism:       (resp.Emotions.Fear + resp.Emotions.Sadness) * 0.3,
+	}
+}
+
+// Background workers
+
+func (cb *CharacterBot) memoryConsolidationWorker() {
+	ticker := time.NewTicker(1 * time.Hour)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		cb.consolidateAllMemories()
+	}
+}
+
+func (cb *CharacterBot) consolidateAllMemories() {
+	cb.mu.RLock()
+	chars := make([]*models.Character, 0, len(cb.characters))
+	for _, char := range cb.characters {
+		chars = append(chars, char)
+	}
+	cb.mu.RUnlock()
+
+	for _, char := range chars {
+		cb.consolidateMemories(char)
+	}
+}
+
+func (cb *CharacterBot) consolidateMemories(char *models.Character) {
+	char.Lock()
+	defer char.Unlock()
+
+	// Group memories by emotional significance
+	emotionalMemories := make([]models.Memory, 0)
+
+	threshold := 0.7 // Emotional weight threshold
+
+	for _, mem := range char.Memories {
+		if mem.Type == models.ShortTermMemory && mem.Emotional > threshold {
+			emotionalMemories = append(emotionalMemories, mem)
+		}
+	}
+
+	// Consolidate emotional memories into medium-term
+	if len(emotionalMemories) > 3 {
+		consolidated := models.Memory{
+			Type:      models.MediumTermMemory,
+			Content:   cb.synthesizeMemories(emotionalMemories),
+			Timestamp: time.Now(),
+			Emotional: cb.averageEmotionalWeight(emotionalMemories),
+		}
+		char.Memories = append(char.Memories, consolidated)
+	}
+
+	// Prune old short-term memories
+	cutoff := time.Now().Add(-cb.config.MemoryConfig.MediumTermDuration)
+	filtered := make([]models.Memory, 0)
+
+	for _, mem := range char.Memories {
+		if mem.Type != models.ShortTermMemory || mem.Timestamp.After(cutoff) {
+			filtered = append(filtered, mem)
+		}
+	}
+
+	char.Memories = filtered
+}
+
+func (cb *CharacterBot) synthesizeMemories(memories []models.Memory) string {
+	// In a real implementation, this would use NLP to create a coherent summary
+	contents := make([]string, 0, len(memories))
+	for _, mem := range memories {
+		contents = append(contents, mem.Content)
+	}
+	return fmt.Sprintf("Consolidated memories: %s", strings.Join(contents, "; "))
+}
+
+func (cb *CharacterBot) averageEmotionalWeight(memories []models.Memory) float64 {
+	if len(memories) == 0 {
+		return 0
+	}
+
+	total := 0.0
+	for _, mem := range memories {
+		total += mem.Emotional
+	}
+
+	return total / float64(len(memories))
+}
+
+// Utility functions
+
+func joinQuirks(quirks []string) string {
+	if len(quirks) == 0 {
+		return "None"
+	}
+	return strings.Join(quirks, ", ")
+}
+
+// UpdateUserProfile synchronously updates the user profile
+func (cb *CharacterBot) UpdateUserProfile(userID string, char *models.Character, sessionID string) {
+	if cb.userProfileAgent == nil {
+		return
+	}
+	cb.updateUserProfileSync(userID, char, sessionID)
+}
+
+// updateUserProfileAsync asynchronously updates the user profile based on conversation history
+func (cb *CharacterBot) updateUserProfileAsync(userID string, char *models.Character, sessionID string) {
+	go cb.updateUserProfileSync(userID, char, sessionID)
+}
+
+// updateUserProfileSync performs the actual user profile update
+func (cb *CharacterBot) updateUserProfileSync(userID string, char *models.Character, sessionID string) {
+	// Update user profile based on conversation history
+	
+	// Only proceed if we have the minimum messages for an update
+	sessionRepo := repository.NewSessionRepository(filepath.Join(os.Getenv("HOME"), ".config", "roleplay"))
+	
+	currentSession, err := sessionRepo.LoadSession(char.ID, sessionID)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error loading session %s for user profile update: %v\n", sessionID, err)
+		return
+	}
+	
+	// Check if we should update based on frequency setting
+	messageCount := len(currentSession.Messages)
+	if messageCount == 0 || (messageCount % cb.config.UserProfileConfig.UpdateFrequency != 0) {
+		return
+	}
+	
+	// Update the profile
+	turnsToConsider := cb.config.UserProfileConfig.TurnsToConsider
+	if turnsToConsider <= 0 {
+		turnsToConsider = 20 // Default value
+	}
+	
+	if cb.userProfileAgent == nil {
+		return
+	}
+	
+	_, updateErr := cb.userProfileAgent.UpdateUserProfile(
+		context.Background(),
+		userID,
+		char,
+		currentSession.Messages,
+		turnsToConsider,
+	)
+	
+	if updateErr != nil {
+		fmt.Fprintf(os.Stderr, "Error updating user profile for %s with %s: %v\n", userID, char.ID, updateErr)
+	}
+}
+````
+
 ## File: go.mod
 ````
 module github.com/dotcommander/roleplay
@@ -6535,6 +7666,7 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/spf13/cobra v1.8.0
 	github.com/spf13/viper v1.18.2
+	github.com/stretchr/testify v1.10.0
 )
 
 require (
@@ -6567,7 +7699,6 @@ require (
 	github.com/spf13/afero v1.11.0 // indirect
 	github.com/spf13/cast v1.6.0 // indirect
 	github.com/spf13/pflag v1.0.5 // indirect
-	github.com/stretchr/testify v1.10.0 // indirect
 	github.com/subosito/gotenv v1.6.0 // indirect
 	github.com/xo/terminfo v0.0.0-20220910002029-abceb7e1c41e // indirect
 	go.uber.org/atomic v1.9.0 // indirect
@@ -6579,6 +7710,339 @@ require (
 	gopkg.in/ini.v1 v1.67.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
+````
+
+## File: cmd/chat.go
+````go
+package cmd
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"os"
+	"time"
+
+	"github.com/dotcommander/roleplay/internal/factory"
+	"github.com/dotcommander/roleplay/internal/manager"
+	"github.com/dotcommander/roleplay/internal/models"
+	"github.com/dotcommander/roleplay/internal/repository"
+	"github.com/spf13/cobra"
+)
+
+var (
+	characterID string
+	userID      string
+	sessionID   string
+	format      string
+	scenarioID  string
+)
+
+var chatCmd = &cobra.Command{
+	Use:   "chat [message]",
+	Short: "Chat with a character",
+	Long: `Start a conversation with a character. The character will respond based on their
+personality, emotional state, and conversation history.
+
+Examples:
+  roleplay chat "Hello, how are you?" --character warrior-123 --user user-789
+  roleplay chat "Tell me about your adventures" -c warrior-123 -u user-789`,
+	Args: cobra.ExactArgs(1),
+	RunE: runChat,
+}
+
+func init() {
+	rootCmd.AddCommand(chatCmd)
+
+	chatCmd.Flags().StringVarP(&characterID, "character", "c", "", "Character ID to chat with (required)")
+	chatCmd.Flags().StringVarP(&userID, "user", "u", "", "User ID for the conversation (required)")
+	chatCmd.Flags().StringVarP(&sessionID, "session", "s", "", "Session ID (optional, generates new if not provided)")
+	chatCmd.Flags().StringVarP(&format, "format", "f", "text", "Output format: text or json")
+	chatCmd.Flags().StringVar(&scenarioID, "scenario", "", "Scenario ID to set the interaction context (optional)")
+
+	if err := chatCmd.MarkFlagRequired("character"); err != nil {
+		fmt.Fprintf(os.Stderr, "Error marking character flag as required: %v\n", err)
+	}
+	if err := chatCmd.MarkFlagRequired("user"); err != nil {
+		fmt.Fprintf(os.Stderr, "Error marking user flag as required: %v\n", err)
+	}
+}
+
+func runChat(cmd *cobra.Command, args []string) error {
+	message := args[0]
+	config := GetConfig()
+
+	// Validate API key
+	if config.APIKey == "" {
+		return fmt.Errorf("API key not configured. Set ROLEPLAY_API_KEY or use --api-key")
+	}
+
+	// Initialize manager
+	mgr, err := manager.NewCharacterManager(config)
+	if err != nil {
+		return fmt.Errorf("failed to initialize manager: %w", err)
+	}
+
+	// Register provider using factory
+	bot := mgr.GetBot()
+	if err := factory.InitializeAndRegisterProvider(bot, config); err != nil {
+		return fmt.Errorf("failed to initialize provider: %w", err)
+	}
+
+	// Ensure character is loaded
+	if _, err := mgr.GetOrLoadCharacter(characterID); err != nil {
+		return fmt.Errorf("character %s not found. Create it first with 'roleplay character create'", characterID)
+	}
+
+	// Get session repository
+	sessionRepo := mgr.GetSessionRepository()
+
+	// Generate session ID if not provided
+	if sessionID == "" {
+		sessionID = fmt.Sprintf("session-%d", time.Now().Unix())
+	}
+
+	// Load existing session or create new one
+	var session *repository.Session
+	existingSession, err := sessionRepo.LoadSession(characterID, sessionID)
+	if err != nil {
+		// Create new session if it doesn't exist
+		session = &repository.Session{
+			ID:           sessionID,
+			CharacterID:  characterID,
+			UserID:       userID,
+			StartTime:    time.Now(),
+			LastActivity: time.Now(),
+			Messages:     []repository.SessionMessage{},
+			CacheMetrics: repository.CacheMetrics{},
+		}
+	} else {
+		session = existingSession
+	}
+
+	// Convert session messages to conversation context
+	var recentMessages []models.Message
+	// Get last 10 messages for context
+	startIdx := 0
+	if len(session.Messages) > 10 {
+		startIdx = len(session.Messages) - 10
+	}
+	for i := startIdx; i < len(session.Messages); i++ {
+		msg := session.Messages[i]
+		// Map "character" role to "assistant" for API compatibility
+		role := msg.Role
+		if role == "character" {
+			role = "assistant"
+		}
+		recentMessages = append(recentMessages, models.Message{
+			Role:    role,
+			Content: msg.Content,
+		})
+	}
+
+	// Create conversation request
+	req := &models.ConversationRequest{
+		CharacterID: characterID,
+		UserID:      userID,
+		Message:     message,
+		ScenarioID:  scenarioID,
+		Context: models.ConversationContext{
+			SessionID:      sessionID,
+			StartTime:      session.StartTime,
+			RecentMessages: recentMessages,
+		},
+	}
+
+	// Process request
+	ctx := context.Background()
+	resp, err := bot.ProcessRequest(ctx, req)
+	if err != nil {
+		return fmt.Errorf("failed to process request: %w", err)
+	}
+
+	// Update session with new messages
+	session.Messages = append(session.Messages, repository.SessionMessage{
+		Timestamp:  time.Now(),
+		Role:       "user",
+		Content:    message,
+		TokensUsed: 0, // User messages don't consume tokens
+	})
+
+	cacheHits := 0
+	cacheMisses := 0
+	if resp.CacheMetrics.Hit {
+		cacheHits = 1
+	} else {
+		cacheMisses = 1
+	}
+
+	session.Messages = append(session.Messages, repository.SessionMessage{
+		Timestamp:   time.Now(),
+		Role:        "character",
+		Content:     resp.Content,
+		TokensUsed:  resp.TokensUsed.Total,
+		CacheHits:   cacheHits,
+		CacheMisses: cacheMisses,
+	})
+
+	// Update cache metrics
+	session.CacheMetrics.TotalRequests++
+	if resp.CacheMetrics.Hit {
+		session.CacheMetrics.CacheHits++
+	} else {
+		session.CacheMetrics.CacheMisses++
+	}
+	session.CacheMetrics.TokensSaved += resp.CacheMetrics.SavedTokens
+	session.CacheMetrics.HitRate = float64(session.CacheMetrics.CacheHits) / float64(session.CacheMetrics.TotalRequests)
+	session.CacheMetrics.CostSaved = float64(session.CacheMetrics.TokensSaved) * 0.000003 // Approximate cost per token
+	session.LastActivity = time.Now()
+
+	// Save session BEFORE checking for profile updates
+	// This ensures the async goroutine has access to the latest messages
+	if err := sessionRepo.SaveSession(session); err != nil {
+		// Log error but don't fail the command
+		if verbose, _ := cmd.Flags().GetBool("verbose"); verbose {
+			fmt.Fprintf(os.Stderr, "Warning: Failed to save session: %v\n", err)
+		}
+	}
+	
+	// Check if we should update the user profile
+	// For the chat command, we do this synchronously to ensure it completes
+	if config.UserProfileConfig.Enabled && len(session.Messages) > 0 && (len(session.Messages) % config.UserProfileConfig.UpdateFrequency == 0) {
+		if verbose, _ := cmd.Flags().GetBool("verbose"); verbose {
+			fmt.Fprintf(os.Stderr, "Updating user profile...\n")
+		}
+		
+		// Get character from manager
+		char, err := mgr.GetOrLoadCharacter(characterID)
+		if err == nil {
+			// Call the bot's profile update method directly
+			bot.UpdateUserProfile(userID, char, sessionID)
+		}
+	}
+
+	// Display response based on format
+	if format == "json" {
+		output := map[string]interface{}{
+			"session_id": sessionID,
+			"response": resp.Content,
+			"cache_metrics": map[string]interface{}{
+				"cache_hit":    resp.CacheMetrics.Hit,
+				"layers":       resp.CacheMetrics.Layers,
+				"saved_tokens": resp.CacheMetrics.SavedTokens,
+				"latency_ms":   resp.CacheMetrics.Latency.Milliseconds(),
+			},
+			"token_usage": map[string]interface{}{
+				"prompt":        resp.TokensUsed.Prompt,
+				"completion":    resp.TokensUsed.Completion,
+				"cached_prompt": resp.TokensUsed.CachedPrompt,
+				"total":         resp.TokensUsed.Total,
+			},
+		}
+		jsonBytes, _ := json.MarshalIndent(output, "", "  ")
+		fmt.Println(string(jsonBytes))
+	} else {
+		// Display response
+		fmt.Fprintf(os.Stdout, "\n%s\n", resp.Content)
+
+		// Show cache metrics if verbose
+		if verbose, _ := cmd.Flags().GetBool("verbose"); verbose {
+			fmt.Fprintf(os.Stderr, "\n--- Performance Metrics ---\n")
+			fmt.Fprintf(os.Stderr, "Session ID: %s\n", sessionID)
+			fmt.Fprintf(os.Stderr, "Cache Hit: %v\n", resp.CacheMetrics.Hit)
+			fmt.Fprintf(os.Stderr, "Tokens Used: %d (cached: %d)\n",
+				resp.TokensUsed.Total, resp.TokensUsed.CachedPrompt)
+			fmt.Fprintf(os.Stderr, "Tokens Saved: %d\n", resp.CacheMetrics.SavedTokens)
+			fmt.Fprintf(os.Stderr, "Latency: %v\n", resp.CacheMetrics.Latency)
+			fmt.Fprintf(os.Stderr, "Session Messages: %d\n", len(session.Messages))
+		}
+	}
+
+	return nil
+}
+````
+
+## File: CHANGELOG.md
+````markdown
+# Changelog
+
+All notable changes to this project will be documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [0.2.0] - 2025-05-28
+
+### Added
+- AI-Powered User Profile Agent - Intelligent system that builds and maintains user profiles
+  - Automatic extraction of user information from conversations using LLM analysis
+  - Character-specific profiles (each character maintains their own perception of users)
+  - Confidence scoring for extracted facts (0.0-1.0)
+  - Dynamic profile updates as conversations evolve
+  - `profile` command for managing user profiles
+    - `show <user-id> <character-id>` - Display a specific user profile
+    - `list <user-id>` - List all profiles for a user
+    - `delete <user-id> <character-id>` - Delete a user profile
+  - Configurable update frequency and analysis depth
+  - Privacy-aware design with user control over their data
+  - Enriches conversations with learned context about users
+- Enhanced `chat` command with session persistence and user profile support
+  - Now saves conversation sessions for continuity across chats
+  - Loads previous conversation context for more coherent interactions
+  - Automatically triggers user profile updates based on configured frequency
+  - Includes session ID in output for easy session management
+  - Maps character roles correctly for API compatibility
+- Scenario Context Cache - New highest-level cache layer for meta-prompts and operational contexts
+  - 5-layer cache hierarchy with scenarios at the top (7-day TTL)
+  - `scenario` command for managing high-level interaction contexts
+    - `create` - Create new scenarios with custom prompts
+    - `list` - List all available scenarios
+    - `show` - Display scenario details
+    - `update` - Update existing scenarios
+    - `delete` - Remove scenarios
+    - `example` - Show example scenario definitions
+  - `--scenario` flag added to `chat` and `interactive` commands
+  - Example scenarios included: starship bridge, therapy session, tech support, creative writing
+- Command history navigation in interactive mode - use up/down arrows to navigate through previous commands
+- `/memories` command to view character's memories about the user (planned)
+
+### Fixed
+- Fixed `character show` command to load characters from repository instead of expecting them in memory
+- Fixed interactive mode to load all available characters on startup for proper `/list` and `/switch` functionality
+
+### Features
+- Initial release of Roleplay character bot system
+- OCEAN personality model implementation
+- Multi-tier memory system (short, medium, long-term)
+- 4-layer caching architecture for 90% cost reduction
+- Support for OpenAI and Anthropic providers
+- Interactive TUI chat interface
+- Character import from markdown files using AI
+- Session management and statistics
+- Personality evolution with bounded drift
+- Emotional state tracking and blending
+- Example character files
+- Comprehensive documentation
+
+### Features
+- `character` command for managing characters
+  - `create` - Create character from JSON
+  - `list` - List all characters
+  - `show` - Show character details
+  - `example` - Generate example JSON
+- `import` command for AI-powered markdown import
+- `chat` command for single message interactions
+- `interactive` command for TUI chat interface
+- `demo` command for caching demonstration
+- `session` command for session management
+  - `list` - List all sessions
+  - `stats` - Show caching statistics
+- `api-test` command for testing API connectivity
+- `status` command for configuration status
+
+## [0.1.0] - TBD
+
+Initial public release.
 ````
 
 ## File: cmd/interactive.go
@@ -6633,6 +8097,7 @@ func init() {
 	interactiveCmd.Flags().StringP("user", "u", "", "User ID for the conversation (defaults to your username)")
 	interactiveCmd.Flags().StringP("session", "s", "", "Session ID (optional)")
 	interactiveCmd.Flags().Bool("new-session", false, "Start a new session instead of resuming")
+	interactiveCmd.Flags().String("scenario", "", "Scenario ID to set the interaction context (optional)")
 }
 
 // Styles - Gruvbox Dark Theme
@@ -6778,6 +8243,7 @@ type model struct {
 	characterID string
 	userID      string
 	sessionID   string
+	scenarioID  string
 	bot         *services.CharacterBot
 	character   *models.Character
 	context     models.ConversationContext
@@ -6793,6 +8259,11 @@ type model struct {
 	lastTokensSaved int
 	totalRequests   int
 	cacheHits       int
+
+	// Command history
+	commandHistory []string
+	historyIndex   int
+	historyBuffer  string // Stores current input when navigating history
 }
 
 func (m model) Init() tea.Cmd {
@@ -6859,6 +8330,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case tea.KeyEnter:
 			if !m.loading && m.textarea.Value() != "" {
 				message := m.textarea.Value()
+
+				// Add to command history
+				m.commandHistory = append(m.commandHistory, message)
+				m.historyIndex = len(m.commandHistory) // Reset to end of history
+				m.historyBuffer = ""                   // Clear history buffer
+
 				m.textarea.Reset()
 
 				// Check for slash commands
@@ -6878,8 +8355,32 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.totalRequests++
 				return m, m.sendMessage(message)
 			}
-		}
+		case tea.KeyUp:
+			// Navigate backward in history
+			if len(m.commandHistory) > 0 && m.historyIndex > 0 {
+				// Save current input if this is the first time navigating
+				if m.historyIndex == len(m.commandHistory) {
+					m.historyBuffer = m.textarea.Value()
+				}
 
+				m.historyIndex--
+				m.textarea.SetValue(m.commandHistory[m.historyIndex])
+				m.textarea.CursorEnd() // Move cursor to end
+			}
+		case tea.KeyDown:
+			// Navigate forward in history
+			if len(m.commandHistory) > 0 && m.historyIndex < len(m.commandHistory) {
+				m.historyIndex++
+
+				if m.historyIndex == len(m.commandHistory) {
+					// Restore the original input
+					m.textarea.SetValue(m.historyBuffer)
+				} else {
+					m.textarea.SetValue(m.commandHistory[m.historyIndex])
+				}
+				m.textarea.CursorEnd() // Move cursor to end
+			}
+		}
 	case characterInfoMsg:
 		m.character = msg.character
 
@@ -6999,7 +8500,7 @@ func (m model) View() string {
 	statusBar := m.renderStatusBar()
 
 	// Help text
-	help := helpStyle.Render("  ⌃C quit • ↵ send • ↑↓ scroll • /help commands • /exit quit")
+	help := helpStyle.Render("  ⌃C quit • ↵ send • ↑↓ history • /help commands • /exit quit")
 
 	return lipgloss.JoinVertical(
 		lipgloss.Left,
@@ -7300,6 +8801,7 @@ func (m model) sendMessage(message string) tea.Cmd {
 			CharacterID: m.characterID,
 			UserID:      m.userID,
 			Message:     message,
+			ScenarioID:  m.scenarioID,
 			Context:     m.context,
 		}
 
@@ -7631,6 +9133,7 @@ func runInteractive(cmd *cobra.Command, args []string) error {
 	userID, _ := cmd.Flags().GetString("user")
 	sessionID, _ := cmd.Flags().GetString("session")
 	newSession, _ := cmd.Flags().GetBool("new-session")
+	scenarioID, _ := cmd.Flags().GetString("scenario")
 
 	// Apply smart defaults
 	if characterID == "" {
@@ -7775,6 +9278,7 @@ func runInteractive(cmd *cobra.Command, args []string) error {
 		characterID: characterID,
 		userID:      userID,
 		sessionID:   sessionID,
+		scenarioID:  scenarioID,
 		bot:         bot,
 		messages:    existingMessages,
 		spinner:     s,

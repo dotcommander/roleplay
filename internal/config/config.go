@@ -7,6 +7,8 @@ type Config struct {
 	DefaultProvider   string
 	Model             string
 	APIKey            string
+	BaseURL           string            // OpenAI-compatible endpoint
+	ModelAliases      map[string]string // Aliases for models
 	CacheConfig       CacheConfig
 	MemoryConfig      MemoryConfig
 	PersonalityConfig PersonalityConfig

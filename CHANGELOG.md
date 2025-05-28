@@ -5,6 +5,55 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2025-05-28
+
+### Added
+- **Major User Experience Improvements**
+  - `roleplay init` - Interactive setup wizard for first-time configuration
+    - Auto-detects local LLM services (Ollama, LM Studio, LocalAI)
+    - Guides through provider selection and API configuration
+    - Creates example characters automatically
+    - Generates proper config.yaml with sensible defaults
+  - `roleplay quickstart` - Zero-configuration quick start
+    - Automatically detects and uses local LLM services
+    - Falls back to environment variables (OPENAI_API_KEY, ANTHROPIC_API_KEY)
+    - Creates Rick Sanchez and starts chatting immediately
+  - `roleplay config` - Configuration management commands
+    - `config list` - Display all active configuration values
+    - `config get <key>` - Retrieve specific configuration value
+    - `config set <key> <value>` - Update configuration file
+    - `config where` - Show configuration file location
+    - Masks sensitive values (API keys) when displaying
+
+- **OpenAI-Compatible API Support**
+  - Added `base_url` configuration for custom endpoints
+  - `--base-url` flag for command-line override
+  - Environment variable support: `ROLEPLAY_BASE_URL`, `OPENAI_BASE_URL`, `OLLAMA_HOST`
+  - Enables use with Ollama, LM Studio, OpenRouter, and other compatible services
+  - Automatic endpoint detection for common local services
+
+- **Model Aliases**
+  - Configure friendly names for models in config.yaml
+  - Example: `model_aliases: { fast: "gpt-4o-mini", smart: "gpt-4o", local: "llama3" }`
+  - Use with `-m fast` instead of full model names
+
+- **Architecture Improvements**
+  - TUI componentization - Refactored interactive mode into reusable components
+    - Created `internal/tui/components/` with StatusBar, Header, InputArea, MessageList
+    - Improved testability with component-level unit tests
+    - Reduced cyclomatic complexity significantly
+  - Centralized CharacterBot initialization within CharacterManager
+    - Eliminated boilerplate provider initialization code
+    - Improved consistency across commands
+
+### Changed
+- CharacterManager now internally initializes AI providers and UserProfileAgent
+- OpenAI provider now supports custom base URLs for compatible services
+- Config structure expanded to support new features
+
+### Fixed
+- Character creation now properly uses CharacterManager for both bot and persistence
+
 ## [0.2.0] - 2025-05-28
 
 ### Added

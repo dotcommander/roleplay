@@ -7,10 +7,9 @@ import (
 	"path/filepath"
 	"text/tabwriter"
 
-	"github.com/dotcommander/roleplay/internal/factory"
+	"github.com/dotcommander/roleplay/internal/manager"
 	"github.com/dotcommander/roleplay/internal/models"
 	"github.com/dotcommander/roleplay/internal/repository"
-	"github.com/dotcommander/roleplay/internal/services"
 	"github.com/spf13/cobra"
 )
 
@@ -92,28 +91,15 @@ func runCreateCharacter(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to parse character JSON: %w", err)
 	}
 
-	// Initialize bot
-	bot := services.NewCharacterBot(config)
-
-	// Register provider using factory (needed for character creation warmup)
-	if err := factory.InitializeAndRegisterProvider(bot, config); err != nil {
-		return fmt.Errorf("failed to initialize provider: %w", err)
-	}
-
-	// Create character
-	if err := bot.CreateCharacter(&char); err != nil {
-		return fmt.Errorf("failed to create character: %w", err)
-	}
-
-	// Save to repository for persistence
-	dataDir := filepath.Join(os.Getenv("HOME"), ".config", "roleplay")
-	repo, err := repository.NewCharacterRepository(dataDir)
+	// Initialize manager (bot is now fully initialized)
+	mgr, err := manager.NewCharacterManager(config)
 	if err != nil {
-		return fmt.Errorf("failed to initialize repository: %w", err)
+		return fmt.Errorf("failed to initialize manager: %w", err)
 	}
 
-	if err := repo.SaveCharacter(&char); err != nil {
-		return fmt.Errorf("failed to save character: %w", err)
+	// Create character using manager (handles both bot and persistence)
+	if err := mgr.CreateCharacter(&char); err != nil {
+		return fmt.Errorf("failed to create character: %w", err)
 	}
 
 	fmt.Printf("Character '%s' (ID: %s) created and saved successfully!\n", char.Name, char.ID)

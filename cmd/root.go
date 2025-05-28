@@ -44,6 +44,7 @@ func init() {
 	rootCmd.PersistentFlags().String("provider", "openai", "AI provider to use (anthropic, openai)")
 	rootCmd.PersistentFlags().String("model", "", "Model to use (e.g., gpt-4o-mini, gpt-4 for OpenAI)")
 	rootCmd.PersistentFlags().String("api-key", "", "API key for the AI provider")
+	rootCmd.PersistentFlags().String("base-url", "", "Base URL for OpenAI-compatible API")
 	rootCmd.PersistentFlags().Duration("cache-ttl", 10*time.Minute, "Default cache TTL")
 	rootCmd.PersistentFlags().Bool("adaptive-ttl", true, "Enable adaptive TTL for cache")
 	rootCmd.PersistentFlags().BoolP("verbose", "v", false, "Enable verbose output")
@@ -56,6 +57,9 @@ func init() {
 	}
 	if err := viper.BindPFlag("api_key", rootCmd.PersistentFlags().Lookup("api-key")); err != nil {
 		fmt.Fprintf(os.Stderr, "Error binding api_key flag: %v\n", err)
+	}
+	if err := viper.BindPFlag("base_url", rootCmd.PersistentFlags().Lookup("base-url")); err != nil {
+		fmt.Fprintf(os.Stderr, "Error binding base_url flag: %v\n", err)
 	}
 	if err := viper.BindPFlag("cache.default_ttl", rootCmd.PersistentFlags().Lookup("cache-ttl")); err != nil {
 		fmt.Fprintf(os.Stderr, "Error binding cache.default_ttl flag: %v\n", err)
@@ -79,6 +83,14 @@ func initConfig() {
 
 	viper.SetEnvPrefix("ROLEPLAY")
 	viper.AutomaticEnv()
+	
+	// Also check for common environment variables from other tools
+	if baseURL := os.Getenv("OPENAI_BASE_URL"); baseURL != "" && viper.GetString("base_url") == "" {
+		viper.Set("base_url", baseURL)
+	}
+	if ollamaHost := os.Getenv("OLLAMA_HOST"); ollamaHost != "" && viper.GetString("base_url") == "" {
+		viper.Set("base_url", ollamaHost+"/v1")
+	}
 
 	if err := viper.ReadInConfig(); err == nil {
 		fmt.Fprintln(os.Stderr, "Using config file:", viper.ConfigFileUsed())
@@ -94,6 +106,8 @@ func initConfig() {
 		DefaultProvider: viper.GetString("provider"),
 		Model:           viper.GetString("model"),
 		APIKey:          apiKey,
+		BaseURL:         viper.GetString("base_url"),
+		ModelAliases:    viper.GetStringMapString("model_aliases"),
 		CacheConfig: config.CacheConfig{
 			MaxEntries:        viper.GetInt("cache.max_entries"),
 			CleanupInterval:   viper.GetDuration("cache.cleanup_interval"),

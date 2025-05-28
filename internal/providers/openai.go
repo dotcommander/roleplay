@@ -23,14 +23,22 @@ type OpenAIProvider struct {
 
 // NewOpenAIProvider creates a new OpenAI provider instance
 func NewOpenAIProvider(apiKey, model string) *OpenAIProvider {
+	return NewOpenAIProviderWithBaseURL(apiKey, model, "https://api.openai.com/v1")
+}
+
+// NewOpenAIProviderWithBaseURL creates a new OpenAI provider with custom base URL
+func NewOpenAIProviderWithBaseURL(apiKey, model, baseURL string) *OpenAIProvider {
 	// Log the model being used for debugging
 	if strings.HasPrefix(model, "o1-") || strings.HasPrefix(model, "o4-") {
 		fmt.Printf("⚠️  Using o1/o4 model: %s (limited parameter support)\n", model)
 	}
+	
+	// Ensure baseURL doesn't have trailing slash
+	baseURL = strings.TrimRight(baseURL, "/")
 
 	return &OpenAIProvider{
 		apiKey:     apiKey,
-		baseURL:    "https://api.openai.com/v1",
+		baseURL:    baseURL,
 		httpClient: &http.Client{Timeout: 60 * time.Second},
 		model:      model,
 	}

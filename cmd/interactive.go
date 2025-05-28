@@ -16,7 +16,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/dotcommander/roleplay/internal/cache"
-	"github.com/dotcommander/roleplay/internal/factory"
+	"github.com/dotcommander/roleplay/internal/manager"
 	"github.com/dotcommander/roleplay/internal/models"
 	"github.com/dotcommander/roleplay/internal/repository"
 	"github.com/dotcommander/roleplay/internal/services"
@@ -1160,60 +1160,33 @@ func runInteractive(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("internal error: session ID is empty")
 	}
 
-	// Initialize bot
-	bot := services.NewCharacterBot(config)
-
-	// Register provider using factory
-	if err := factory.InitializeAndRegisterProvider(bot, config); err != nil {
-		return fmt.Errorf("failed to initialize provider: %w", err)
+	// Initialize manager (bot is now fully initialized)
+	mgr, err := manager.NewCharacterManager(config)
+	if err != nil {
+		return fmt.Errorf("failed to initialize manager: %w", err)
 	}
 
-	// Load all available characters from repository
-	charRepo, err := repository.NewCharacterRepository(dataDir)
-	if err != nil {
-		fmt.Printf("Warning: Could not access character repository: %v\n", err)
+	// Load all available characters
+	if err := mgr.LoadAllCharacters(); err != nil {
+		fmt.Printf("Warning: Could not load all characters: %v\n", err)
 	} else {
-		characterIDs, err := charRepo.ListCharacters()
-		if err != nil {
-			fmt.Printf("Warning: Could not list characters: %v\n", err)
-		} else {
-			loadedCount := 0
-			for _, id := range characterIDs {
-				char, err := charRepo.LoadCharacter(id)
-				if err != nil {
-					fmt.Printf("Warning: Could not load character %s: %v\n", id, err)
-					continue
-				}
-				if err := bot.CreateCharacter(char); err != nil {
-					fmt.Printf("Warning: Could not register character %s: %v\n", id, err)
-					continue
-				}
-				loadedCount++
-			}
-			if loadedCount > 0 {
-				fmt.Printf("📚 Loaded %d characters into memory\n", loadedCount)
-			}
+		charIDs, _ := mgr.ListAvailableCharacters()
+		if len(charIDs) > 0 {
+			fmt.Printf("📚 Loaded %d characters into memory\n", len(charIDs))
 		}
 	}
+
+	bot := mgr.GetBot()
 
 	// Auto-create Rick Sanchez if requested and doesn't exist
 	if characterID == "rick-c137" {
 		// Check if Rick already exists
-		if _, err := bot.GetCharacter(characterID); err != nil {
+		if _, err := mgr.GetOrLoadCharacter(characterID); err != nil {
 			// Rick doesn't exist, try to create him
-			if err := createRickSanchez(bot); err != nil {
+			rick := createRickSanchezCharacter()
+			if err := mgr.CreateCharacter(rick); err != nil {
 				fmt.Printf("Warning: Could not auto-create Rick: %v\n", err)
-				// Try to load from file
-				if charRepo != nil {
-					if char, err := charRepo.LoadCharacter(characterID); err == nil {
-						if err := bot.CreateCharacter(char); err != nil {
-							return fmt.Errorf("could not load character %s: %w", characterID, err)
-						}
-						fmt.Println("✅ Loaded Rick Sanchez from file")
-					} else {
-						return fmt.Errorf("character rick-c137 not found. Run 'roleplay character create rick-sanchez.json' first")
-					}
-				}
+				return fmt.Errorf("character rick-c137 not found. Run 'roleplay character create rick-sanchez.json' first")
 			} else {
 				fmt.Println("🧬 Auto-created Rick Sanchez (C-137)")
 			}
@@ -1282,8 +1255,8 @@ func runInteractive(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-func createRickSanchez(bot *services.CharacterBot) error {
-	rick := &models.Character{
+func createRickSanchezCharacter() *models.Character {
+	return &models.Character{
 		ID:        "rick-c137",
 		Name:      "Rick Sanchez",
 		Backstory: `The smartest man in the universe from dimension C-137. A genius scientist with a nihilistic worldview shaped by infinite realities and cosmic horrors. Inventor of interdimensional travel. Lost his wife Diane and original Beth to a vengeful alternate Rick. Struggles with alcoholism, depression, and the meaninglessness of existence across infinite universes. Despite his cynicism, deeply loves his family, especially Morty, though he rarely shows it.`,
@@ -1317,6 +1290,4 @@ func createRickSanchez(bot *services.CharacterBot) error {
 			},
 		},
 	}
-
-	return bot.CreateCharacter(rick)
 }

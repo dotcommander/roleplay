@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/charmbracelet/lipgloss"
-	"github.com/dotcommander/roleplay/internal/factory"
 	"github.com/dotcommander/roleplay/internal/manager"
 	"github.com/dotcommander/roleplay/internal/models"
 	"github.com/dotcommander/roleplay/internal/providers"
@@ -38,16 +37,10 @@ func runDemo(cmd *cobra.Command, args []string) error {
 	// Initialize configuration
 	cfg := GetConfig()
 
-	// Create manager
+	// Create manager (bot is now fully initialized)
 	mgr, err := manager.NewCharacterManager(cfg)
 	if err != nil {
 		return err
-	}
-
-	// Setup provider
-	// Initialize provider using factory
-	if err := factory.InitializeAndRegisterProvider(mgr.GetBot(), cfg); err != nil {
-		return fmt.Errorf("failed to initialize provider: %w", err)
 	}
 
 	// Create or load demo character

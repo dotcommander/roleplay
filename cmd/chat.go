@@ -7,7 +7,6 @@ import (
 	"os"
 	"time"
 
-	"github.com/dotcommander/roleplay/internal/factory"
 	"github.com/dotcommander/roleplay/internal/manager"
 	"github.com/dotcommander/roleplay/internal/models"
 	"github.com/dotcommander/roleplay/internal/repository"
@@ -61,16 +60,10 @@ func runChat(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("API key not configured. Set ROLEPLAY_API_KEY or use --api-key")
 	}
 
-	// Initialize manager
+	// Initialize manager (bot is now fully initialized)
 	mgr, err := manager.NewCharacterManager(config)
 	if err != nil {
 		return fmt.Errorf("failed to initialize manager: %w", err)
-	}
-
-	// Register provider using factory
-	bot := mgr.GetBot()
-	if err := factory.InitializeAndRegisterProvider(bot, config); err != nil {
-		return fmt.Errorf("failed to initialize provider: %w", err)
 	}
 
 	// Ensure character is loaded
@@ -139,7 +132,7 @@ func runChat(cmd *cobra.Command, args []string) error {
 
 	// Process request
 	ctx := context.Background()
-	resp, err := bot.ProcessRequest(ctx, req)
+	resp, err := mgr.GetBot().ProcessRequest(ctx, req)
 	if err != nil {
 		return fmt.Errorf("failed to process request: %w", err)
 	}
@@ -201,7 +194,7 @@ func runChat(cmd *cobra.Command, args []string) error {
 		char, err := mgr.GetOrLoadCharacter(characterID)
 		if err == nil {
 			// Call the bot's profile update method directly
-			bot.UpdateUserProfile(userID, char, sessionID)
+			mgr.GetBot().UpdateUserProfile(userID, char, sessionID)
 		}
 	}
 
