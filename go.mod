@@ -4,8 +4,6 @@ go 1.23.0
 
 toolchain go1.24.3
 
-replace github.com/dotcommander/roleplay => ./
-
 require (
 	github.com/charmbracelet/bubbles v0.21.0
 	github.com/charmbracelet/bubbletea v1.3.5
