@@ -3,9 +3,9 @@ package cmd
 import (
 	"context"
 	"fmt"
-	"os"
 	"time"
 
+	"github.com/dotcommander/roleplay/internal/factory"
 	"github.com/dotcommander/roleplay/internal/providers"
 	"github.com/dotcommander/roleplay/internal/utils"
 	"github.com/spf13/cobra"
@@ -31,43 +31,20 @@ func runAPITest(cmd *cobra.Command, args []string) error {
 	model := viper.GetString("model")
 	message, _ := cmd.Flags().GetString("message")
 
-	// Check for API key from environment if not set
-	if apiKey == "" && provider == "openai" {
-		apiKey = os.Getenv("OPENAI_API_KEY")
-	}
-	if apiKey == "" && provider == "anthropic" {
-		apiKey = os.Getenv("ANTHROPIC_API_KEY")
-	}
-
-	if apiKey == "" {
-		return fmt.Errorf("API key not found. Set --api-key flag or %s_API_KEY environment variable",
-			map[string]string{"openai": "OPENAI", "anthropic": "ANTHROPIC"}[provider])
-	}
+	// No need to check environment here - factory will handle it
 
 	fmt.Printf("Testing %s API...\n", provider)
-	fmt.Printf("Model: %s\n", func() string {
-		if model != "" {
-			return model
-		}
-		if provider == "openai" {
-			return "gpt-4o-mini"
-		}
-		return "claude-3-haiku-20240307"
-	}())
+	// Use factory to get default model if needed
+	if model == "" {
+		model = factory.GetDefaultModel(provider)
+	}
+	fmt.Printf("Model: %s\n", model)
 	fmt.Printf("Message: %s\n\n", message)
 
-	// Create provider
-	var p providers.AIProvider
-	switch provider {
-	case "openai":
-		if model == "" {
-			model = "gpt-4o-mini"
-		}
-		p = providers.NewOpenAIProvider(apiKey, model)
-	case "anthropic":
-		p = providers.NewAnthropicProvider(apiKey)
-	default:
-		return fmt.Errorf("unsupported provider: %s", provider)
+	// Create provider using factory
+	p, err := factory.CreateProviderWithFallback(provider, apiKey, model)
+	if err != nil {
+		return fmt.Errorf("failed to create provider: %w", err)
 	}
 
 	// Create request

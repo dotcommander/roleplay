@@ -3,12 +3,11 @@ package cmd
 import (
 	"context"
 	"fmt"
-	"os"
 	"strings"
 	"time"
 
 	"github.com/charmbracelet/lipgloss"
-	"github.com/dotcommander/roleplay/internal/config"
+	"github.com/dotcommander/roleplay/internal/factory"
 	"github.com/dotcommander/roleplay/internal/manager"
 	"github.com/dotcommander/roleplay/internal/models"
 	"github.com/dotcommander/roleplay/internal/providers"
@@ -46,7 +45,10 @@ func runDemo(cmd *cobra.Command, args []string) error {
 	}
 
 	// Setup provider
-	setupDemoProvider(mgr.GetBot(), cfg)
+	// Initialize provider using factory
+	if err := factory.InitializeAndRegisterProvider(mgr.GetBot(), cfg); err != nil {
+		return fmt.Errorf("failed to initialize provider: %w", err)
+	}
 
 	// Create or load demo character
 	if createChar {
@@ -73,78 +75,32 @@ func runDemo(cmd *cobra.Command, args []string) error {
 		CacheMetrics: repository.CacheMetrics{},
 	}
 
-	// Style definitions
-	titleStyle := lipgloss.NewStyle().
-		Bold(true).
-		Foreground(lipgloss.Color("#7c6f64")).
-		Background(lipgloss.Color("#3c3836")).
-		Padding(0, 1)
+	// Initialize styles
+	styles := newDemoStyles()
 
-	cacheHitStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#b8bb26")).
-		Bold(true)
+	// Display demo header
+	displayDemoHeader(styles, char)
 
-	cacheMissStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#fb4934")).
-		Bold(true)
+	// Get demo messages
+	demoMessages := getDemoMessages()
 
-	metricsStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#83a598"))
-
-	messageStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#ebdbb2"))
-
-	// Demo messages
-	demoMessages := []struct {
-		message     string
-		description string
-		delay       time.Duration
-	}{
-		{
-			"Tell me about yourself",
-			"Initial request - establishes cache layers",
-			0,
-		},
-		{
-			"Tell me about yourself",
-			"Exact repeat - should hit response cache",
-			1 * time.Second,
-		},
-		{
-			"What are your core values?",
-			"New question - cache miss",
-			1 * time.Second,
-		},
-		{
-			"What are your core values?",
-			"Repeat question - should hit cache",
-			1 * time.Second,
-		},
-		{
-			"Tell me about yourself",
-			"Third repeat - should hit cache with high savings",
-			1 * time.Second,
-		},
-	}
-
-	fmt.Println(titleStyle.Render("🚀 Roleplay Prompt Caching Demo"))
-	fmt.Printf("\nCharacter: %s (%s)\n", char.Name, char.ID)
-	fmt.Println(strings.Repeat("─", 60))
 
 	// Run demo interactions
+	ctx := context.Background()
 	for i, demo := range demoMessages {
 		if demo.delay > 0 {
 			time.Sleep(demo.delay)
 		}
 
+		// Display interaction header
 		fmt.Printf("\n%s[Message %d] %s\n",
-			lipgloss.NewStyle().Foreground(lipgloss.Color("#665c54")).Render(""),
+			styles.separator.Render(""),
 			i+1,
 			demo.description,
 		)
 		fmt.Printf("%sUser: %s\n",
-			lipgloss.NewStyle().Bold(true).Render(""),
-			messageStyle.Render(demo.message),
+			styles.bold.Render(""),
+			styles.message.Render(demo.message),
 		)
 
 		// Process request
@@ -154,79 +110,21 @@ func runDemo(cmd *cobra.Command, args []string) error {
 			Message:     demo.message,
 		}
 
-		ctx := context.Background()
-		start := time.Now()
-		resp, err := mgr.GetBot().ProcessRequest(ctx, &req)
-		elapsed := time.Since(start)
-
+		resp, _, err := processDemoMessage(ctx, mgr.GetBot(), &req, char, styles)
 		if err != nil {
 			fmt.Printf("Error: %v\n", err)
 			continue
 		}
 
-		// Display response with word wrapping
-		fmt.Printf("%s%s:\n",
-			lipgloss.NewStyle().Bold(true).Render(""),
-			char.Name,
-		)
-		fmt.Printf("%s\n", messageStyle.Render(utils.WrapText(resp.Content, 80)))
-
-		// Display cache metrics
-		cacheStatus := "MISS"
-		style := cacheMissStyle
-		if resp.CacheMetrics.Hit {
-			cacheStatus = fmt.Sprintf("HIT (%d layers)", len(resp.CacheMetrics.Layers))
-			style = cacheHitStyle
-		}
-
-		fmt.Printf("\n%s\n", metricsStyle.Render(fmt.Sprintf(
-			"  ⚡ Response Time: %v | Cache: %s | Tokens: %d (saved: %d)",
-			elapsed,
-			style.Render(cacheStatus),
-			resp.TokensUsed.Total,
-			resp.CacheMetrics.SavedTokens,
-		)))
-
-		// Update session
-		session.Messages = append(session.Messages, repository.SessionMessage{
-			Timestamp: time.Now(),
-			Role:      "user",
-			Content:   demo.message,
-		})
-		session.Messages = append(session.Messages, repository.SessionMessage{
-			Timestamp:  time.Now(),
-			Role:       "character",
-			Content:    resp.Content,
-			TokensUsed: resp.TokensUsed.Total,
-			CacheHits: func() int {
-				if resp.CacheMetrics.Hit {
-					return 1
-				} else {
-					return 0
-				}
-			}(),
-			CacheMisses: func() int {
-				if !resp.CacheMetrics.Hit {
-					return 1
-				} else {
-					return 0
-				}
-			}(),
-		})
-
-		// Update cumulative metrics
-		session.CacheMetrics.TotalRequests++
-		if resp.CacheMetrics.Hit {
-			session.CacheMetrics.CacheHits++
-		} else {
-			session.CacheMetrics.CacheMisses++
-		}
-		session.CacheMetrics.TokensSaved += resp.CacheMetrics.SavedTokens
+		// Update session metrics
+		updateSessionMetrics(session, demo.message, resp)
 	}
 
-	// Calculate final metrics
-	session.CacheMetrics.HitRate = float64(session.CacheMetrics.CacheHits) /
-		float64(session.CacheMetrics.CacheHits+session.CacheMetrics.CacheMisses)
+	// Calculate and save final metrics
+	if session.CacheMetrics.TotalRequests > 0 {
+		session.CacheMetrics.HitRate = float64(session.CacheMetrics.CacheHits) /
+			float64(session.CacheMetrics.TotalRequests)
+	}
 	session.CacheMetrics.CostSaved = float64(session.CacheMetrics.TokensSaved) * 0.000003 // Approximate cost per token
 	session.LastActivity = time.Now()
 
@@ -236,14 +134,7 @@ func runDemo(cmd *cobra.Command, args []string) error {
 	}
 
 	// Display summary
-	fmt.Println("\n" + strings.Repeat("═", 60))
-	fmt.Println(titleStyle.Render("📊 Demo Summary"))
-	fmt.Printf("\nTotal Interactions: %d\n", len(demoMessages))
-	fmt.Printf("Overall Cache Hit Rate: %.1f%%\n", session.CacheMetrics.HitRate*100)
-	fmt.Printf("Total Tokens Saved: %d\n", session.CacheMetrics.TokensSaved)
-	fmt.Printf("Estimated Cost Saved: $%.4f\n", session.CacheMetrics.CostSaved)
-	fmt.Printf("\nSession saved as: %s\n", sessionID)
-	fmt.Println("\nView detailed metrics with: roleplay session stats")
+	displayDemoSummary(session, styles)
 
 	return nil
 }
@@ -315,31 +206,179 @@ I have a consistent personality and knowledge base that can be efficiently cache
 	return mgr.CreateCharacter(char)
 }
 
-func setupDemoProvider(bot *services.CharacterBot, cfg *config.Config) {
-	provider := cfg.DefaultProvider
-	apiKey := cfg.APIKey
+// demoStyles holds all the Lipgloss styles used in the demo command
+type demoStyles struct {
+	title      lipgloss.Style
+	cacheHit   lipgloss.Style
+	cacheMiss  lipgloss.Style
+	metrics    lipgloss.Style
+	message    lipgloss.Style
+	separator  lipgloss.Style
+	bold       lipgloss.Style
+}
 
-	if apiKey == "" && provider == "openai" {
-		apiKey = os.Getenv("OPENAI_API_KEY")
+// newDemoStyles creates and initializes all demo styles
+func newDemoStyles() *demoStyles {
+	return &demoStyles{
+		title: lipgloss.NewStyle().
+			Bold(true).
+			Foreground(lipgloss.Color("#7c6f64")).
+			Background(lipgloss.Color("#3c3836")).
+			Padding(0, 1),
+		
+		cacheHit: lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#b8bb26")).
+			Bold(true),
+		
+		cacheMiss: lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#fb4934")).
+			Bold(true),
+		
+		metrics: lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#83a598")),
+		
+		message: lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#ebdbb2")),
+		
+		separator: lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#665c54")),
+		
+		bold: lipgloss.NewStyle().Bold(true),
 	}
-	if apiKey == "" && provider == "anthropic" {
-		apiKey = os.Getenv("ANTHROPIC_API_KEY")
-	}
+}
 
-	switch provider {
-	case "anthropic":
-		if apiKey != "" {
-			p := providers.NewAnthropicProvider(apiKey)
-			bot.RegisterProvider("anthropic", p)
-		}
-	case "openai":
-		if apiKey != "" {
-			model := cfg.Model
-			if model == "" {
-				model = "gpt-4o-mini"
-			}
-			p := providers.NewOpenAIProvider(apiKey, model)
-			bot.RegisterProvider("openai", p)
-		}
+// demoMessage represents a single demo interaction
+type demoMessage struct {
+	message     string
+	description string
+	delay       time.Duration
+}
+
+// getDemoMessages returns the predefined demo message sequence
+func getDemoMessages() []demoMessage {
+	return []demoMessage{
+		{
+			"Tell me about yourself",
+			"Initial request - establishes cache layers",
+			0,
+		},
+		{
+			"Tell me about yourself",
+			"Exact repeat - should hit response cache",
+			1 * time.Second,
+		},
+		{
+			"What are your core values?",
+			"New question - cache miss",
+			1 * time.Second,
+		},
+		{
+			"What are your core values?",
+			"Repeat question - should hit cache",
+			1 * time.Second,
+		},
+		{
+			"Tell me about yourself",
+			"Third repeat - should hit cache with high savings",
+			1 * time.Second,
+		},
 	}
+}
+
+// displayDemoHeader shows the demo title and character info
+func displayDemoHeader(styles *demoStyles, char *models.Character) {
+	fmt.Println(styles.title.Render("🚀 Roleplay Prompt Caching Demo"))
+	fmt.Printf("\nCharacter: %s (%s)\n", char.Name, char.ID)
+	fmt.Println(strings.Repeat("─", 60))
+}
+
+// processDemoMessage handles a single demo interaction
+func processDemoMessage(
+	ctx context.Context,
+	bot *services.CharacterBot,
+	req *models.ConversationRequest,
+	char *models.Character,
+	styles *demoStyles,
+) (*providers.AIResponse, time.Duration, error) {
+	start := time.Now()
+	resp, err := bot.ProcessRequest(ctx, req)
+	elapsed := time.Since(start)
+	
+	if err != nil {
+		return nil, elapsed, err
+	}
+	
+	// Display response
+	fmt.Printf("%s%s:\n", styles.bold.Render(""), char.Name)
+	fmt.Printf("%s\n", styles.message.Render(utils.WrapText(resp.Content, 80)))
+	
+	// Display cache metrics
+	cacheStatus := "MISS"
+	style := styles.cacheMiss
+	if resp.CacheMetrics.Hit {
+		cacheStatus = fmt.Sprintf("HIT (%d layers)", len(resp.CacheMetrics.Layers))
+		style = styles.cacheHit
+	}
+	
+	fmt.Printf("\n%s\n", styles.metrics.Render(fmt.Sprintf(
+		"  ⚡ Response Time: %v | Cache: %s | Tokens: %d (saved: %d)",
+		elapsed,
+		style.Render(cacheStatus),
+		resp.TokensUsed.Total,
+		resp.CacheMetrics.SavedTokens,
+	)))
+	
+	return resp, elapsed, nil
+}
+
+// updateSessionMetrics updates the session with response metrics
+func updateSessionMetrics(
+	session *repository.Session,
+	userMessage string,
+	resp *providers.AIResponse,
+) {
+	// Add messages to session
+	session.Messages = append(session.Messages, repository.SessionMessage{
+		Timestamp: time.Now(),
+		Role:      "user",
+		Content:   userMessage,
+	})
+	
+	cacheHits := 0
+	cacheMisses := 0
+	if resp.CacheMetrics.Hit {
+		cacheHits = 1
+	} else {
+		cacheMisses = 1
+	}
+	
+	session.Messages = append(session.Messages, repository.SessionMessage{
+		Timestamp:   time.Now(),
+		Role:        "character",
+		Content:     resp.Content,
+		TokensUsed:  resp.TokensUsed.Total,
+		CacheHits:   cacheHits,
+		CacheMisses: cacheMisses,
+	})
+	
+	// Update cumulative metrics
+	session.CacheMetrics.TotalRequests++
+	if resp.CacheMetrics.Hit {
+		session.CacheMetrics.CacheHits++
+	} else {
+		session.CacheMetrics.CacheMisses++
+	}
+	session.CacheMetrics.TokensSaved += resp.CacheMetrics.SavedTokens
+}
+
+// displayDemoSummary shows the final summary of the demo
+func displayDemoSummary(session *repository.Session, styles *demoStyles) {
+	fmt.Println("\n" + strings.Repeat("═", 60))
+	fmt.Println(styles.title.Render("📊 Demo Summary"))
+	fmt.Printf("\nTotal Interactions: %d\n", session.CacheMetrics.TotalRequests)
+	fmt.Printf("Overall Cache Hit Rate: %.1f%%\n", session.CacheMetrics.HitRate*100)
+	fmt.Printf("Total Tokens Saved: %d\n", session.CacheMetrics.TokensSaved)
+	fmt.Printf("Estimated Cost Saved: $%.4f\n", session.CacheMetrics.CostSaved)
+	fmt.Printf("\nSession saved as: %s\n", session.ID)
+	fmt.Println("\nView detailed metrics with: roleplay session stats")
 }

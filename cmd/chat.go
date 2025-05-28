@@ -7,9 +7,9 @@ import (
 	"os"
 	"time"
 
+	"github.com/dotcommander/roleplay/internal/factory"
 	"github.com/dotcommander/roleplay/internal/manager"
 	"github.com/dotcommander/roleplay/internal/models"
-	"github.com/dotcommander/roleplay/internal/providers"
 	"github.com/spf13/cobra"
 )
 
@@ -64,21 +64,10 @@ func runChat(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to initialize manager: %w", err)
 	}
 
-	// Register provider based on configuration
+	// Register provider using factory
 	bot := mgr.GetBot()
-	switch config.DefaultProvider {
-	case "anthropic":
-		provider := providers.NewAnthropicProvider(config.APIKey)
-		bot.RegisterProvider("anthropic", provider)
-	case "openai":
-		model := config.Model
-		if model == "" {
-			model = "gpt-4o-mini"
-		}
-		provider := providers.NewOpenAIProvider(config.APIKey, model)
-		bot.RegisterProvider("openai", provider)
-	default:
-		return fmt.Errorf("unsupported provider: %s", config.DefaultProvider)
+	if err := factory.InitializeAndRegisterProvider(bot, config); err != nil {
+		return fmt.Errorf("failed to initialize provider: %w", err)
 	}
 
 	// Ensure character is loaded

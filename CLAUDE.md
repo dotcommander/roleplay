@@ -71,8 +71,22 @@ go mod tidy
 - **Dependency Injection**: Providers registered at runtime
 - **Interface-First Design**: All major components defined as interfaces
 - **Concurrent Design**: Thread-safe operations throughout
+- **Factory Pattern**: Centralized provider initialization through `internal/factory`
 
 ## Important Implementation Details
+
+### Provider Factory Pattern
+The codebase uses a centralized factory pattern for AI provider initialization:
+
+```go
+// Create provider using factory
+provider, err := factory.CreateProvider(config)
+
+// Or initialize and register with bot
+err := factory.InitializeAndRegisterProvider(bot, config)
+```
+
+This pattern eliminates code duplication and ensures consistent provider setup across all commands.
 
 ### 4-Layer Cache Implementation
 The caching system uses strategic breakpoints aligned with our 4-layer architecture:
@@ -128,6 +142,7 @@ roleplay/
 ├── internal/              # Private packages
 │   ├── cache/             # Dual caching system (prompt + response)
 │   ├── config/            # Configuration structures
+│   ├── factory/           # Provider factory for centralized initialization
 │   ├── importer/          # AI-powered character import from markdown
 │   ├── models/            # Domain models (Character, Memory, etc.)
 │   ├── providers/         # AI provider implementations
@@ -203,8 +218,8 @@ config := Config{
 }
 bot := NewCharacterBot(config)
 
-// Register providers
-bot.RegisterProvider("anthropic", NewAnthropicProvider(apiKey))
+// Register providers using factory
+err := factory.InitializeAndRegisterProvider(bot, config)
 
 // Create character
 character := Character{
@@ -237,3 +252,14 @@ Our goal is to implement prompt-caching in 4 layers:
 - System character prompt layer
 - User memory layer
 - Current chat history layer
+
+## Refactoring Best Practices
+
+When refactoring this codebase:
+
+1. **Use the Factory Pattern**: Always use `internal/factory` for provider initialization
+2. **Extract Helper Functions**: Break down long functions into smaller, focused helpers
+3. **Maintain Test Coverage**: Add tests for any new packages or major changes
+4. **Document TUI Changes**: The TUI is complex; document any architectural changes
+
+See `TUI_REFACTORING_PLAN.md` for detailed guidance on refactoring the interactive mode.

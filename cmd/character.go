@@ -7,8 +7,8 @@ import (
 	"path/filepath"
 	"text/tabwriter"
 
+	"github.com/dotcommander/roleplay/internal/factory"
 	"github.com/dotcommander/roleplay/internal/models"
-	"github.com/dotcommander/roleplay/internal/providers"
 	"github.com/dotcommander/roleplay/internal/repository"
 	"github.com/dotcommander/roleplay/internal/services"
 	"github.com/spf13/cobra"
@@ -95,22 +95,9 @@ func runCreateCharacter(cmd *cobra.Command, args []string) error {
 	// Initialize bot
 	bot := services.NewCharacterBot(config)
 
-	// Register a provider (needed for character creation warmup)
-	switch config.DefaultProvider {
-	case "anthropic":
-		if config.APIKey != "" {
-			provider := providers.NewAnthropicProvider(config.APIKey)
-			bot.RegisterProvider("anthropic", provider)
-		}
-	case "openai":
-		if config.APIKey != "" {
-			model := config.Model
-			if model == "" {
-				model = "gpt-4o-mini"
-			}
-			provider := providers.NewOpenAIProvider(config.APIKey, model)
-			bot.RegisterProvider("openai", provider)
-		}
+	// Register provider using factory (needed for character creation warmup)
+	if err := factory.InitializeAndRegisterProvider(bot, config); err != nil {
+		return fmt.Errorf("failed to initialize provider: %w", err)
 	}
 
 	// Create character

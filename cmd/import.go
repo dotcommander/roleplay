@@ -7,8 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/dotcommander/roleplay/internal/factory"
 	"github.com/dotcommander/roleplay/internal/importer"
-	"github.com/dotcommander/roleplay/internal/providers"
 	"github.com/dotcommander/roleplay/internal/repository"
 
 	"github.com/spf13/cobra"
@@ -53,22 +53,10 @@ func runImport(cmd *cobra.Command, args []string) error {
 
 	config := GetConfig()
 
-	if config.APIKey == "" {
-		return fmt.Errorf("API key not configured. Set ROLEPLAY_API_KEY or use --api-key flag")
-	}
-
-	var provider providers.AIProvider
-	switch config.DefaultProvider {
-	case "anthropic":
-		provider = providers.NewAnthropicProvider(config.APIKey)
-	case "openai":
-		model := config.Model
-		if model == "" {
-			model = "gpt-4o-mini"
-		}
-		provider = providers.NewOpenAIProvider(config.APIKey, model)
-	default:
-		return fmt.Errorf("unknown provider: %s", config.DefaultProvider)
+	// Create provider using factory
+	provider, err := factory.CreateProvider(config)
+	if err != nil {
+		return fmt.Errorf("failed to create provider: %w", err)
 	}
 
 	dataDir := filepath.Join(os.Getenv("HOME"), ".config", "roleplay")

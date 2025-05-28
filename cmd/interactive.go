@@ -16,8 +16,8 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/dotcommander/roleplay/internal/cache"
+	"github.com/dotcommander/roleplay/internal/factory"
 	"github.com/dotcommander/roleplay/internal/models"
-	"github.com/dotcommander/roleplay/internal/providers"
 	"github.com/dotcommander/roleplay/internal/repository"
 	"github.com/dotcommander/roleplay/internal/services"
 	"github.com/dotcommander/roleplay/internal/utils"
@@ -1124,20 +1124,9 @@ func runInteractive(cmd *cobra.Command, args []string) error {
 	// Initialize bot
 	bot := services.NewCharacterBot(config)
 
-	// Register provider
-	switch config.DefaultProvider {
-	case "anthropic":
-		provider := providers.NewAnthropicProvider(config.APIKey)
-		bot.RegisterProvider("anthropic", provider)
-	case "openai":
-		model := config.Model
-		if model == "" {
-			model = "gpt-4o-mini"
-		}
-		provider := providers.NewOpenAIProvider(config.APIKey, model)
-		bot.RegisterProvider("openai", provider)
-	default:
-		return fmt.Errorf("unsupported provider: %s", config.DefaultProvider)
+	// Register provider using factory
+	if err := factory.InitializeAndRegisterProvider(bot, config); err != nil {
+		return fmt.Errorf("failed to initialize provider: %w", err)
 	}
 
 	// Load all available characters from repository

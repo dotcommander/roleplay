@@ -212,7 +212,8 @@ export ROLEPLAY_CACHE_ADAPTIVE_TTL=true
 - **Character System**: OCEAN personality model with emotional states
 - **Memory System**: Three-tier memory with emotional weighting
 - **Cache System**: Dual caching (prompt + response) with adaptive TTL
-- **Provider Abstraction**: Supports multiple AI providers
+- **Provider Factory**: Centralized AI provider initialization and management
+- **Provider Abstraction**: Supports multiple AI providers (OpenAI, Anthropic)
 
 ## 📊 Performance
 
