@@ -33,7 +33,7 @@ func init() {
 
 func runImport(cmd *cobra.Command, args []string) error {
 	markdownPath := args[0]
-	
+
 	if strings.HasPrefix(markdownPath, "~") {
 		home, err := os.UserHomeDir()
 		if err != nil {
@@ -41,18 +41,18 @@ func runImport(cmd *cobra.Command, args []string) error {
 		}
 		markdownPath = filepath.Join(home, markdownPath[1:])
 	}
-	
+
 	absPath, err := filepath.Abs(markdownPath)
 	if err != nil {
 		return fmt.Errorf("failed to get absolute path: %w", err)
 	}
-	
+
 	if _, err := os.Stat(absPath); err != nil {
 		return fmt.Errorf("markdown file not found: %s", absPath)
 	}
 
 	config := GetConfig()
-	
+
 	if config.APIKey == "" {
 		return fmt.Errorf("API key not configured. Set ROLEPLAY_API_KEY or use --api-key flag")
 	}
@@ -96,7 +96,7 @@ func runImport(cmd *cobra.Command, args []string) error {
 	fmt.Printf("  Extraversion: %.2f\n", character.Personality.Extraversion)
 	fmt.Printf("  Agreeableness: %.2f\n", character.Personality.Agreeableness)
 	fmt.Printf("  Neuroticism: %.2f\n", character.Personality.Neuroticism)
-	
+
 	charactersDir := filepath.Join(dataDir, "characters")
 	fmt.Printf("\nCharacter saved to: %s\n", filepath.Join(charactersDir, character.ID+".json"))
 	fmt.Printf("\nYou can now chat with this character using:\n")

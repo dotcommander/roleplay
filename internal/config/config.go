@@ -5,8 +5,8 @@ import "time"
 // Config holds all application configuration
 type Config struct {
 	DefaultProvider   string
-	Model            string
-	APIKey           string
+	Model             string
+	APIKey            string
 	CacheConfig       CacheConfig
 	MemoryConfig      MemoryConfig
 	PersonalityConfig PersonalityConfig

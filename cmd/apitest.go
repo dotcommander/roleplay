@@ -6,12 +6,11 @@ import (
 	"os"
 	"time"
 
-	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
 	"github.com/dotcommander/roleplay/internal/providers"
 	"github.com/dotcommander/roleplay/internal/utils"
+	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 )
-
 
 var apiTestCmd = &cobra.Command{
 	Use:   "api-test",
@@ -41,7 +40,7 @@ func runAPITest(cmd *cobra.Command, args []string) error {
 	}
 
 	if apiKey == "" {
-		return fmt.Errorf("API key not found. Set --api-key flag or %s_API_KEY environment variable", 
+		return fmt.Errorf("API key not found. Set --api-key flag or %s_API_KEY environment variable",
 			map[string]string{"openai": "OPENAI", "anthropic": "ANTHROPIC"}[provider])
 	}
 

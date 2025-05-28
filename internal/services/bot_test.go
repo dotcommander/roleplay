@@ -37,7 +37,7 @@ func (m *mockProvider) SendRequest(ctx context.Context, req *providers.PromptReq
 }
 
 func (m *mockProvider) SupportsBreakpoints() bool { return m.breakpoints }
-func (m *mockProvider) MaxBreakpoints() int      { return m.maxBreaks }
+func (m *mockProvider) MaxBreakpoints() int       { return m.maxBreaks }
 func (m *mockProvider) Name() string              { return m.name }
 
 func TestCharacterBot(t *testing.T) {

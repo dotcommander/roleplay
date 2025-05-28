@@ -27,7 +27,7 @@ func NewOpenAIProvider(apiKey, model string) *OpenAIProvider {
 	if strings.HasPrefix(model, "o1-") || strings.HasPrefix(model, "o4-") {
 		fmt.Printf("⚠️  Using o1/o4 model: %s (limited parameter support)\n", model)
 	}
-	
+
 	return &OpenAIProvider{
 		apiKey:     apiKey,
 		baseURL:    "https://api.openai.com/v1",
@@ -45,7 +45,7 @@ func (o *OpenAIProvider) SendRequest(ctx context.Context, req *PromptRequest) (*
 		"model":    o.model,
 		"messages": messages,
 	}
-	
+
 	// o1 models have restrictions on parameters
 	if strings.HasPrefix(o.model, "o1-") || strings.HasPrefix(o.model, "o4-") {
 		// o1 models don't support temperature or max_tokens
@@ -133,9 +133,9 @@ func (o *OpenAIProvider) parseResponse(data []byte) (*AIResponse, error) {
 			} `json:"message"`
 		} `json:"choices"`
 		Usage struct {
-			PromptTokens     int `json:"prompt_tokens"`
-			CompletionTokens int `json:"completion_tokens"`
-			TotalTokens      int `json:"total_tokens"`
+			PromptTokens        int `json:"prompt_tokens"`
+			CompletionTokens    int `json:"completion_tokens"`
+			TotalTokens         int `json:"total_tokens"`
 			PromptTokensDetails struct {
 				CachedTokens int `json:"cached_tokens"`
 			} `json:"prompt_tokens_details"`

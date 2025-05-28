@@ -38,11 +38,11 @@ func TestEstimateTokens(t *testing.T) {
 		text     string
 		expected int
 	}{
-		{"Hello world", 2},      // 11 chars / 4 ≈ 2
-		{"This is a test", 3},   // 14 chars / 4 ≈ 3
-		{"", 0},                  // Empty string
-		{"A", 0},                 // 1 char / 4 = 0
-		{"1234", 1},              // 4 chars / 4 = 1
+		{"Hello world", 2},    // 11 chars / 4 ≈ 2
+		{"This is a test", 3}, // 14 chars / 4 ≈ 3
+		{"", 0},               // Empty string
+		{"A", 0},              // 1 char / 4 = 0
+		{"1234", 1},           // 4 chars / 4 = 1
 	}
 
 	for _, tt := range tests {

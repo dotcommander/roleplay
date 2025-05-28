@@ -7,10 +7,10 @@ import (
 	"os"
 	"time"
 
-	"github.com/spf13/cobra"
 	"github.com/dotcommander/roleplay/internal/manager"
 	"github.com/dotcommander/roleplay/internal/models"
 	"github.com/dotcommander/roleplay/internal/providers"
+	"github.com/spf13/cobra"
 )
 
 var (
@@ -63,7 +63,7 @@ func runChat(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("failed to initialize manager: %w", err)
 	}
-	
+
 	// Register provider based on configuration
 	bot := mgr.GetBot()
 	switch config.DefaultProvider {
@@ -80,7 +80,7 @@ func runChat(cmd *cobra.Command, args []string) error {
 	default:
 		return fmt.Errorf("unsupported provider: %s", config.DefaultProvider)
 	}
-	
+
 	// Ensure character is loaded
 	if _, err := mgr.GetOrLoadCharacter(characterID); err != nil {
 		return fmt.Errorf("character %s not found. Create it first with 'roleplay character create'", characterID)
@@ -137,7 +137,7 @@ func runChat(cmd *cobra.Command, args []string) error {
 		if verbose, _ := cmd.Flags().GetBool("verbose"); verbose {
 			fmt.Fprintf(os.Stderr, "\n--- Performance Metrics ---\n")
 			fmt.Fprintf(os.Stderr, "Cache Hit: %v\n", resp.CacheMetrics.Hit)
-			fmt.Fprintf(os.Stderr, "Tokens Used: %d (cached: %d)\n", 
+			fmt.Fprintf(os.Stderr, "Tokens Used: %d (cached: %d)\n",
 				resp.TokensUsed.Total, resp.TokensUsed.CachedPrompt)
 			fmt.Fprintf(os.Stderr, "Tokens Saved: %d\n", resp.CacheMetrics.SavedTokens)
 			fmt.Fprintf(os.Stderr, "Latency: %v\n", resp.CacheMetrics.Latency)

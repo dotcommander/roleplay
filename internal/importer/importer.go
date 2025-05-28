@@ -32,15 +32,15 @@ func NewCharacterImporter(provider providers.AIProvider, repo *repository.Charac
 }
 
 type importedCharacter struct {
-	Name             string                    `json:"name"`
-	Description      string                    `json:"description"`
-	Backstory        string                    `json:"backstory"`
-	Personality      models.PersonalityTraits  `json:"personality"`
-	SpeechStyle      string                    `json:"speechStyle"`
-	BehaviorPatterns []string                  `json:"behaviorPatterns"`
-	KnowledgeDomains []string                  `json:"knowledgeDomains"`
-	EmotionalState   models.EmotionalState     `json:"emotionalState"`
-	GreetingMessage  string                    `json:"greetingMessage"`
+	Name             string                   `json:"name"`
+	Description      string                   `json:"description"`
+	Backstory        string                   `json:"backstory"`
+	Personality      models.PersonalityTraits `json:"personality"`
+	SpeechStyle      string                   `json:"speechStyle"`
+	BehaviorPatterns []string                 `json:"behaviorPatterns"`
+	KnowledgeDomains []string                 `json:"knowledgeDomains"`
+	EmotionalState   models.EmotionalState    `json:"emotionalState"`
+	GreetingMessage  string                   `json:"greetingMessage"`
 }
 
 func (ci *CharacterImporter) ImportFromMarkdown(ctx context.Context, markdownPath string) (*models.Character, error) {
@@ -81,7 +81,7 @@ func (ci *CharacterImporter) ImportFromMarkdown(ctx context.Context, markdownPat
 
 	// Clean the response - remove any markdown code blocks
 	jsonContent := strings.TrimSpace(response.Content)
-	
+
 	// Remove markdown code blocks if present
 	if strings.HasPrefix(jsonContent, "```json") {
 		jsonContent = strings.TrimPrefix(jsonContent, "```json")

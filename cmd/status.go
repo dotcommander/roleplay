@@ -5,9 +5,9 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/dotcommander/roleplay/internal/repository"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
-	"github.com/dotcommander/roleplay/internal/repository"
 )
 
 var statusCmd = &cobra.Command{
@@ -26,7 +26,7 @@ func runStatus(cmd *cobra.Command, args []string) error {
 	provider := viper.GetString("provider")
 	model := viper.GetString("model")
 	apiKey := viper.GetString("api_key")
-	
+
 	// Check for API key from environment if not set
 	if apiKey == "" && provider == "openai" {
 		apiKey = os.Getenv("OPENAI_API_KEY")
@@ -34,7 +34,7 @@ func runStatus(cmd *cobra.Command, args []string) error {
 	if apiKey == "" && provider == "anthropic" {
 		apiKey = os.Getenv("ANTHROPIC_API_KEY")
 	}
-	
+
 	// Determine actual model that will be used
 	actualModel := model
 	if actualModel == "" {
@@ -45,7 +45,7 @@ func runStatus(cmd *cobra.Command, args []string) error {
 			actualModel = "claude-3-haiku-20240307"
 		}
 	}
-	
+
 	fmt.Println("🤖 Roleplay Status")
 	fmt.Println("==================")
 	fmt.Printf("Provider: %s\n", provider)
@@ -62,23 +62,23 @@ func runStatus(cmd *cobra.Command, args []string) error {
 		}
 		return "✓ Configured"
 	}())
-	
+
 	// Show cache configuration
 	fmt.Printf("\nCache Configuration:\n")
 	fmt.Printf("  Default TTL: %v\n", viper.GetDuration("cache.default_ttl"))
 	fmt.Printf("  Adaptive TTL: %v\n", viper.GetBool("cache.adaptive_ttl"))
-	
+
 	// Show data directory
 	dataDir := filepath.Join(os.Getenv("HOME"), ".config", "roleplay")
 	fmt.Printf("\nData Directory: %s\n", dataDir)
-	
+
 	// Show character count
 	charRepo, err := repository.NewCharacterRepository(dataDir)
 	if err == nil {
 		chars, _ := charRepo.ListCharacters()
 		fmt.Printf("Characters: %d available\n", len(chars))
 	}
-	
+
 	// Show session count
 	sessionRepo := repository.NewSessionRepository(dataDir)
 	totalSessions := 0
@@ -90,6 +90,6 @@ func runStatus(cmd *cobra.Command, args []string) error {
 		}
 	}
 	fmt.Printf("Sessions: %d total\n", totalSessions)
-	
+
 	return nil
 }

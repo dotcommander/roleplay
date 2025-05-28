@@ -36,19 +36,17 @@ func NewAnthropicProvider(apiKey string) *AnthropicProvider {
 func (a *AnthropicProvider) SendRequest(ctx context.Context, req *PromptRequest) (*AIResponse, error) {
 	// Build the system prompt from cacheable layers
 	systemPrompt := ""
-	cacheableBreakpoints := make([]cache.CacheBreakpoint, 0)
-	
+
 	// Separate cacheable and non-cacheable content
 	for _, bp := range req.CacheBreakpoints {
 		if bp.Layer != cache.ConversationLayer {
-			cacheableBreakpoints = append(cacheableBreakpoints, bp)
 			if systemPrompt != "" {
 				systemPrompt += "\n\n"
 			}
 			systemPrompt += bp.Content
 		}
 	}
-	
+
 	// Build messages with cache control
 	messages := a.buildMessagesWithCache(req)
 
@@ -63,8 +61,8 @@ func (a *AnthropicProvider) SendRequest(ctx context.Context, req *PromptRequest)
 	if systemPrompt != "" {
 		payload["system"] = []map[string]interface{}{
 			{
-				"type": "text",
-				"text": systemPrompt,
+				"type":          "text",
+				"text":          systemPrompt,
 				"cache_control": map[string]string{"type": "ephemeral"},
 			},
 		}
@@ -172,7 +170,7 @@ func (a *AnthropicProvider) parseResponse(data []byte) (*AIResponse, error) {
 	// Calculate cache metrics
 	cacheHit := resp.Usage.CacheReadInputTokens > 0
 	savedTokens := resp.Usage.CacheReadInputTokens
-	
+
 	// Determine which layers were cached based on token counts
 	cachedLayers := []cache.CacheLayer{}
 	if cacheHit {

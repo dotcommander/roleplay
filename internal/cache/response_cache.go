@@ -37,10 +37,10 @@ func NewResponseCache(ttl time.Duration) *ResponseCache {
 		responses: make(map[string]*CachedResponse),
 		ttl:       ttl,
 	}
-	
+
 	// Start cleanup worker
 	go cache.cleanupWorker()
-	
+
 	return cache
 }
 
@@ -55,20 +55,20 @@ func (rc *ResponseCache) GenerateKey(characterID, userID, message string) string
 func (rc *ResponseCache) Get(key string) (*CachedResponse, bool) {
 	rc.mu.RLock()
 	defer rc.mu.RUnlock()
-	
+
 	resp, exists := rc.responses[key]
 	if !exists {
 		return nil, false
 	}
-	
+
 	// Check if expired
 	if time.Now().After(resp.ExpiresAt) {
 		return nil, false
 	}
-	
+
 	// Update hit count
 	resp.HitCount++
-	
+
 	return resp, true
 }
 
@@ -76,7 +76,7 @@ func (rc *ResponseCache) Get(key string) (*CachedResponse, bool) {
 func (rc *ResponseCache) Store(key, content string, tokens TokenUsage) {
 	rc.mu.Lock()
 	defer rc.mu.Unlock()
-	
+
 	rc.responses[key] = &CachedResponse{
 		Content:    content,
 		TokensUsed: tokens,
@@ -90,7 +90,7 @@ func (rc *ResponseCache) Store(key, content string, tokens TokenUsage) {
 func (rc *ResponseCache) cleanupWorker() {
 	ticker := time.NewTicker(5 * time.Minute)
 	defer ticker.Stop()
-	
+
 	for range ticker.C {
 		rc.mu.Lock()
 		now := time.Now()
@@ -107,10 +107,10 @@ func (rc *ResponseCache) cleanupWorker() {
 func (rc *ResponseCache) GetStats() (hits, misses int) {
 	rc.mu.RLock()
 	defer rc.mu.RUnlock()
-	
+
 	for _, resp := range rc.responses {
 		hits += resp.HitCount
 	}
-	
+
 	return hits, 0 // Misses would need to be tracked separately
 }

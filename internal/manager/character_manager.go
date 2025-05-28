@@ -24,15 +24,15 @@ type CharacterManager struct {
 // NewCharacterManager creates a new character manager
 func NewCharacterManager(cfg *config.Config) (*CharacterManager, error) {
 	dataDir := filepath.Join(os.Getenv("HOME"), ".config", "roleplay")
-	
+
 	repo, err := repository.NewCharacterRepository(dataDir)
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize repository: %w", err)
 	}
-	
+
 	sessions := repository.NewSessionRepository(dataDir)
 	bot := services.NewCharacterBot(cfg)
-	
+
 	return &CharacterManager{
 		bot:      bot,
 		repo:     repo,
@@ -45,23 +45,23 @@ func NewCharacterManager(cfg *config.Config) (*CharacterManager, error) {
 func (m *CharacterManager) LoadAllCharacters() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	
+
 	characters, err := m.repo.ListCharacters()
 	if err != nil {
 		return err
 	}
-	
+
 	for _, id := range characters {
 		char, err := m.repo.LoadCharacter(id)
 		if err != nil {
 			continue
 		}
-		
+
 		if err := m.bot.CreateCharacter(char); err != nil {
 			return fmt.Errorf("failed to load character %s: %w", id, err)
 		}
 	}
-	
+
 	return nil
 }
 
@@ -69,18 +69,18 @@ func (m *CharacterManager) LoadAllCharacters() error {
 func (m *CharacterManager) LoadCharacter(id string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	
+
 	// Check if already loaded
 	if _, err := m.bot.GetCharacter(id); err == nil {
 		return nil
 	}
-	
+
 	// Load from repository
 	char, err := m.repo.LoadCharacter(id)
 	if err != nil {
 		return err
 	}
-	
+
 	return m.bot.CreateCharacter(char)
 }
 
@@ -88,12 +88,12 @@ func (m *CharacterManager) LoadCharacter(id string) error {
 func (m *CharacterManager) CreateCharacter(char *models.Character) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	
+
 	// Create in bot
 	if err := m.bot.CreateCharacter(char); err != nil {
 		return err
 	}
-	
+
 	// Persist to disk
 	return m.repo.SaveCharacter(char)
 }
@@ -105,12 +105,12 @@ func (m *CharacterManager) GetOrLoadCharacter(id string) (*models.Character, err
 	if err == nil {
 		return char, nil
 	}
-	
+
 	// Try to load from disk
 	if err := m.LoadCharacter(id); err != nil {
 		return nil, fmt.Errorf("character %s not found", id)
 	}
-	
+
 	return m.bot.GetCharacter(id)
 }
 

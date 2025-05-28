@@ -7,11 +7,11 @@ import (
 	"path/filepath"
 	"text/tabwriter"
 
-	"github.com/spf13/cobra"
 	"github.com/dotcommander/roleplay/internal/models"
 	"github.com/dotcommander/roleplay/internal/providers"
 	"github.com/dotcommander/roleplay/internal/repository"
 	"github.com/dotcommander/roleplay/internal/services"
+	"github.com/spf13/cobra"
 )
 
 var characterCmd = &cobra.Command{
@@ -124,11 +124,11 @@ func runCreateCharacter(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("failed to initialize repository: %w", err)
 	}
-	
+
 	if err := repo.SaveCharacter(&char); err != nil {
 		return fmt.Errorf("failed to save character: %w", err)
 	}
-	
+
 	fmt.Printf("Character '%s' (ID: %s) created and saved successfully!\n", char.Name, char.ID)
 	return nil
 }
@@ -190,7 +190,7 @@ Lost his brother in battle, carries survivor's guilt.`,
 		},
 	}
 
-	output, err := json.MarshalIndent(example, "", "  ")
+	output, err := json.MarshalIndent(&example, "", "  ")
 	if err != nil {
 		return fmt.Errorf("failed to format example: %w", err)
 	}
@@ -206,24 +206,24 @@ func runListCharacters(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	
+
 	characters, err := repo.GetCharacterInfo()
 	if err != nil {
 		return err
 	}
-	
+
 	if len(characters) == 0 {
 		fmt.Println("No characters found. Create one with 'roleplay character create <file.json>'")
 		return nil
 	}
-	
+
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
 	fmt.Fprintln(w, "ID\tNAME\tDESCRIPTION")
-	
+
 	for _, char := range characters {
 		fmt.Fprintf(w, "%s\t%s\t%s\n", char.ID, char.Name, char.Description)
 	}
-	
+
 	w.Flush()
 	return nil
 }

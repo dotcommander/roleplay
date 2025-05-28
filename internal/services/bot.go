@@ -17,14 +17,14 @@ import (
 
 // CharacterBot is the main service for managing characters and conversations
 type CharacterBot struct {
-	characters     map[string]*models.Character
-	cache          *cache.PromptCache
-	responseCache  *cache.ResponseCache
-	providers      map[string]providers.AIProvider
-	config         *config.Config
-	mu             sync.RWMutex
-	cacheHits      int
-	cacheMisses    int
+	characters    map[string]*models.Character
+	cache         *cache.PromptCache
+	responseCache *cache.ResponseCache
+	providers     map[string]providers.AIProvider
+	config        *config.Config
+	mu            sync.RWMutex
+	cacheHits     int
+	cacheMisses   int
 }
 
 // NewCharacterBot creates a new character bot instance
@@ -96,7 +96,7 @@ func (cb *CharacterBot) ProcessRequest(ctx context.Context, req *models.Conversa
 		cb.mu.Lock()
 		cb.cacheHits++
 		cb.mu.Unlock()
-		
+
 		// Return cached response with cache hit metrics
 		return &providers.AIResponse{
 			Content: cachedResp.Content,
@@ -114,7 +114,7 @@ func (cb *CharacterBot) ProcessRequest(ctx context.Context, req *models.Conversa
 			},
 		}, nil
 	}
-	
+
 	cb.mu.Lock()
 	cb.cacheMisses++
 	cb.mu.Unlock()
@@ -173,7 +173,7 @@ func (cb *CharacterBot) ProcessRequest(ctx context.Context, req *models.Conversa
 	if !hit {
 		cb.cache.StoreWithTTL(cacheKey, breakpoints, effectiveTTL)
 	}
-	
+
 	// Store response in response cache
 	cb.responseCache.Store(responseCacheKey, resp.Content, cache.TokenUsage{
 		Prompt:       resp.TokensUsed.Prompt,
@@ -252,14 +252,14 @@ func (cb *CharacterBot) BuildPrompt(req *models.ConversationRequest) (string, []
 func (cb *CharacterBot) warmupCache(char *models.Character) {
 	// Build personality prompt and create a cache key for this character
 	personality := cb.buildPersonalityPrompt(char)
-	
+
 	// Create a stable cache key for just the personality layer
 	h := sha256.New()
 	h.Write([]byte(char.ID))
 	h.Write([]byte("personality"))
 	h.Write([]byte(personality))
 	key := hex.EncodeToString(h.Sum(nil))
-	
+
 	// Store with a long TTL since personality is static
 	cb.cache.Store(key, cache.CorePersonalityLayer, personality, 24*time.Hour)
 }
@@ -524,15 +524,12 @@ func (cb *CharacterBot) consolidateMemories(char *models.Character) {
 
 	// Group memories by emotional significance
 	emotionalMemories := make([]models.Memory, 0)
-	factualMemories := make([]models.Memory, 0)
 
 	threshold := 0.7 // Emotional weight threshold
 
 	for _, mem := range char.Memories {
 		if mem.Type == models.ShortTermMemory && mem.Emotional > threshold {
 			emotionalMemories = append(emotionalMemories, mem)
-		} else {
-			factualMemories = append(factualMemories, mem)
 		}
 	}
 

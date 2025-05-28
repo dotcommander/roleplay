@@ -6,9 +6,9 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/dotcommander/roleplay/internal/config"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
-	"github.com/dotcommander/roleplay/internal/config"
 )
 
 var (
@@ -54,9 +54,15 @@ func init() {
 	if err := viper.BindPFlag("model", rootCmd.PersistentFlags().Lookup("model")); err != nil {
 		fmt.Fprintf(os.Stderr, "Error binding model flag: %v\n", err)
 	}
-	viper.BindPFlag("api_key", rootCmd.PersistentFlags().Lookup("api-key"))
-	viper.BindPFlag("cache.default_ttl", rootCmd.PersistentFlags().Lookup("cache-ttl"))
-	viper.BindPFlag("cache.adaptive_ttl", rootCmd.PersistentFlags().Lookup("adaptive-ttl"))
+	if err := viper.BindPFlag("api_key", rootCmd.PersistentFlags().Lookup("api-key")); err != nil {
+		fmt.Fprintf(os.Stderr, "Error binding api_key flag: %v\n", err)
+	}
+	if err := viper.BindPFlag("cache.default_ttl", rootCmd.PersistentFlags().Lookup("cache-ttl")); err != nil {
+		fmt.Fprintf(os.Stderr, "Error binding cache.default_ttl flag: %v\n", err)
+	}
+	if err := viper.BindPFlag("cache.adaptive_ttl", rootCmd.PersistentFlags().Lookup("adaptive-ttl")); err != nil {
+		fmt.Fprintf(os.Stderr, "Error binding cache.adaptive_ttl flag: %v\n", err)
+	}
 }
 
 func initConfig() {
@@ -86,8 +92,8 @@ func initConfig() {
 
 	cfg = &config.Config{
 		DefaultProvider: viper.GetString("provider"),
-		Model:          viper.GetString("model"),
-		APIKey:         apiKey,
+		Model:           viper.GetString("model"),
+		APIKey:          apiKey,
 		CacheConfig: config.CacheConfig{
 			MaxEntries:        viper.GetInt("cache.max_entries"),
 			CleanupInterval:   viper.GetDuration("cache.cleanup_interval"),

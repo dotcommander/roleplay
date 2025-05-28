@@ -21,7 +21,7 @@ func NewCharacterRepository(dataDir string) (*CharacterRepository, error) {
 	if err := os.MkdirAll(dataDir, 0755); err != nil {
 		return nil, fmt.Errorf("failed to create data directory: %w", err)
 	}
-	
+
 	// Create subdirectories
 	dirs := []string{"characters", "sessions", "cache"}
 	for _, dir := range dirs {
@@ -29,26 +29,26 @@ func NewCharacterRepository(dataDir string) (*CharacterRepository, error) {
 			return nil, fmt.Errorf("failed to create %s directory: %w", dir, err)
 		}
 	}
-	
+
 	return &CharacterRepository{dataDir: dataDir}, nil
 }
 
 // SaveCharacter persists a character to disk
 func (r *CharacterRepository) SaveCharacter(character *models.Character) error {
 	filename := filepath.Join(r.dataDir, "characters", fmt.Sprintf("%s.json", character.ID))
-	
+
 	data, err := json.MarshalIndent(character, "", "  ")
 	if err != nil {
 		return fmt.Errorf("failed to marshal character: %w", err)
 	}
-	
+
 	return os.WriteFile(filename, data, 0644)
 }
 
 // LoadCharacter loads a character from disk
 func (r *CharacterRepository) LoadCharacter(id string) (*models.Character, error) {
 	filename := filepath.Join(r.dataDir, "characters", fmt.Sprintf("%s.json", id))
-	
+
 	data, err := os.ReadFile(filename)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -56,24 +56,24 @@ func (r *CharacterRepository) LoadCharacter(id string) (*models.Character, error
 		}
 		return nil, fmt.Errorf("failed to read character file: %w", err)
 	}
-	
+
 	var character models.Character
 	if err := json.Unmarshal(data, &character); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal character: %w", err)
 	}
-	
+
 	return &character, nil
 }
 
 // ListCharacters returns all available character IDs
 func (r *CharacterRepository) ListCharacters() ([]string, error) {
 	charactersDir := filepath.Join(r.dataDir, "characters")
-	
+
 	entries, err := os.ReadDir(charactersDir)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read characters directory: %w", err)
 	}
-	
+
 	var ids []string
 	for _, entry := range entries {
 		if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".json") {
@@ -81,19 +81,19 @@ func (r *CharacterRepository) ListCharacters() ([]string, error) {
 			ids = append(ids, id)
 		}
 	}
-	
+
 	return ids, nil
 }
 
 // GetCharacterInfo returns basic info about all characters
 func (r *CharacterRepository) GetCharacterInfo() ([]CharacterInfo, error) {
 	charactersDir := filepath.Join(r.dataDir, "characters")
-	
+
 	entries, err := os.ReadDir(charactersDir)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read characters directory: %w", err)
 	}
-	
+
 	var infos []CharacterInfo
 	for _, entry := range entries {
 		if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".json") {
@@ -102,7 +102,7 @@ func (r *CharacterRepository) GetCharacterInfo() ([]CharacterInfo, error) {
 			if err != nil {
 				continue
 			}
-			
+
 			infos = append(infos, CharacterInfo{
 				ID:          char.ID,
 				Name:        char.Name,
@@ -111,7 +111,7 @@ func (r *CharacterRepository) GetCharacterInfo() ([]CharacterInfo, error) {
 			})
 		}
 	}
-	
+
 	return infos, nil
 }
 

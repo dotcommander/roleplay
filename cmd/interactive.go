@@ -58,18 +58,17 @@ func init() {
 // Styles - Gruvbox Dark Theme
 var (
 	// Gruvbox Dark Colors
-	gruvboxBg       = lipgloss.Color("#282828")     // Dark background
-	gruvboxBg1      = lipgloss.Color("#3c3836")     // Lighter background
-	gruvboxFg       = lipgloss.Color("#ebdbb2")     // Foreground
-	gruvboxRed      = lipgloss.Color("#fb4934")     // Bright red
-	gruvboxGreen    = lipgloss.Color("#b8bb26")     // Bright green
-	gruvboxYellow   = lipgloss.Color("#fabd2f")     // Bright yellow
-	gruvboxBlue     = lipgloss.Color("#83a598")     // Bright blue
-	gruvboxPurple   = lipgloss.Color("#d3869b")     // Bright purple
-	gruvboxAqua     = lipgloss.Color("#8ec07c")     // Bright aqua
-	gruvboxOrange   = lipgloss.Color("#fe8019")     // Bright orange
-	gruvboxGray     = lipgloss.Color("#928374")     // Gray
-	gruvboxFg2      = lipgloss.Color("#d5c4a1")     // Dimmer foreground
+	gruvboxBg     = lipgloss.Color("#282828") // Dark background
+	gruvboxBg1    = lipgloss.Color("#3c3836") // Lighter background
+	gruvboxFg     = lipgloss.Color("#ebdbb2") // Foreground
+	gruvboxRed    = lipgloss.Color("#fb4934") // Bright red
+	gruvboxGreen  = lipgloss.Color("#b8bb26") // Bright green
+	gruvboxYellow = lipgloss.Color("#fabd2f") // Bright yellow
+	gruvboxPurple = lipgloss.Color("#d3869b") // Bright purple
+	gruvboxAqua   = lipgloss.Color("#8ec07c") // Bright aqua
+	gruvboxOrange = lipgloss.Color("#fe8019") // Bright orange
+	gruvboxGray   = lipgloss.Color("#928374") // Gray
+	gruvboxFg2    = lipgloss.Color("#d5c4a1") // Dimmer foreground
 
 	// Styles
 	titleStyle = lipgloss.NewStyle().
@@ -107,59 +106,56 @@ var (
 	helpStyle = lipgloss.NewStyle().
 			Foreground(gruvboxGray).
 			Italic(true)
-	
+
 	personalityStyle = lipgloss.NewStyle().
-			Foreground(gruvboxPurple)
-	
+				Foreground(gruvboxPurple)
+
 	moodStyle = lipgloss.NewStyle().
 			Foreground(gruvboxYellow)
-	
-	messageStyle = lipgloss.NewStyle().
-			Foreground(gruvboxFg)
-	
+
 	timestampStyle = lipgloss.NewStyle().
 			Foreground(gruvboxGray).
 			Italic(true)
-	
+
 	userMessageStyle = lipgloss.NewStyle().
-			Foreground(gruvboxFg).
-			Background(gruvboxBg1).
-			Padding(0, 1).
-			MarginRight(2)
-	
+				Foreground(gruvboxFg).
+				Background(gruvboxBg1).
+				Padding(0, 1).
+				MarginRight(2)
+
 	characterMessageStyle = lipgloss.NewStyle().
-			Foreground(gruvboxFg).
-			Background(gruvboxBg).
-			Padding(0, 1).
-			MarginLeft(2)
-	
+				Foreground(gruvboxFg).
+				Background(gruvboxBg).
+				Padding(0, 1).
+				MarginLeft(2)
+
 	separatorStyle = lipgloss.NewStyle().
 			Foreground(gruvboxGray)
-	
+
 	// Command output styles
 	commandHeaderStyle = lipgloss.NewStyle().
-			Foreground(gruvboxAqua).
-			Bold(true).
-			Padding(0, 1)
-	
+				Foreground(gruvboxAqua).
+				Bold(true).
+				Padding(0, 1)
+
 	commandBoxStyle = lipgloss.NewStyle().
 			BorderStyle(lipgloss.RoundedBorder()).
 			BorderForeground(gruvboxAqua).
 			Foreground(gruvboxFg).
 			Background(gruvboxBg).
 			Padding(1, 2)
-	
+
 	listItemStyle = lipgloss.NewStyle().
 			Foreground(gruvboxFg2)
-	
+
 	listItemActiveStyle = lipgloss.NewStyle().
-			Foreground(gruvboxGreen).
-			Bold(true)
-	
+				Foreground(gruvboxGreen).
+				Bold(true)
+
 	helpCommandStyle = lipgloss.NewStyle().
-			Foreground(gruvboxYellow).
-			Bold(true)
-	
+				Foreground(gruvboxYellow).
+				Bold(true)
+
 	helpDescStyle = lipgloss.NewStyle().
 			Foreground(gruvboxFg2)
 )
@@ -210,8 +206,8 @@ type model struct {
 	width       int
 	height      int
 	ready       bool
-	model       string  // AI model being used
-	
+	model       string // AI model being used
+
 	// Cache metrics
 	lastCacheHit    bool
 	lastTokensSaved int
@@ -245,8 +241,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		if !m.ready {
 			// Initialize viewport
-			headerHeight := 8  // Character info
-			footerHeight := 6  // Input area + status
+			headerHeight := 8 // Character info
+			footerHeight := 6 // Input area + status
 			verticalMargins := headerHeight + footerHeight
 
 			m.viewport = viewport.New(msg.Width-4, msg.Height-verticalMargins)
@@ -262,7 +258,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.textarea.SetHeight(2)
 			m.textarea.ShowLineNumbers = false
 			m.textarea.KeyMap.InsertNewline.SetEnabled(false)
-			
+
 			// Style the textarea
 			m.textarea.FocusedStyle.CursorLine = lipgloss.NewStyle().Background(gruvboxBg1)
 			m.textarea.FocusedStyle.Prompt = lipgloss.NewStyle().Foreground(gruvboxAqua)
@@ -284,12 +280,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if !m.loading && m.textarea.Value() != "" {
 				message := m.textarea.Value()
 				m.textarea.Reset()
-				
+
 				// Check for slash commands
 				if strings.HasPrefix(message, "/") {
 					return m, m.handleSlashCommand(message)
 				}
-				
+
 				m.messages = append(m.messages, chatMsg{
 					role:    "user",
 					content: message,
@@ -334,11 +330,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case characterSwitchMsg:
 		// Save current session before switching
 		m.saveSession()
-		
+
 		// Update character
 		m.characterID = msg.characterID
 		m.character = msg.character
-		
+
 		// Clear conversation and start new session
 		m.messages = []chatMsg{}
 		m.sessionID = fmt.Sprintf("session-%d", time.Now().Unix())
@@ -347,13 +343,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			StartTime:      time.Now(),
 			RecentMessages: []models.Message{},
 		}
-		
+
 		// Reset cache metrics for new session
 		m.totalRequests = 0
 		m.cacheHits = 0
 		m.lastTokensSaved = 0
 		m.lastCacheHit = false
-		
+
 		// Add switch notification
 		m.messages = append(m.messages, chatMsg{
 			role:    "system",
@@ -361,7 +357,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			time:    time.Now(),
 			msgType: "info",
 		})
-		
+
 		m.viewport.SetContent(m.renderMessages())
 		m.viewport.GotoBottom()
 
@@ -376,7 +372,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				time:    time.Now(),
 				msgType: "normal",
 			})
-			
+
 			// Update cache metrics
 			if msg.metrics != nil {
 				m.lastCacheHit = msg.metrics.Hit
@@ -385,10 +381,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.cacheHits++
 				}
 			}
-			
+
 			// Update context with recent messages
 			m.updateContext()
-			
+
 			// Save session after each interaction
 			m.saveSession()
 		}
@@ -441,7 +437,7 @@ func (m model) renderHeader() string {
 	}
 
 	title := titleStyle.Render(fmt.Sprintf("󰊕 Chat with %s", m.character.Name))
-	
+
 	// Personality traits with icons
 	personality := fmt.Sprintf(
 		" O:%.1f  C:%.1f  E:%.1f  A:%.1f  N:%.1f",
@@ -451,16 +447,16 @@ func (m model) renderHeader() string {
 		m.character.Personality.Agreeableness,
 		m.character.Personality.Neuroticism,
 	)
-	
+
 	// Current mood (dominant emotion)
 	mood := m.getDominantMood()
 	moodIcon := m.getMoodIcon(mood)
-	
+
 	personalityInfo := personalityStyle.Render(personality)
 	moodInfo := moodStyle.Render(fmt.Sprintf(" %s %s", moodIcon, mood))
-	
+
 	info := fmt.Sprintf("  %s • %s", personalityInfo, moodInfo)
-	
+
 	return lipgloss.JoinVertical(lipgloss.Left, title, info, "")
 }
 
@@ -472,21 +468,21 @@ func (m model) renderMessages() string {
 
 	var content strings.Builder
 	maxWidth := m.viewport.Width - 8 // Account for padding and margins
-	
+
 	for i, msg := range m.messages {
 		if i > 0 {
 			// Add visual separator between messages
 			separator := separatorStyle.Render(strings.Repeat("─", maxWidth))
 			content.WriteString("\n" + separator + "\n\n")
 		}
-		
+
 		timestamp := timestampStyle.Render(msg.time.Format("15:04:05"))
-		
+
 		if msg.role == "user" {
 			// User message - consistent styling throughout
 			header := fmt.Sprintf("┌─ %s %s", userStyle.Render("You"), timestamp)
 			content.WriteString(userMessageStyle.Render(header) + "\n")
-			
+
 			wrappedContent := utils.WrapText(msg.content, maxWidth-4)
 			lines := strings.Split(wrappedContent, "\n")
 			for j, line := range lines {
@@ -494,14 +490,14 @@ func (m model) renderMessages() string {
 				if j == len(lines)-1 {
 					prefix = "└ "
 				}
-				content.WriteString(userMessageStyle.Render(prefix + line) + "\n")
+				content.WriteString(userMessageStyle.Render(prefix+line) + "\n")
 			}
 		} else if msg.role == "system" {
 			// System message - check for special types
 			if msg.msgType == "help" || msg.msgType == "list" || msg.msgType == "info" || msg.msgType == "stats" {
 				// Special formatted output
 				content.WriteString("\n")
-				
+
 				// Determine the header based on type
 				var header string
 				switch msg.msgType {
@@ -516,7 +512,7 @@ func (m model) renderMessages() string {
 				default:
 					header = commandHeaderStyle.Render("System")
 				}
-				
+
 				// Format the content with special styling
 				formattedContent := m.formatSpecialMessage(msg.content, msg.msgType, maxWidth-8)
 				boxContent := lipgloss.JoinVertical(lipgloss.Left, header, "", formattedContent)
@@ -525,7 +521,7 @@ func (m model) renderMessages() string {
 				// Regular system message
 				header := fmt.Sprintf("┌─ %s %s", mutedStyle.Render("System"), timestamp)
 				content.WriteString(mutedStyle.Render(header) + "\n")
-				
+
 				wrappedContent := utils.WrapText(msg.content, maxWidth-4)
 				lines := strings.Split(wrappedContent, "\n")
 				for j, line := range lines {
@@ -533,14 +529,14 @@ func (m model) renderMessages() string {
 					if j == len(lines)-1 {
 						prefix = "└ "
 					}
-					content.WriteString(mutedStyle.Render(prefix + line) + "\n")
+					content.WriteString(mutedStyle.Render(prefix+line) + "\n")
 				}
 			}
 		} else {
 			// Character message - consistent styling throughout
 			header := fmt.Sprintf("┌─ %s %s", characterStyle.Render(msg.role), timestamp)
 			content.WriteString(characterMessageStyle.Render(header) + "\n")
-			
+
 			wrappedContent := utils.WrapText(msg.content, maxWidth-4)
 			lines := strings.Split(wrappedContent, "\n")
 			for j, line := range lines {
@@ -548,11 +544,11 @@ func (m model) renderMessages() string {
 				if j == len(lines)-1 {
 					prefix = "└ "
 				}
-				content.WriteString(characterMessageStyle.Render(prefix + line) + "\n")
+				content.WriteString(characterMessageStyle.Render(prefix+line) + "\n")
 			}
 		}
 	}
-	
+
 	return content.String()
 }
 
@@ -560,12 +556,12 @@ func (m model) renderInputArea() string {
 	if m.err != nil {
 		return errorStyle.Render(fmt.Sprintf("   Error: %v", m.err))
 	}
-	
+
 	if m.loading {
 		spinnerText := mutedStyle.Render("Thinking...")
 		return fmt.Sprintf("\n  %s %s\n", m.spinner.View(), spinnerText)
 	}
-	
+
 	return fmt.Sprintf("\n%s\n", m.textarea.View())
 }
 
@@ -574,13 +570,13 @@ func (m model) renderStatusBar() string {
 	if m.totalRequests > 0 {
 		cacheRate = float64(m.cacheHits) / float64(m.totalRequests) * 100
 	}
-	
+
 	// Cache indicator with color
 	cacheIndicator := "○"
 	if m.lastCacheHit {
 		cacheIndicator = "●"
 	}
-	
+
 	status := fmt.Sprintf(
 		" %s %s │ %s │  %d │ %s %.0f%% │  %d tokens saved",
 		cacheIndicator,
@@ -591,7 +587,7 @@ func (m model) renderStatusBar() string {
 		cacheRate,
 		m.lastTokensSaved,
 	)
-	
+
 	return statusBarStyle.Width(m.width).Render(status)
 }
 
@@ -599,7 +595,7 @@ func (m model) getDominantMood() string {
 	if m.character == nil {
 		return "Unknown"
 	}
-	
+
 	moods := map[string]float64{
 		"Joy":      m.character.CurrentMood.Joy,
 		"Surprise": m.character.CurrentMood.Surprise,
@@ -608,21 +604,21 @@ func (m model) getDominantMood() string {
 		"Sadness":  m.character.CurrentMood.Sadness,
 		"Disgust":  m.character.CurrentMood.Disgust,
 	}
-	
+
 	maxMood := "Neutral"
 	maxValue := 0.0
-	
+
 	for mood, value := range moods {
 		if value > maxValue {
 			maxMood = mood
 			maxValue = value
 		}
 	}
-	
+
 	if maxValue < 0.2 {
 		return "Neutral"
 	}
-	
+
 	return maxMood
 }
 
@@ -653,14 +649,14 @@ func (m *model) updateContext() {
 	if len(m.messages) > 10 {
 		startIdx = len(m.messages) - 10
 	}
-	
+
 	m.context.RecentMessages = make([]models.Message, 0)
 	for i := startIdx; i < len(m.messages); i++ {
 		role := "user"
 		if m.messages[i].role != "user" {
 			role = "assistant"
 		}
-		
+
 		m.context.RecentMessages = append(m.context.RecentMessages, models.Message{
 			Role:      role,
 			Content:   m.messages[i].content,
@@ -674,13 +670,13 @@ func (m *model) saveSession() {
 	go func() {
 		dataDir := filepath.Join(os.Getenv("HOME"), ".config", "roleplay")
 		sessionRepo := repository.NewSessionRepository(dataDir)
-		
+
 		// Convert chat messages back to session messages
 		var sessionMessages []repository.SessionMessage
 		for _, msg := range m.messages {
 			sessionMessages = append(sessionMessages, repository.SessionMessage{
 				Timestamp: msg.time,
-				Role:      func() string {
+				Role: func() string {
 					if msg.role == "user" {
 						return "user"
 					}
@@ -690,7 +686,7 @@ func (m *model) saveSession() {
 				TokensUsed: 0, // Could track this per message if needed
 			})
 		}
-		
+
 		session := &repository.Session{
 			ID:           m.sessionID,
 			CharacterID:  m.characterID,
@@ -703,7 +699,7 @@ func (m *model) saveSession() {
 				CacheHits:     m.cacheHits,
 				CacheMisses:   m.totalRequests - m.cacheHits,
 				TokensSaved:   m.lastTokensSaved,
-				HitRate:       func() float64 {
+				HitRate: func() float64 {
 					if m.totalRequests > 0 {
 						return float64(m.cacheHits) / float64(m.totalRequests)
 					}
@@ -711,7 +707,7 @@ func (m *model) saveSession() {
 				}(),
 			},
 		}
-		
+
 		if err := sessionRepo.SaveSession(session); err != nil {
 			fmt.Fprintf(os.Stderr, "Error saving session: %v\n", err)
 		}
@@ -726,19 +722,19 @@ func (m model) sendMessage(message string) tea.Cmd {
 			Message:     message,
 			Context:     m.context,
 		}
-		
+
 		ctx := context.Background()
 		resp, err := m.bot.ProcessRequest(ctx, req)
 		if err != nil {
 			return responseMsg{err: err}
 		}
-		
+
 		// Get updated character state
 		char, _ := m.bot.GetCharacter(m.characterID)
 		if char != nil {
 			m.character = char
 		}
-		
+
 		return responseMsg{
 			content: resp.Content,
 			metrics: &resp.CacheMetrics,
@@ -777,7 +773,7 @@ func (m model) formatSpecialMessage(content string, msgType string, width int) s
 			}
 		}
 		return strings.Join(formatted, "\n")
-		
+
 	case "list":
 		// Format character list with special styling
 		lines := strings.Split(content, "\n")
@@ -797,7 +793,7 @@ func (m model) formatSpecialMessage(content string, msgType string, width int) s
 			}
 		}
 		return strings.Join(formatted, "\n")
-		
+
 	case "stats":
 		// Format stats with colored numbers
 		lines := strings.Split(content, "\n")
@@ -821,7 +817,7 @@ func (m model) formatSpecialMessage(content string, msgType string, width int) s
 			}
 		}
 		return strings.Join(formatted, "\n")
-		
+
 	default:
 		// Default formatting
 		return utils.WrapText(content, width)
@@ -834,13 +830,13 @@ func (m model) handleSlashCommand(input string) tea.Cmd {
 		if len(parts) == 0 {
 			return systemMsg{content: "Invalid command", msgType: "error"}
 		}
-		
+
 		command := strings.ToLower(parts[0])
-		
+
 		switch command {
 		case "/exit", "/quit", "/q":
 			return tea.Quit()
-		
+
 		case "/help", "/h":
 			helpText := `Available slash commands:
 /help, /h     - Show this help message
@@ -853,11 +849,11 @@ func (m model) handleSlashCommand(input string) tea.Cmd {
 /personality  - Show character's personality traits
 /session      - Show session information`
 			return systemMsg{content: helpText, msgType: "help"}
-		
+
 		case "/clear", "/c":
 			// We can't directly modify the model here, so we'll return a special message
 			return systemMsg{content: "clear_history", msgType: "clear"}
-		
+
 		case "/list":
 			// List all available characters from the repository
 			dataDir := filepath.Join(os.Getenv("HOME"), ".config", "roleplay")
@@ -865,19 +861,19 @@ func (m model) handleSlashCommand(input string) tea.Cmd {
 			if err != nil {
 				return systemMsg{content: fmt.Sprintf("Error accessing characters: %v", err), msgType: "error"}
 			}
-			
+
 			characterIDs, err := charRepo.ListCharacters()
 			if err != nil {
 				return systemMsg{content: fmt.Sprintf("Error listing characters: %v", err), msgType: "error"}
 			}
-			
+
 			if len(characterIDs) == 0 {
 				return systemMsg{content: "No characters available. Use 'roleplay character create' to add characters.", msgType: "info"}
 			}
-			
+
 			var listText strings.Builder
 			listText.WriteString("Available Characters:\n")
-			
+
 			for _, id := range characterIDs {
 				// Try to get from bot first (already loaded)
 				char, err := m.bot.GetCharacter(id)
@@ -888,21 +884,21 @@ func (m model) handleSlashCommand(input string) tea.Cmd {
 						continue
 					}
 				}
-				
+
 				// Current character indicator
 				indicator := "  "
 				if id == m.characterID {
 					indicator = "→ "
 				}
-				
+
 				// Mood icon
 				tempModel := model{character: char}
 				mood := tempModel.getDominantMood()
 				moodIcon := tempModel.getMoodIcon(mood)
-				
-				listText.WriteString(fmt.Sprintf("\n%s%s (%s) %s %s\n", 
+
+				listText.WriteString(fmt.Sprintf("\n%s%s (%s) %s %s\n",
 					indicator, char.Name, id, moodIcon, mood))
-				
+
 				// Add brief description from backstory (first sentence)
 				backstory := char.Backstory
 				if idx := strings.Index(backstory, "."); idx != -1 && idx < 100 {
@@ -912,9 +908,9 @@ func (m model) handleSlashCommand(input string) tea.Cmd {
 				}
 				listText.WriteString(fmt.Sprintf("   %s\n", backstory))
 			}
-			
+
 			return systemMsg{content: listText.String(), msgType: "info"}
-		
+
 		case "/stats":
 			cacheRate := 0.0
 			if m.totalRequests > 0 {
@@ -932,7 +928,7 @@ func (m model) handleSlashCommand(input string) tea.Cmd {
 				cacheRate,
 				m.lastTokensSaved)
 			return systemMsg{content: statsText, msgType: "info"}
-		
+
 		case "/mood":
 			if m.character == nil {
 				return systemMsg{content: "Character not loaded", msgType: "error"}
@@ -953,7 +949,7 @@ Emotional State:
 				m.character.CurrentMood.Sadness,
 				m.character.CurrentMood.Disgust)
 			return systemMsg{content: moodText, msgType: "info"}
-		
+
 		case "/personality":
 			if m.character == nil {
 				return systemMsg{content: "Character not loaded", msgType: "error"}
@@ -972,7 +968,7 @@ Emotional State:
 				m.character.Personality.Agreeableness,
 				m.character.Personality.Neuroticism)
 			return systemMsg{content: personalityText, msgType: "info"}
-		
+
 		case "/session":
 			characterName := m.characterID
 			if m.character != nil {
@@ -995,19 +991,19 @@ Emotional State:
 				len(m.messages),
 				m.context.StartTime.Format("Jan 2, 2006 15:04"))
 			return systemMsg{content: sessionText, msgType: "info"}
-		
+
 		case "/switch":
 			if len(parts) < 2 {
 				return systemMsg{content: "Usage: /switch <character-id>\nUse /list to see available characters", msgType: "error"}
 			}
-			
+
 			newCharID := parts[1]
-			
+
 			// Check if it's the same character
 			if newCharID == m.characterID {
 				return systemMsg{content: fmt.Sprintf("Already chatting with %s", m.characterID), msgType: "info"}
 			}
-			
+
 			// Try to load the character
 			char, err := m.bot.GetCharacter(newCharID)
 			if err != nil {
@@ -1017,23 +1013,23 @@ Emotional State:
 				if repoErr != nil {
 					return systemMsg{content: fmt.Sprintf("Error accessing characters: %v", repoErr), msgType: "error"}
 				}
-				
+
 				char, err = charRepo.LoadCharacter(newCharID)
 				if err != nil {
 					return systemMsg{content: fmt.Sprintf("Character '%s' not found. Use /list to see available characters", newCharID), msgType: "error"}
 				}
-				
+
 				// Load character into bot
 				if err := m.bot.CreateCharacter(char); err != nil {
 					return systemMsg{content: fmt.Sprintf("Error loading character: %v", err), msgType: "error"}
 				}
 			}
-			
+
 			return characterSwitchMsg{
 				characterID: newCharID,
 				character:   char,
 			}
-		
+
 		default:
 			return systemMsg{content: fmt.Sprintf("Unknown command: %s\nType /help for available commands", command), msgType: "error"}
 		}
@@ -1042,25 +1038,25 @@ Emotional State:
 
 func runInteractive(cmd *cobra.Command, args []string) error {
 	config := GetConfig()
-	
+
 	// Validate API key
 	if config.APIKey == "" {
 		return fmt.Errorf("API key not configured. Set OPENAI_API_KEY or ROLEPLAY_API_KEY")
 	}
-	
+
 	// Get flags
 	characterID, _ := cmd.Flags().GetString("character")
 	userID, _ := cmd.Flags().GetString("user")
 	sessionID, _ := cmd.Flags().GetString("session")
 	newSession, _ := cmd.Flags().GetBool("new-session")
-	
+
 	// Initialize repository for session management
 	dataDir := filepath.Join(os.Getenv("HOME"), ".config", "roleplay")
 	sessionRepo := repository.NewSessionRepository(dataDir)
-	
+
 	var existingSession *repository.Session
 	var existingMessages []chatMsg
-	
+
 	// Try to resume latest session if not specified and not forced new
 	if sessionID == "" && !newSession {
 		if latestSession, err := sessionRepo.GetLatestSession(characterID); err == nil && latestSession.ID != "" {
@@ -1070,11 +1066,11 @@ func runInteractive(cmd *cobra.Command, args []string) error {
 			if len(sessionID) > 8 {
 				sessionIDDisplay = sessionID[:8]
 			}
-			fmt.Printf("🔄 Resuming session %s (started %s, %d messages)\n", 
-				sessionIDDisplay, 
-				latestSession.StartTime.Format("Jan 2 15:04"), 
+			fmt.Printf("🔄 Resuming session %s (started %s, %d messages)\n",
+				sessionIDDisplay,
+				latestSession.StartTime.Format("Jan 2 15:04"),
 				len(latestSession.Messages))
-			
+
 			// Convert session messages to chat messages
 			for _, msg := range latestSession.Messages {
 				role := msg.Role
@@ -1097,7 +1093,7 @@ func runInteractive(cmd *cobra.Command, args []string) error {
 			fmt.Printf("🆕 Starting new session %s\n", sessionIDDisplay)
 		}
 	}
-	
+
 	// Ensure sessionID is set even if not resuming
 	if sessionID == "" {
 		sessionID = fmt.Sprintf("session-%d", time.Now().Unix())
@@ -1107,15 +1103,15 @@ func runInteractive(cmd *cobra.Command, args []string) error {
 		}
 		fmt.Printf("🆕 Starting new session %s\n", sessionIDDisplay)
 	}
-	
+
 	// Final validation - sessionID must never be empty
 	if sessionID == "" {
 		return fmt.Errorf("internal error: session ID is empty")
 	}
-	
+
 	// Initialize bot
 	bot := services.NewCharacterBot(config)
-	
+
 	// Register provider
 	switch config.DefaultProvider {
 	case "anthropic":
@@ -1131,7 +1127,7 @@ func runInteractive(cmd *cobra.Command, args []string) error {
 	default:
 		return fmt.Errorf("unsupported provider: %s", config.DefaultProvider)
 	}
-	
+
 	// Auto-create Rick Sanchez if that's the character requested
 	if characterID == "rick-c137" {
 		if err := createRickSanchez(bot); err != nil {
@@ -1139,12 +1135,12 @@ func runInteractive(cmd *cobra.Command, args []string) error {
 			fmt.Println("Note: Could not auto-create Rick. Make sure to run 'roleplay character create rick-sanchez.json' first.")
 		}
 	}
-	
+
 	// Create model
 	s := spinner.New()
 	s.Spinner = spinner.Dot
 	s.Style = lipgloss.NewStyle().Foreground(gruvboxAqua)
-	
+
 	m := model{
 		characterID: characterID,
 		userID:      userID,
@@ -1152,7 +1148,7 @@ func runInteractive(cmd *cobra.Command, args []string) error {
 		bot:         bot,
 		messages:    existingMessages,
 		spinner:     s,
-		model:       func() string {
+		model: func() string {
 			if config.Model != "" {
 				return config.Model
 			}
@@ -1162,8 +1158,8 @@ func runInteractive(cmd *cobra.Command, args []string) error {
 			return "claude-3-haiku-20240307"
 		}(),
 		context: models.ConversationContext{
-			SessionID:      sessionID,
-			StartTime:      func() time.Time {
+			SessionID: sessionID,
+			StartTime: func() time.Time {
 				if existingSession != nil {
 					return existingSession.StartTime
 				}
@@ -1191,20 +1187,20 @@ func runInteractive(cmd *cobra.Command, args []string) error {
 			return 0
 		}(),
 	}
-	
+
 	// Start TUI
 	p := tea.NewProgram(m, tea.WithAltScreen())
 	if _, err := p.Run(); err != nil {
 		return fmt.Errorf("failed to start TUI: %w", err)
 	}
-	
+
 	return nil
 }
 
 func createRickSanchez(bot *services.CharacterBot) error {
 	rick := &models.Character{
-		ID:   "rick-c137",
-		Name: "Rick Sanchez",
+		ID:        "rick-c137",
+		Name:      "Rick Sanchez",
 		Backstory: `The smartest man in the universe from dimension C-137. A genius scientist with a nihilistic worldview shaped by infinite realities and cosmic horrors. Inventor of interdimensional travel. Lost his wife Diane and original Beth to a vengeful alternate Rick. Struggles with alcoholism, depression, and the meaninglessness of existence across infinite universes. Despite his cynicism, deeply loves his family, especially Morty, though he rarely shows it.`,
 		Personality: models.PersonalityTraits{
 			Openness:          1.0,
@@ -1236,6 +1232,6 @@ func createRickSanchez(bot *services.CharacterBot) error {
 			},
 		},
 	}
-	
+
 	return bot.CreateCharacter(rick)
 }
