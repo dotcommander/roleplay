@@ -43,9 +43,9 @@ func TestOpenAIProvider(t *testing.T) {
 		t.Errorf("Expected 0 breakpoints, got %d", provider.MaxBreakpoints())
 	}
 
-	// Verify it always uses o4-mini
-	if provider.model != "o4-mini" {
-		t.Errorf("Expected model to be 'o4-mini', got %s", provider.model)
+	// Verify it uses the model passed in constructor
+	if provider.model != "gpt-4" {
+		t.Errorf("Expected model to be 'gpt-4', got %s", provider.model)
 	}
 }
 
