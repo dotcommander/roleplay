@@ -128,13 +128,17 @@ roleplay/
 ├── internal/              # Private packages
 │   ├── cache/             # Dual caching system (prompt + response)
 │   ├── config/            # Configuration structures
+│   ├── importer/          # AI-powered character import from markdown
 │   ├── models/            # Domain models (Character, Memory, etc.)
 │   ├── providers/         # AI provider implementations
 │   ├── services/          # Core bot service and business logic
 │   ├── repository/        # Character and session persistence
 │   ├── manager/           # High-level character management
 │   └── utils/             # Shared utilities (text wrapping, etc.)
+├── examples/              # Example character files
+│   └── characters/        # Example character JSON files
 ├── prompts/               # LLM prompt templates (externalized)
+├── scripts/               # Utility scripts
 ├── migrate-config.sh      # Configuration migration script
 ├── chat-with-rick.sh      # Quick Rick Sanchez demo script
 └── go.mod
@@ -156,6 +160,7 @@ roleplay
 │   ├── list              # List all available characters
 │   ├── show              # Display character details
 │   └── example           # Generate example JSON
+├── import                 # Import character from markdown using AI
 ├── session                # Session management
 │   ├── list              # List sessions for character(s)
 │   └── stats             # Show caching performance metrics
@@ -205,7 +210,7 @@ bot.RegisterProvider("anthropic", NewAnthropicProvider(apiKey))
 character := Character{
     ID: "warrior-maiden",
     Name: "Lyra",
-    Personality: Personality{
+    Personality: PersonalityTraits{
         Openness: 0.7,
         Conscientiousness: 0.8,
         Extraversion: 0.6,

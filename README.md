@@ -6,8 +6,6 @@
 
 A sophisticated character bot system that implements psychologically-realistic AI characters with personality evolution, emotional states, and multi-layered memory systems. Features advanced prompt caching strategies that achieve 90% cost reduction in LLM API usage.
 
-![Roleplay Demo](https://via.placeholder.com/800x400.png?text=Roleplay+Character+Bot+Demo)
-
 ## ✨ Features
 
 - 🎭 **Interactive TUI Chat**: Beautiful terminal interface with real-time chat, personality display, and performance metrics
@@ -113,14 +111,33 @@ roleplay session stats
 
 ## 🎭 Example Characters
 
-The system comes with several pre-built characters:
+The system includes Rick Sanchez as a built-in demo character. You can import many more characters from markdown files or create your own!
 
-- **Rick Sanchez** - Nihilistic genius scientist
-- **Alan Watts** - Eastern philosophy guide
-- **Harley Quinn** - Chaotic and playful
-- **The Watcher** - Cosmic observer of human history
+### Example Characters Available
 
-Create your own character with this structure:
+Check the `examples/characters/` directory for ready-to-use character files:
+- **Sophia the Philosopher** - Thoughtful thinker who guides through questions
+- **Captain Rex Thunderbolt** - Bold adventurer and sky pirate
+- **Dr. Luna Quantum** - Meticulous quantum physicist
+
+### Importing Characters from Markdown
+
+You can import characters from unstructured markdown files using AI:
+
+```bash
+# Import a character from any markdown file
+roleplay import ~/Documents/character-description.md
+
+# The AI will analyze the file and extract:
+# - Character name and personality
+# - OCEAN personality traits
+# - Speech patterns and quirks
+# - Background story
+```
+
+### Creating Your Own Character
+
+Create a JSON file with this structure:
 
 ```json
 {
@@ -231,9 +248,9 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## 📞 Support
 
-- 📧 Email: support@example.com
-- 💬 Discord: [Join our server](https://discord.gg/example)
 - 🐛 Issues: [GitHub Issues](https://github.com/dotcommander/roleplay/issues)
+- 💡 Discussions: [GitHub Discussions](https://github.com/dotcommander/roleplay/discussions)
+- 📚 Wiki: [GitHub Wiki](https://github.com/dotcommander/roleplay/wiki)
 
 ---
 
