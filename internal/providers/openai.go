@@ -68,7 +68,12 @@ func (o *OpenAIProvider) SendRequest(ctx context.Context, req *PromptRequest) (*
 	if !strings.HasPrefix(o.model, "o1-") && !strings.HasPrefix(o.model, "o4-") {
 		// Standard models support these parameters
 		apiReq.Temperature = 0.7
-		apiReq.MaxTokens = 2000
+		// Use more tokens for user profile updates which can be lengthy JSON
+		if req.CharacterID == "system-user-profiler" {
+			apiReq.MaxTokens = 4000
+		} else {
+			apiReq.MaxTokens = 2000
+		}
 	}
 
 	// Send the request
@@ -153,7 +158,12 @@ func (o *OpenAIProvider) SendStreamRequest(ctx context.Context, req *PromptReque
 	if !strings.HasPrefix(o.model, "o1-") && !strings.HasPrefix(o.model, "o4-") {
 		// Standard models support these parameters
 		apiReq.Temperature = 0.7
-		apiReq.MaxTokens = 2000
+		// Use more tokens for user profile updates which can be lengthy JSON
+		if req.CharacterID == "system-user-profiler" {
+			apiReq.MaxTokens = 4000
+		} else {
+			apiReq.MaxTokens = 2000
+		}
 	}
 
 	// Create the stream

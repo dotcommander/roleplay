@@ -106,8 +106,9 @@ func (r *CharacterRepository) GetCharacterInfo() ([]CharacterInfo, error) {
 			infos = append(infos, CharacterInfo{
 				ID:          char.ID,
 				Name:        char.Name,
-				Description: truncateString(char.Backstory, 100),
+				Description: char.Backstory, // Full backstory, no truncation
 				Tags:        char.Quirks,
+				SpeechStyle: char.SpeechStyle,
 			})
 		}
 	}
@@ -121,11 +122,5 @@ type CharacterInfo struct {
 	Name        string
 	Description string
 	Tags        []string
-}
-
-func truncateString(s string, maxLen int) string {
-	if len(s) <= maxLen {
-		return s
-	}
-	return s[:maxLen-3] + "..."
+	SpeechStyle string
 }

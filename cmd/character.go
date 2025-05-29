@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"text/tabwriter"
+	"strings"
 
 	"github.com/dotcommander/roleplay/internal/manager"
 	"github.com/dotcommander/roleplay/internal/models"
@@ -193,13 +193,80 @@ func runListCharacters(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, "ID\tNAME\tDESCRIPTION")
+	// Display characters in a visually appealing format
+	fmt.Println("🎭 Available Characters")
+	fmt.Println("======================")
+	fmt.Println()
 
-	for _, char := range characters {
-		fmt.Fprintf(w, "%s\t%s\t%s\n", char.ID, char.Name, char.Description)
+	for i, char := range characters {
+		// Character header with emoji
+		fmt.Printf("📚 %s (%s)\n", char.Name, char.ID)
+		fmt.Println(strings.Repeat("─", 50))
+		
+		// Backstory with proper word wrapping
+		if char.Description != "" {
+			wrapped := wrapText(char.Description, 70)
+			for _, line := range wrapped {
+				fmt.Printf("   %s\n", line)
+			}
+		} else {
+			fmt.Println("   [No backstory provided]")
+		}
+		
+		// Display speech style if available
+		if char.SpeechStyle != "" {
+			fmt.Println()
+			fmt.Println("   💬 Speech Style:")
+			speechWrapped := wrapText(char.SpeechStyle, 66)
+			for _, line := range speechWrapped {
+				fmt.Printf("      %s\n", line)
+			}
+		}
+		
+		// Display quirks if available
+		if len(char.Tags) > 0 {
+			fmt.Println()
+			fmt.Println("   🎯 Quirks:")
+			for _, quirk := range char.Tags {
+				fmt.Printf("      • %s\n", quirk)
+			}
+		}
+		
+		// Add spacing between characters except for the last one
+		if i < len(characters)-1 {
+			fmt.Println()
+		}
 	}
-
-	w.Flush()
+	
+	fmt.Println()
+	fmt.Println(strings.Repeat("─", 50))
+	fmt.Printf("Total: %d character(s)\n", len(characters))
+	
 	return nil
+}
+
+// wrapText wraps text to the specified width
+func wrapText(text string, width int) []string {
+	var lines []string
+	words := strings.Fields(text)
+	
+	if len(words) == 0 {
+		return lines
+	}
+	
+	currentLine := words[0]
+	for _, word := range words[1:] {
+		if len(currentLine)+1+len(word) > width {
+			lines = append(lines, currentLine)
+			currentLine = word
+		} else {
+			currentLine += " " + word
+		}
+	}
+	
+	if currentLine != "" {
+		lines = append(lines, currentLine)
+	}
+	
+	return lines
 }

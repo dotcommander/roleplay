@@ -711,14 +711,12 @@ func (cb *CharacterBot) updateUserProfileAsync(userID string, char *models.Chara
 
 // updateUserProfileSync performs the actual user profile update
 func (cb *CharacterBot) updateUserProfileSync(userID string, char *models.Character, sessionID string) {
-	// Update user profile based on conversation history
-
 	// Only proceed if we have the minimum messages for an update
 	sessionRepo := repository.NewSessionRepository(filepath.Join(os.Getenv("HOME"), ".config", "roleplay"))
 
 	currentSession, err := sessionRepo.LoadSession(char.ID, sessionID)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error loading session %s for user profile update: %v\n", sessionID, err)
+		fmt.Fprintf(os.Stderr, "BACKGROUND PROFILE UPDATE WARNING: Failed to load session %s for user %s: %v\n", sessionID, userID, err)
 		return
 	}
 
@@ -735,18 +733,57 @@ func (cb *CharacterBot) updateUserProfileSync(userID string, char *models.Charac
 	}
 
 	if cb.userProfileAgent == nil {
+		// This shouldn't happen, but log it clearly
+		fmt.Fprintf(os.Stderr, "BACKGROUND PROFILE UPDATE ERROR: UserProfileAgent not initialized for %s/%s\n", userID, char.ID)
 		return
 	}
 
-	_, updateErr := cb.userProfileAgent.UpdateUserProfile(
-		context.Background(),
+	// Load existing profile to have a fallback
+	existingProfile, err := cb.userProfileRepo.LoadUserProfile(userID, char.ID)
+	if err != nil && !os.IsNotExist(err) {
+		fmt.Fprintf(os.Stderr, "BACKGROUND PROFILE UPDATE WARNING: Failed to load existing profile for %s/%s: %v\n", userID, char.ID, err)
+		// Continue without existing profile, agent will create new one if successful
+	}
+	if os.IsNotExist(err) || existingProfile == nil {
+		existingProfile = &models.UserProfile{
+			UserID:      userID,
+			CharacterID: char.ID,
+			Facts:       []models.UserFact{},
+			Version:     0,
+		}
+	}
+
+	// Create a context with timeout for the background operation
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	// The agent is now resilient - it returns existing profile on failure
+	updatedProfile, updateErr := cb.userProfileAgent.UpdateUserProfile(
+		ctx,
 		userID,
 		char,
 		currentSession.Messages,
 		turnsToConsider,
+		existingProfile,
 	)
 
 	if updateErr != nil {
-		fmt.Fprintf(os.Stderr, "Error updating user profile for %s with %s: %v\n", userID, char.ID, updateErr)
+		// Log the error clearly
+		timestamp := time.Now().Format(time.RFC3339)
+		if strings.Contains(updateErr.Error(), "FAILED TO SAVE") {
+			// Profile was updated in memory but not persisted
+			fmt.Fprintf(os.Stderr, "[%s] BACKGROUND PROFILE UPDATE: In-memory update succeeded but save failed for %s/%s: %v\n", 
+				timestamp, userID, char.ID, updateErr)
+		} else {
+			// More fundamental error (extraction, parsing, validation)
+			fmt.Fprintf(os.Stderr, "[%s] BACKGROUND PROFILE UPDATE FAILED for %s/%s: %v. Profile remains at version %d.\n", 
+				timestamp, userID, char.ID, updateErr, existingProfile.Version)
+		}
+	} else if updatedProfile != nil {
+		// Success - only log if not using a local model to reduce noise
+		if cb.config.DefaultProvider != "ollama" && cb.config.DefaultProvider != "local" {
+			fmt.Fprintf(os.Stdout, "[%s] Background user profile for %s with %s successfully updated to version %d\n", 
+				time.Now().Format(time.RFC3339), userID, char.ID, updatedProfile.Version)
+		}
 	}
 }

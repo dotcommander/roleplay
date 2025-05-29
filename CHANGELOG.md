@@ -5,6 +5,36 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0] - 2025-05-29
+
+### Added
+- **Robust JSON Extraction for LLM Outputs**
+  - New `internal/utils/json.go` with `ExtractValidJSON` function
+  - Handles common LLM issues: prefixes, markdown blocks, truncated JSON
+  - Attempts to repair incomplete JSON structures
+  - Successfully extracts valid JSON from malformed LLM responses
+
+### Improved
+- **Resilient Background User Profile Updates**
+  - User profile updates now gracefully handle LLM parsing failures
+  - Returns existing profile on failure instead of crashing
+  - Better error logging with timestamps and context
+  - 30-second timeout for background operations
+  - Profile updates get 4000 max tokens (up from 2000)
+  
+- **Character List Display**
+  - Shows full character backstories without truncation
+  - Beautiful visual formatting with emojis and separators
+  - Displays speech style and quirks for each character
+  - Proper text wrapping for readability
+  - Total character count at the bottom
+
+### Fixed
+- **User Profile Agent**
+  - Fixed JSON parsing errors from truncated LLM responses
+  - Background profile updates no longer affect main chat flow
+  - Improved error messages distinguish between parsing and save failures
+
 ## [0.5.0] - 2025-05-29
 
 ### Added

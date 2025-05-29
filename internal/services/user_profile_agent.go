@@ -13,6 +13,7 @@ import (
 	"github.com/dotcommander/roleplay/internal/models"
 	"github.com/dotcommander/roleplay/internal/providers"
 	"github.com/dotcommander/roleplay/internal/repository"
+	"github.com/dotcommander/roleplay/internal/utils"
 )
 
 // UserProfileAgent handles AI-powered user profile extraction and updates
@@ -80,25 +81,25 @@ func (upa *UserProfileAgent) UpdateUserProfile(
 	character *models.Character,
 	sessionMessages []repository.SessionMessage,
 	turnsToConsider int,
+	currentProfile *models.UserProfile,
 ) (*models.UserProfile, error) {
 
-	if len(sessionMessages) == 0 {
-		return nil, fmt.Errorf("no conversation history provided to update user profile")
+	// If no current profile provided, create a new one
+	if currentProfile == nil {
+		currentProfile = &models.UserProfile{
+			UserID:      userID,
+			CharacterID: character.ID,
+			Facts:       []models.UserFact{},
+			Version:     0,
+		}
 	}
 
-	// Load existing profile or create new one
-	existingProfile, err := upa.repo.LoadUserProfile(userID, character.ID)
-	if err != nil {
-		if os.IsNotExist(err) {
-			existingProfile = &models.UserProfile{
-				UserID:      userID,
-				CharacterID: character.ID,
-				Facts:       []models.UserFact{},
-				Version:     0,
-			}
-		} else {
-			return nil, fmt.Errorf("failed to load existing user profile: %w", err)
-		}
+	// Use existingProfile to refer to currentProfile for consistency with rest of code
+	existingProfile := currentProfile
+
+	if len(sessionMessages) == 0 {
+		// No conversation history - return existing profile unchanged
+		return existingProfile, nil
 	}
 
 	existingProfileJSON, _ := json.MarshalIndent(existingProfile, "", "  ")
@@ -160,36 +161,45 @@ func (upa *UserProfileAgent) UpdateUserProfile(
 		return nil, fmt.Errorf("LLM call for user profile extraction failed: %w", err)
 	}
 
-	// Clean and parse JSON response
-	jsonContent := strings.TrimSpace(response.Content)
-
-	// Remove markdown code blocks if present
-	if strings.HasPrefix(jsonContent, "```json") {
-		jsonContent = strings.TrimPrefix(jsonContent, "```json")
-		jsonContent = strings.TrimSuffix(jsonContent, "```")
-		jsonContent = strings.TrimSpace(jsonContent)
-	} else if strings.HasPrefix(jsonContent, "```") {
-		jsonContent = strings.TrimPrefix(jsonContent, "```")
-		jsonContent = strings.TrimSuffix(jsonContent, "```")
-		jsonContent = strings.TrimSpace(jsonContent)
+	// Use robust JSON extraction to handle LLM output quirks
+	extractedJSON, err := utils.ExtractValidJSON(response.Content)
+	if err != nil {
+		// Log the error but return existing profile to maintain stability
+		fmt.Fprintf(os.Stderr, "BACKGROUND PROFILE UPDATE: Failed to extract valid JSON from LLM response for %s/%s.\nError: %v\nRaw content (first 500 chars): %s\n", 
+			userID, character.ID, err, truncateString(response.Content, 500))
+		return existingProfile, fmt.Errorf("failed to extract valid JSON for user profile update: %w", err)
 	}
 
 	var updatedProfile models.UserProfile
-	if err := json.Unmarshal([]byte(jsonContent), &updatedProfile); err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to parse LLM response for user profile. Raw content:\n%s\n", jsonContent)
-		return nil, fmt.Errorf("failed to parse LLM response as JSON for user profile: %w", err)
+	if err := json.Unmarshal([]byte(extractedJSON), &updatedProfile); err != nil {
+		// This should be rare now that we're using ExtractValidJSON
+		fmt.Fprintf(os.Stderr, "BACKGROUND PROFILE UPDATE: Failed to parse extracted JSON for %s/%s.\nError: %v\nExtracted JSON (first 500 chars): %s\n", 
+			userID, character.ID, err, truncateString(extractedJSON, 500))
+		return existingProfile, fmt.Errorf("failed to parse extracted JSON for user profile update: %w", err)
 	}
 
 	// Validate the response
 	if updatedProfile.UserID != userID || updatedProfile.CharacterID != character.ID {
-		return nil, fmt.Errorf("LLM returned profile for incorrect user/character. Expected %s/%s, got %s/%s",
+		fmt.Fprintf(os.Stderr, "BACKGROUND PROFILE UPDATE: LLM returned profile for incorrect user/character. Expected %s/%s, got %s/%s\n",
 			userID, character.ID, updatedProfile.UserID, updatedProfile.CharacterID)
+		return existingProfile, fmt.Errorf("LLM returned profile for incorrect user/character")
 	}
 
 	// Save the updated profile
 	if err := upa.repo.SaveUserProfile(&updatedProfile); err != nil {
-		return nil, fmt.Errorf("failed to save updated user profile: %w", err)
+		// Log save failure but return the in-memory updated profile
+		fmt.Fprintf(os.Stderr, "BACKGROUND PROFILE UPDATE: Updated user profile for %s/%s in memory but FAILED TO SAVE: %v\n",
+			userID, character.ID, err)
+		return &updatedProfile, fmt.Errorf("updated user profile in memory but FAILED TO SAVE: %w", err)
 	}
 
 	return &updatedProfile, nil
+}
+
+// truncateString truncates a string to maxLen characters for logging
+func truncateString(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen] + "..."
 }
