@@ -46,7 +46,7 @@ clean:
 # Install the binary
 install:
 	@echo "Installing $(BINARY_NAME)..."
-	$(GO) install $(GOFLAGS) .
+	$(GO) install $(GOFLAGS) -ldflags "$(LDFLAGS)" .
 
 # Format code
 fmt:

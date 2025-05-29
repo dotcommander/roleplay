@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.2] - 2025-05-29
+
+### Fixed
+- **Makefile Install Target**
+  - Fixed `make install` to properly inject version information
+  - The install target now uses ldflags to embed version, commit, and build date
+  - Resolves issue where `roleplay version` showed "dev" and "unknown" after installation
+
 ## [0.8.1] - 2025-05-29
 
 ### Added
