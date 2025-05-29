@@ -54,10 +54,10 @@ var providerPresets = []providerPreset{
 	},
 	{
 		Name:         "gemini",
-		BaseURL:      "https://generativelanguage.googleapis.com/v1beta",
+		BaseURL:      "https://generativelanguage.googleapis.com/v1beta/openai",
 		RequiresKey:  true,
 		LocalModel:   false,
-		DefaultModel: "gemini-1.5-flash",
+		DefaultModel: "models/gemini-1.5-flash",
 		Description:  "Google Gemini (OpenAI-Compatible)",
 	},
 	{
@@ -246,11 +246,17 @@ func runInit(cmd *cobra.Command, args []string) error {
 	shouldCreateExamples := createExamples == "" || createExamples == "y" || createExamples == "yes"
 
 	// Create configuration
+	providerName := selectedPreset.Name
+	// For OpenAI-compatible endpoints, always use "openai" as the provider
+	if selectedPreset.Name == "gemini" || selectedPreset.Name == "anthropic" {
+		providerName = "openai"
+	}
+	
 	config := map[string]interface{}{
 		"base_url": baseURL,
 		"api_key":  apiKey,
 		"model":    model,
-		"provider": selectedPreset.Name, // Profile name for config resolution
+		"provider": providerName,
 		"cache": map[string]interface{}{
 			"default_ttl":      "5m",
 			"cleanup_interval": "10m",

@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.2] - 2025-05-29
+
+### Fixed
+- **Configuration Generation**
+  - Fixed `roleplay init` to correctly set `provider: openai` for Gemini and Anthropic
+  - Fixed Gemini default model to include required `models/` prefix
+  - Fixed Gemini base URL to point to correct OpenAI-compatible endpoint
+  - Ensured all OpenAI-compatible providers use `provider: openai` in config
+
+### Improved
+- **Configuration Clarity**
+  - Simplified provider configuration for OpenAI-compatible endpoints
+  - Made it clear that Gemini, Anthropic, and others use `provider: openai`
+  - Better alignment between init wizard choices and actual configuration
+
 ## [0.4.1] - 2025-05-29
 
 ### Fixed
