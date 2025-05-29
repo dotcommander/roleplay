@@ -11,16 +11,16 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var apiTestCmd = &cobra.Command{
-	Use:   "api-test",
+var configTestCmd = &cobra.Command{
+	Use:   "test",
 	Short: "Test API connection with a simple completion request",
 	Long:  `Sends a simple test message to verify API connectivity and configuration.`,
 	RunE:  runAPITest,
 }
 
 func init() {
-	rootCmd.AddCommand(apiTestCmd)
-	apiTestCmd.Flags().String("message", "Hello! Please respond with a brief greeting.", "Test message to send")
+	configCmd.AddCommand(configTestCmd)
+	configTestCmd.Flags().String("message", "Hello! Please respond with a brief greeting.", "Test message to send")
 }
 
 func runAPITest(cmd *cobra.Command, args []string) error {

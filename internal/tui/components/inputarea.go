@@ -31,8 +31,10 @@ func NewInputArea(width int) *InputArea {
 	ta.Placeholder = "Type your message..."
 	ta.Prompt = "│ "
 	ta.CharLimit = 500
-	ta.SetWidth(width - 4)
-	ta.SetHeight(2)
+	// Adjust width to account for prompt and proper padding
+	// Using width - 6 to prevent horizontal scrolling issues
+	ta.SetWidth(width - 6)
+	ta.SetHeight(1)  // Set to 1 line to prevent multi-line expansion
 	ta.ShowLineNumbers = false
 	ta.KeyMap.InsertNewline.SetEnabled(false)
 
@@ -67,7 +69,8 @@ func (i *InputArea) Update(msg tea.Msg) tea.Cmd {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		i.width = msg.Width
-		i.textarea.SetWidth(msg.Width - 4)
+		// Consistent width adjustment to prevent scrolling issues
+		i.textarea.SetWidth(msg.Width - 6)
 
 	case ProcessingStateMsg:
 		i.isProcessing = msg.IsProcessing
@@ -103,9 +106,11 @@ func (i *InputArea) View() string {
 
 	if i.isProcessing {
 		spinnerText := i.styles.processing.Render("Thinking...")
-		return fmt.Sprintf("\n  %s %s\n", i.spinner.View(), spinnerText)
+		// Maintain consistent height by adding an extra newline
+		return fmt.Sprintf("\n  %s %s\n\n", i.spinner.View(), spinnerText)
 	}
 
+	// Add consistent padding to prevent layout shifts
 	return fmt.Sprintf("\n%s\n", i.textarea.View())
 }
 
@@ -131,7 +136,8 @@ func (i *InputArea) IsFocused() bool {
 // SetSize updates the size of the input area
 func (i *InputArea) SetSize(width, _ int) {
 	i.width = width
-	i.textarea.SetWidth(width - 4)
+	// Consistent width adjustment to prevent scrolling issues
+	i.textarea.SetWidth(width - 6)
 }
 
 // Value returns the current input value

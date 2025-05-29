@@ -22,8 +22,9 @@ var (
 )
 
 var chatCmd = &cobra.Command{
-	Use:   "chat [message]",
-	Short: "Chat with a character",
+	Use:     "chat [message]",
+	Aliases: []string{"c"},
+	Short:   "Chat with a character",
 	Long: `Start a conversation with a character. The character will respond based on their
 personality, emotional state, and conversation history.
 

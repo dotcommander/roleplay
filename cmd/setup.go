@@ -13,16 +13,16 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-var initCmd = &cobra.Command{
-	Use:   "init",
+var setupCmd = &cobra.Command{
+	Use:   "setup",
 	Short: "Interactive setup wizard for roleplay",
 	Long: `Interactive setup wizard that guides you through configuring roleplay
 for your preferred LLM provider (OpenAI, Ollama, LM Studio, OpenRouter, etc.)`,
-	RunE: runInit,
+	RunE: runSetup,
 }
 
 func init() {
-	rootCmd.AddCommand(initCmd)
+	rootCmd.AddCommand(setupCmd)
 }
 
 // Provider presets for common configurations
@@ -102,7 +102,7 @@ var providerPresets = []providerPreset{
 	},
 }
 
-func runInit(cmd *cobra.Command, args []string) error {
+func runSetup(cmd *cobra.Command, args []string) error {
 	fmt.Println("🎭 Welcome to Roleplay Setup Wizard")
 	fmt.Println("==================================")
 	fmt.Println()

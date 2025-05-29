@@ -19,6 +19,7 @@ var scenarioCmd = &cobra.Command{
 	Long: `Scenarios define high-level operational frameworks or meta-prompts that set
 the overarching context for interactions. They are the highest cache layer,
 sitting above even system prompts and character personalities.`,
+	Hidden: true,
 }
 
 var scenarioCreateCmd = &cobra.Command{

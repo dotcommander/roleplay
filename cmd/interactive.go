@@ -24,8 +24,9 @@ import (
 )
 
 var interactiveCmd = &cobra.Command{
-	Use:   "interactive",
-	Short: "Start an interactive chat session",
+	Use:     "interactive",
+	Aliases: []string{"i"},
+	Short:   "Start an interactive chat session",
 	Long: `Start an interactive chat session with a character using a beautiful TUI interface.
 
 This provides a REPL-like experience with:

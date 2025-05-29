@@ -364,9 +364,10 @@ func (m *Model) initializeLayout(width, height int) {
 	headerHeight := 3
 	statusHeight := 1
 	helpHeight := 1
-	inputHeight := 3
+	inputHeight := 3  // This includes the newlines around the textarea
 	borderHeight := 2
-	verticalMargins := headerHeight + statusHeight + helpHeight + inputHeight + borderHeight
+	chatPadding := 2  // The padding(1) adds 2 lines total
+	verticalMargins := headerHeight + statusHeight + helpHeight + inputHeight + borderHeight + chatPadding
 
 	messagesHeight := height - verticalMargins
 	if messagesHeight < 5 {
@@ -385,9 +386,10 @@ func (m *Model) resizeComponents(width, height int) {
 	headerHeight := 3
 	statusHeight := 1
 	helpHeight := 1
-	inputHeight := 3
+	inputHeight := 3  // This includes the newlines around the textarea
 	borderHeight := 2
-	verticalMargins := headerHeight + statusHeight + helpHeight + inputHeight + borderHeight
+	chatPadding := 2  // The padding(1) adds 2 lines total
+	verticalMargins := headerHeight + statusHeight + helpHeight + inputHeight + borderHeight + chatPadding
 
 	messagesHeight := height - verticalMargins
 	if messagesHeight < 5 {

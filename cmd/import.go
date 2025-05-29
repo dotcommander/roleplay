@@ -14,21 +14,21 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var importCmd = &cobra.Command{
+var importCharacterCmd = &cobra.Command{
 	Use:   "import [markdown-file]",
 	Short: "Import a character from an unstructured markdown file",
 	Long: `Import a character from an unstructured markdown file using AI to extract
 character information and convert it to the roleplay format.
 
 Example:
-  roleplay import /path/to/character.md
-  roleplay import ~/Library/Application\ Support/aichat/roles/rick.md`,
+  roleplay character import /path/to/character.md
+  roleplay character import ~/Library/Application\ Support/aichat/roles/rick.md`,
 	Args: cobra.ExactArgs(1),
 	RunE: runImport,
 }
 
 func init() {
-	rootCmd.AddCommand(importCmd)
+	characterCmd.AddCommand(importCharacterCmd)
 }
 
 func runImport(cmd *cobra.Command, args []string) error {

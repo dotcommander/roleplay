@@ -20,9 +20,10 @@ var characterCmd = &cobra.Command{
 }
 
 var listCharactersCmd = &cobra.Command{
-	Use:   "list",
-	Short: "List all available characters",
-	RunE:  runListCharacters,
+	Use:     "list",
+	Aliases: []string{"ls"},
+	Short:   "List all available characters",
+	RunE:    runListCharacters,
 }
 
 var createCharacterCmd = &cobra.Command{

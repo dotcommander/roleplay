@@ -17,11 +17,12 @@ import (
 )
 
 var demoCmd = &cobra.Command{
-	Use:   "demo",
-	Short: "Run a caching demonstration",
+	Use:    "demo",
+	Short:  "Run a caching demonstration",
 	Long: `Demonstrates the prompt caching system with a series of interactions
 that showcase cache hits, misses, and cost savings.`,
-	RunE: runDemo,
+	RunE:   runDemo,
+	Hidden: true,
 }
 
 func init() {

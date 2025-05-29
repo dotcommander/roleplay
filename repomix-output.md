@@ -53,6 +53,8 @@ cmd/
   scenario.go
   session.go
   status.go
+docs/
+  gemini-url-debugging.md
 examples/
   characters/
     adventurer.json
@@ -133,6 +135,47 @@ TUI_REFACTORING_PLAN.md
 ```
 
 # Files
+
+## File: docs/gemini-url-debugging.md
+````markdown
+# Gemini URL Debugging Summary
+
+## Issue
+When using the Google Gemini API through the OpenAI-compatible endpoint, we needed to understand how the go-openai SDK constructs URLs.
+
+## Solution
+The go-openai SDK correctly appends `/chat/completions` to the base URL. For Gemini:
+
+- Base URL: `https://generativelanguage.googleapis.com/v1beta/openai`
+- Constructed URL: `https://generativelanguage.googleapis.com/v1beta/openai/chat/completions`
+
+This matches the expected Gemini endpoint format.
+
+## Debug Features Added
+Added optional HTTP debugging to the OpenAI provider:
+
+1. Set environment variable `DEBUG_HTTP=true` to enable debug logging
+2. Shows the exact URLs being requested
+3. Shows response status codes
+4. Minimal overhead when disabled
+
+## Usage Example
+```bash
+# Enable debug logging
+export DEBUG_HTTP=true
+
+# Run with Gemini
+roleplay chat "Hello" --provider gemini --model gemini-2.0-flash-exp
+
+# Disable debug logging
+unset DEBUG_HTTP
+```
+
+## Key Findings
+1. The go-openai SDK properly constructs URLs by appending standard OpenAI endpoints to the base URL
+2. The Gemini OpenAI-compatible endpoint works correctly when the base URL is set to `https://generativelanguage.googleapis.com/v1beta/openai`
+3. The 404 errors were likely due to incorrect base URL configuration, not SDK issues
+````
 
 ## File: .github/workflows/release.yml
 ````yaml
@@ -269,1353 +312,6 @@ jobs:
 
       - name: Build
         run: go build -v .
-````
-
-## File: cmd/config.go
-````go
-package cmd
-
-import (
-	"fmt"
-	"os"
-	"path/filepath"
-	"strings"
-
-	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
-	"gopkg.in/yaml.v3"
-)
-
-var configCmd = &cobra.Command{
-	Use:   "config",
-	Short: "Manage roleplay configuration",
-	Long:  `View and modify roleplay configuration settings`,
-}
-
-var configListCmd = &cobra.Command{
-	Use:   "list",
-	Short: "List all configuration settings",
-	Long:  `Display all current configuration values, showing the merged result from config file, environment variables, and defaults`,
-	RunE:  runConfigList,
-}
-
-var configGetCmd = &cobra.Command{
-	Use:   "get <key>",
-	Short: "Get a specific configuration value",
-	Long:  `Retrieve the value of a specific configuration key`,
-	Args:  cobra.ExactArgs(1),
-	RunE:  runConfigGet,
-}
-
-var configSetCmd = &cobra.Command{
-	Use:   "set <key> <value>",
-	Short: "Set a configuration value",
-	Long:  `Update a configuration value in the config file`,
-	Args:  cobra.ExactArgs(2),
-	RunE:  runConfigSet,
-}
-
-var configWhereCmd = &cobra.Command{
-	Use:   "where",
-	Short: "Show configuration file location",
-	Long:  `Display the path to the active configuration file`,
-	RunE:  runConfigWhere,
-}
-
-func init() {
-	rootCmd.AddCommand(configCmd)
-	configCmd.AddCommand(configListCmd)
-	configCmd.AddCommand(configGetCmd)
-	configCmd.AddCommand(configSetCmd)
-	configCmd.AddCommand(configWhereCmd)
-}
-
-func runConfigList(cmd *cobra.Command, args []string) error {
-	// Get all settings
-	settings := viper.AllSettings()
-	
-	// Show where config is loaded from
-	configFile := viper.ConfigFileUsed()
-	if configFile != "" {
-		fmt.Printf("Configuration file: %s\n", configFile)
-	} else {
-		fmt.Println("No configuration file found, using defaults and environment variables")
-	}
-	fmt.Println()
-	
-	// Display settings in a readable format
-	displaySettings(settings, "")
-	
-	// Show which environment variables are set
-	fmt.Println("\nEnvironment variables:")
-	envVars := []string{
-		"ROLEPLAY_API_KEY",
-		"ROLEPLAY_BASE_URL",
-		"ROLEPLAY_MODEL",
-		"ROLEPLAY_DEFAULT_PROVIDER",
-		"OPENAI_API_KEY",
-		"OPENAI_BASE_URL",
-		"ANTHROPIC_API_KEY",
-		"GEMINI_API_KEY",
-		"GROQ_API_KEY",
-		"OLLAMA_HOST",
-	}
-	
-	anySet := false
-	for _, env := range envVars {
-		if val := os.Getenv(env); val != "" {
-			// Mask API keys
-			if strings.Contains(env, "KEY") && len(val) > 8 {
-				val = val[:4] + "****" + val[len(val)-4:]
-			}
-			fmt.Printf("  %s = %s\n", env, val)
-			anySet = true
-		}
-	}
-	
-	if !anySet {
-		fmt.Println("  (none set)")
-	}
-	
-	return nil
-}
-
-func runConfigGet(cmd *cobra.Command, args []string) error {
-	key := args[0]
-	
-	if !viper.IsSet(key) {
-		return fmt.Errorf("configuration key '%s' not found", key)
-	}
-	
-	value := viper.Get(key)
-	
-	// Mask API keys when displaying
-	if strings.Contains(strings.ToLower(key), "key") || strings.Contains(strings.ToLower(key), "api_key") {
-		if str, ok := value.(string); ok && len(str) > 8 {
-			value = str[:4] + "****" + str[len(str)-4:]
-		}
-	}
-	
-	// Print just the value for easy scripting
-	fmt.Println(value)
-	
-	return nil
-}
-
-func runConfigSet(cmd *cobra.Command, args []string) error {
-	key := args[0]
-	value := args[1]
-	
-	// Set the value in viper
-	viper.Set(key, value)
-	
-	// Get the config file path
-	configFile := viper.ConfigFileUsed()
-	if configFile == "" {
-		// Create default config path
-		configDir := filepath.Join(os.Getenv("HOME"), ".config", "roleplay")
-		if err := os.MkdirAll(configDir, 0755); err != nil {
-			return fmt.Errorf("failed to create config directory: %w", err)
-		}
-		configFile = filepath.Join(configDir, "config.yaml")
-	}
-	
-	// Read existing config or create new
-	configData := make(map[string]interface{})
-	if data, err := os.ReadFile(configFile); err == nil {
-		if err := yaml.Unmarshal(data, &configData); err != nil {
-			return fmt.Errorf("failed to parse existing config: %w", err)
-		}
-	}
-	
-	// Update the specific key
-	setNestedValue(configData, key, value)
-	
-	// Write back to file
-	data, err := yaml.Marshal(configData)
-	if err != nil {
-		return fmt.Errorf("failed to marshal config: %w", err)
-	}
-	
-	if err := os.WriteFile(configFile, data, 0644); err != nil {
-		return fmt.Errorf("failed to write config file: %w", err)
-	}
-	
-	fmt.Printf("✅ Set %s = %s\n", key, value)
-	fmt.Printf("Configuration saved to %s\n", configFile)
-	
-	return nil
-}
-
-func runConfigWhere(cmd *cobra.Command, args []string) error {
-	configFile := viper.ConfigFileUsed()
-	if configFile == "" {
-		configFile = filepath.Join(os.Getenv("HOME"), ".config", "roleplay", "config.yaml")
-		fmt.Printf("Default location (not created yet): %s\n", configFile)
-	} else {
-		fmt.Println(configFile)
-	}
-	return nil
-}
-
-// displaySettings recursively displays configuration settings
-func displaySettings(settings map[string]interface{}, prefix string) {
-	for key, value := range settings {
-		fullKey := key
-		if prefix != "" {
-			fullKey = prefix + "." + key
-		}
-		
-		switch v := value.(type) {
-		case map[string]interface{}:
-			fmt.Printf("%s:\n", fullKey)
-			displaySettings(v, fullKey)
-		case string:
-			// Mask sensitive values
-			if strings.Contains(strings.ToLower(key), "key") && len(v) > 8 {
-				v = v[:4] + "****" + v[len(v)-4:]
-			}
-			fmt.Printf("  %s = %s\n", fullKey, v)
-		default:
-			fmt.Printf("  %s = %v\n", fullKey, v)
-		}
-	}
-}
-
-// setNestedValue sets a value in a nested map using dot notation
-func setNestedValue(m map[string]interface{}, key string, value interface{}) {
-	parts := strings.Split(key, ".")
-	current := m
-	
-	// Navigate to the nested location
-	for i := 0; i < len(parts)-1; i++ {
-		part := parts[i]
-		if _, exists := current[part]; !exists {
-			current[part] = make(map[string]interface{})
-		}
-		
-		if next, ok := current[part].(map[string]interface{}); ok {
-			current = next
-		} else {
-			// Key exists but is not a map, overwrite it
-			current[part] = make(map[string]interface{})
-			current = current[part].(map[string]interface{})
-		}
-	}
-	
-	// Set the final value
-	finalKey := parts[len(parts)-1]
-	
-	// Try to parse value to appropriate type
-	switch {
-	case value == "true":
-		current[finalKey] = true
-	case value == "false":
-		current[finalKey] = false
-	case isNumeric(value.(string)):
-		// Keep as string for now, let viper handle type conversion
-		current[finalKey] = value
-	default:
-		current[finalKey] = value
-	}
-}
-
-// isNumeric checks if a string represents a number
-func isNumeric(s string) bool {
-	// Simple check - could be enhanced
-	for _, c := range s {
-		if (c < '0' || c > '9') && c != '.' && c != '-' {
-			return false
-		}
-	}
-	return true
-}
-````
-
-## File: cmd/init.go
-````go
-package cmd
-
-import (
-	"bufio"
-	"fmt"
-	"net/http"
-	"os"
-	"path/filepath"
-	"strings"
-	"time"
-
-	"github.com/spf13/cobra"
-	"gopkg.in/yaml.v3"
-)
-
-var initCmd = &cobra.Command{
-	Use:   "init",
-	Short: "Interactive setup wizard for roleplay",
-	Long: `Interactive setup wizard that guides you through configuring roleplay
-for your preferred LLM provider (OpenAI, Ollama, LM Studio, OpenRouter, etc.)`,
-	RunE: runInit,
-}
-
-func init() {
-	rootCmd.AddCommand(initCmd)
-}
-
-// Provider presets for common configurations
-type providerPreset struct {
-	Name        string
-	BaseURL     string
-	RequiresKey bool
-	LocalModel  bool
-	DefaultModel string
-	Description string
-}
-
-var providerPresets = []providerPreset{
-	{
-		Name:        "openai",
-		BaseURL:     "https://api.openai.com/v1",
-		RequiresKey: true,
-		LocalModel:  false,
-		DefaultModel: "gpt-4o-mini",
-		Description: "OpenAI (Official)",
-	},
-	{
-		Name:        "anthropic",
-		BaseURL:     "https://api.anthropic.com/v1",
-		RequiresKey: true,
-		LocalModel:  false,
-		DefaultModel: "claude-3-haiku-20240307",
-		Description: "Anthropic Claude (OpenAI-Compatible)",
-	},
-	{
-		Name:        "gemini",
-		BaseURL:     "https://generativelanguage.googleapis.com/v1beta",
-		RequiresKey: true,
-		LocalModel:  false,
-		DefaultModel: "gemini-1.5-flash",
-		Description: "Google Gemini (OpenAI-Compatible)",
-	},
-	{
-		Name:        "ollama",
-		BaseURL:     "http://localhost:11434/v1",
-		RequiresKey: false,
-		LocalModel:  true,
-		DefaultModel: "llama3",
-		Description: "Ollama (Local LLMs)",
-	},
-	{
-		Name:        "lmstudio",
-		BaseURL:     "http://localhost:1234/v1",
-		RequiresKey: false,
-		LocalModel:  true,
-		DefaultModel: "local-model",
-		Description: "LM Studio (Local LLMs)",
-	},
-	{
-		Name:        "groq",
-		BaseURL:     "https://api.groq.com/openai/v1",
-		RequiresKey: true,
-		LocalModel:  false,
-		DefaultModel: "llama-3.1-70b-versatile",
-		Description: "Groq (Fast Inference)",
-	},
-	{
-		Name:        "openrouter",
-		BaseURL:     "https://openrouter.ai/api/v1",
-		RequiresKey: true,
-		LocalModel:  false,
-		DefaultModel: "openai/gpt-4o-mini",
-		Description: "OpenRouter (Multiple providers)",
-	},
-	{
-		Name:        "custom",
-		BaseURL:     "",
-		RequiresKey: true,
-		LocalModel:  false,
-		DefaultModel: "",
-		Description: "Custom OpenAI-Compatible Service",
-	},
-}
-
-func runInit(cmd *cobra.Command, args []string) error {
-	fmt.Println("🎭 Welcome to Roleplay Setup Wizard")
-	fmt.Println("==================================")
-	fmt.Println()
-	
-	reader := bufio.NewReader(os.Stdin)
-	
-	// Check for existing config
-	configPath := filepath.Join(os.Getenv("HOME"), ".config", "roleplay", "config.yaml")
-	if _, err := os.Stat(configPath); err == nil {
-		fmt.Printf("⚠️  Existing configuration found at %s\n", configPath)
-		fmt.Print("Do you want to overwrite it? [y/N]: ")
-		response, _ := reader.ReadString('\n')
-		response = strings.TrimSpace(strings.ToLower(response))
-		if response != "y" && response != "yes" {
-			fmt.Println("Setup cancelled.")
-			return nil
-		}
-	}
-	
-	// Step 1: Choose provider
-	fmt.Println("\n📡 Step 1: Choose your LLM provider")
-	fmt.Println("-----------------------------------")
-	
-	// Auto-detect local services
-	detectedServices := detectLocalServices()
-	if len(detectedServices) > 0 {
-		fmt.Println("✨ Detected running services:")
-		for _, service := range detectedServices {
-			fmt.Printf("   - %s at %s\n", service.Description, service.BaseURL)
-		}
-		fmt.Println()
-	}
-	
-	for i, preset := range providerPresets {
-		fmt.Printf("%d. %s - %s\n", i+1, preset.Name, preset.Description)
-	}
-	
-	fmt.Printf("\nSelect provider [1-%d]: ", len(providerPresets))
-	providerChoice, _ := reader.ReadString('\n')
-	providerChoice = strings.TrimSpace(providerChoice)
-	
-	var selectedPreset providerPreset
-	providerIndex := 0
-	if n, err := fmt.Sscanf(providerChoice, "%d", &providerIndex); err == nil && n == 1 && providerIndex >= 1 && providerIndex <= len(providerPresets) {
-		selectedPreset = providerPresets[providerIndex-1]
-	} else {
-		// Default to OpenAI if invalid choice
-		selectedPreset = providerPresets[0]
-		fmt.Println("Invalid choice, defaulting to OpenAI")
-	}
-	
-	// Step 2: Configure base URL
-	fmt.Printf("\n🌐 Step 2: Configure endpoint\n")
-	fmt.Println("-----------------------------")
-	
-	var baseURL string
-	if selectedPreset.Name == "custom" {
-		fmt.Print("Enter the base URL for your OpenAI-compatible API: ")
-		baseURL, _ = reader.ReadString('\n')
-		baseURL = strings.TrimSpace(baseURL)
-	} else {
-		fmt.Printf("Base URL [%s]: ", selectedPreset.BaseURL)
-		input, _ := reader.ReadString('\n')
-		input = strings.TrimSpace(input)
-		if input == "" {
-			baseURL = selectedPreset.BaseURL
-		} else {
-			baseURL = input
-		}
-	}
-	
-	// Step 3: Configure API key
-	fmt.Printf("\n🔑 Step 3: Configure API key\n")
-	fmt.Println("----------------------------")
-	
-	var apiKey string
-	if selectedPreset.RequiresKey {
-		// Check for existing environment variables
-		existingKey := ""
-		switch selectedPreset.Name {
-		case "openai":
-			existingKey = os.Getenv("OPENAI_API_KEY")
-		case "anthropic":
-			existingKey = os.Getenv("ANTHROPIC_API_KEY")
-		case "gemini":
-			existingKey = os.Getenv("GEMINI_API_KEY")
-		case "groq":
-			existingKey = os.Getenv("GROQ_API_KEY")
-		case "openrouter":
-			existingKey = os.Getenv("OPENROUTER_API_KEY")
-		}
-		if existingKey == "" {
-			existingKey = os.Getenv("ROLEPLAY_API_KEY")
-		}
-		
-		if existingKey != "" {
-			fmt.Printf("Found existing API key in environment (length: %d)\n", len(existingKey))
-			fmt.Print("Use this key? [Y/n]: ")
-			useExisting, _ := reader.ReadString('\n')
-			useExisting = strings.TrimSpace(strings.ToLower(useExisting))
-			if useExisting == "" || useExisting == "y" || useExisting == "yes" {
-				apiKey = existingKey
-			}
-		}
-		
-		if apiKey == "" {
-			fmt.Printf("Enter your %s API key: ", selectedPreset.Name)
-			apiKeyInput, _ := reader.ReadString('\n')
-			apiKey = strings.TrimSpace(apiKeyInput)
-		}
-	} else {
-		fmt.Println("No API key required for local models")
-		apiKey = "not-required"
-	}
-	
-	// Step 4: Configure default model
-	fmt.Printf("\n🤖 Step 4: Configure default model\n")
-	fmt.Println("----------------------------------")
-	
-	var model string
-	if selectedPreset.LocalModel && baseURL != "" {
-		// For local models, we could try to list available models
-		fmt.Println("For local models, make sure the model is already pulled/loaded")
-	}
-	
-	fmt.Printf("Default model [%s]: ", selectedPreset.DefaultModel)
-	modelInput, _ := reader.ReadString('\n')
-	modelInput = strings.TrimSpace(modelInput)
-	if modelInput == "" {
-		model = selectedPreset.DefaultModel
-	} else {
-		model = modelInput
-	}
-	
-	// Step 5: Create example content
-	fmt.Printf("\n📚 Step 5: Example content\n")
-	fmt.Println("-------------------------")
-	fmt.Print("Would you like to create example characters? [Y/n]: ")
-	createExamples, _ := reader.ReadString('\n')
-	createExamples = strings.TrimSpace(strings.ToLower(createExamples))
-	shouldCreateExamples := createExamples == "" || createExamples == "y" || createExamples == "yes"
-	
-	// Create configuration
-	config := map[string]interface{}{
-		"base_url": baseURL,
-		"api_key":  apiKey,
-		"model":    model,
-		"provider": selectedPreset.Name, // Profile name for config resolution
-		"cache": map[string]interface{}{
-			"default_ttl": "5m",
-			"cleanup_interval": "10m",
-		},
-		"personality": map[string]interface{}{
-			"evolution_enabled": true,
-			"learning_rate": 0.1,
-			"max_drift_rate": 0.2,
-		},
-		"memory": map[string]interface{}{
-			"max_short_term": 10,
-			"max_medium_term": 50,
-			"max_long_term": 200,
-			"consolidation_interval": "5m",
-			"short_term_window": 10,
-			"medium_term_duration": "24h",
-			"long_term_duration": "720h",
-		},
-		"user_profile": map[string]interface{}{
-			"enabled": true,
-			"update_frequency": 5,
-			"turns_to_consider": 20,
-			"confidence_threshold": 0.5,
-			"prompt_cache_ttl": "1h",
-		},
-	}
-	
-	// Create config directory
-	configDir := filepath.Dir(configPath)
-	if err := os.MkdirAll(configDir, 0755); err != nil {
-		return fmt.Errorf("failed to create config directory: %w", err)
-	}
-	
-	// Write config file
-	configData, err := yaml.Marshal(config)
-	if err != nil {
-		return fmt.Errorf("failed to marshal config: %w", err)
-	}
-	
-	if err := os.WriteFile(configPath, configData, 0644); err != nil {
-		return fmt.Errorf("failed to write config file: %w", err)
-	}
-	
-	fmt.Printf("\n✅ Configuration saved to %s\n", configPath)
-	
-	// Create example characters if requested
-	if shouldCreateExamples {
-		if err := createExampleCharacters(); err != nil {
-			fmt.Printf("⚠️  Warning: Failed to create example characters: %v\n", err)
-		} else {
-			fmt.Println("✅ Created example characters")
-		}
-	}
-	
-	// Final instructions
-	fmt.Println("\n🎉 Setup complete!")
-	fmt.Println("==================")
-	fmt.Println("\nYou can now:")
-	fmt.Println("  • Start chatting: roleplay interactive")
-	fmt.Println("  • Create a character: roleplay character create <file.json>")
-	fmt.Println("  • View example: roleplay character example")
-	fmt.Println("  • Check config: roleplay status")
-	
-	if selectedPreset.LocalModel {
-		fmt.Printf("\n💡 Tip: Make sure %s is running at %s\n", selectedPreset.Description, baseURL)
-	}
-	
-	return nil
-}
-
-// detectLocalServices checks for running local LLM services
-func detectLocalServices() []providerPreset {
-	var detected []providerPreset
-	
-	// Check common local endpoints
-	endpoints := []struct {
-		url     string
-		name    string
-		desc    string
-	}{
-		{"http://localhost:11434/api/tags", "ollama", "Ollama"},
-		{"http://localhost:1234/v1/models", "lmstudio", "LM Studio"},
-		{"http://localhost:8080/v1/models", "localai", "LocalAI"},
-	}
-	
-	client := &http.Client{Timeout: 2 * time.Second}
-	
-	for _, endpoint := range endpoints {
-		resp, err := client.Get(endpoint.url)
-		if err == nil && resp.StatusCode == 200 {
-			resp.Body.Close()
-			
-			// Find matching preset
-			for _, preset := range providerPresets {
-				if preset.Name == endpoint.name {
-					detected = append(detected, preset)
-					break
-				}
-			}
-		}
-	}
-	
-	return detected
-}
-
-// createExampleCharacters creates a few example character files
-func createExampleCharacters() error {
-	charactersDir := filepath.Join(os.Getenv("HOME"), ".config", "roleplay", "characters")
-	if err := os.MkdirAll(charactersDir, 0755); err != nil {
-		return err
-	}
-	
-	// Create example characters
-	examples := []struct {
-		filename string
-		content  string
-	}{
-		{
-			"assistant.json",
-			`{
-  "id": "helpful-assistant",
-  "name": "Alex Helper",
-  "backstory": "A knowledgeable and friendly AI assistant dedicated to helping users with various tasks. Always eager to learn and provide accurate, helpful information.",
-  "personality": {
-    "openness": 0.9,
-    "conscientiousness": 0.95,
-    "extraversion": 0.7,
-    "agreeableness": 0.9,
-    "neuroticism": 0.1
-  },
-  "currentMood": {
-    "joy": 0.7,
-    "surprise": 0.2,
-    "anger": 0.0,
-    "fear": 0.0,
-    "sadness": 0.0,
-    "disgust": 0.0
-  },
-  "quirks": [
-    "Uses analogies to explain complex concepts",
-    "Occasionally shares interesting facts",
-    "Asks clarifying questions when uncertain"
-  ],
-  "speechStyle": "Clear, friendly, and professional. Uses 'I'd be happy to help!' and similar positive phrases. Structures responses with bullet points or numbered lists when appropriate.",
-  "memories": []
-}`,
-		},
-		{
-			"philosopher.json",
-			`{
-  "id": "socratic-sage",
-  "name": "Sophia Thinkwell",
-  "backstory": "A contemplative philosopher who has spent decades studying the great thinkers. Loves to explore ideas through questions and dialogue. Believes that wisdom comes from acknowledging what we don't know.",
-  "personality": {
-    "openness": 1.0,
-    "conscientiousness": 0.7,
-    "extraversion": 0.4,
-    "agreeableness": 0.8,
-    "neuroticism": 0.3
-  },
-  "currentMood": {
-    "joy": 0.3,
-    "surprise": 0.5,
-    "anger": 0.0,
-    "fear": 0.1,
-    "sadness": 0.2,
-    "disgust": 0.0
-  },
-  "quirks": [
-    "Often responds to questions with deeper questions",
-    "Quotes ancient philosophers when relevant",
-    "Pauses thoughtfully before speaking (uses '...')",
-    "Finds profound meaning in everyday occurrences"
-  ],
-  "speechStyle": "Thoughtful and measured. Uses phrases like 'One might consider...' and 'Perhaps we should ask ourselves...'. Often references Socrates, Plato, and other philosophers.",
-  "memories": []
-}`,
-		},
-		{
-			"pirate.json",
-			`{
-  "id": "captain-redbeard",
-  "name": "Captain 'Red' Morgan",
-  "backstory": "A seasoned pirate captain who's sailed the seven seas for over twenty years. Lost a leg to a kraken but gained countless stories. Now spends time sharing tales of adventure and teaching landlubbers about the pirate's life.",
-  "personality": {
-    "openness": 0.8,
-    "conscientiousness": 0.3,
-    "extraversion": 0.9,
-    "agreeableness": 0.5,
-    "neuroticism": 0.4
-  },
-  "currentMood": {
-    "joy": 0.6,
-    "surprise": 0.1,
-    "anger": 0.3,
-    "fear": 0.0,
-    "sadness": 0.1,
-    "disgust": 0.2
-  },
-  "quirks": [
-    "Refers to everyone as 'matey' or 'landlubber'",
-    "Constantly mentions rum and treasure",
-    "Gets distracted by talk of the sea",
-    "Exaggerates stories with each telling"
-  ],
-  "speechStyle": "Arr! Speaks with heavy pirate accent. Uses 'ye' instead of 'you', 'be' instead of 'is/are'. Punctuates sentences with 'arr!' and 'ahoy!'. Colorful maritime metaphors.",
-  "memories": []
-}`,
-		},
-	}
-	
-	for _, example := range examples {
-		path := filepath.Join(charactersDir, example.filename)
-		if err := os.WriteFile(path, []byte(example.content), 0644); err != nil {
-			return fmt.Errorf("failed to write %s: %w", example.filename, err)
-		}
-	}
-	
-	return nil
-}
-````
-
-## File: cmd/profile.go
-````go
-package cmd
-
-import (
-	"encoding/json"
-	"fmt"
-	"os"
-	"path/filepath"
-
-	"github.com/dotcommander/roleplay/internal/repository"
-	"github.com/spf13/cobra"
-)
-
-var profileCmd = &cobra.Command{
-	Use:   "profile",
-	Short: "Manage user profiles",
-	Long:  `View, list, and delete AI-extracted user profiles that characters maintain about users.`,
-}
-
-var profileShowCmd = &cobra.Command{
-	Use:   "show <user-id> <character-id>",
-	Short: "Show a specific user profile",
-	Long:  `Display the AI-extracted profile that a character has built about a user.`,
-	Args:  cobra.ExactArgs(2),
-	RunE: func(cmd *cobra.Command, args []string) error {
-		userID := args[0]
-		characterID := args[1]
-
-		home, _ := os.UserHomeDir()
-		profilesDir := filepath.Join(home, ".config", "roleplay", "user_profiles")
-		repo := repository.NewUserProfileRepository(profilesDir)
-
-		profile, err := repo.LoadUserProfile(userID, characterID)
-		if err != nil {
-			if os.IsNotExist(err) {
-				return fmt.Errorf("no profile found for user '%s' with character '%s'", userID, characterID)
-			}
-			return fmt.Errorf("failed to load profile: %w", err)
-		}
-
-		// Pretty print the profile
-		data, err := json.MarshalIndent(profile, "", "  ")
-		if err != nil {
-			return fmt.Errorf("failed to format profile: %w", err)
-		}
-
-		fmt.Println(string(data))
-		return nil
-	},
-}
-
-var profileListCmd = &cobra.Command{
-	Use:   "list <user-id>",
-	Short: "List all profiles for a user",
-	Long:  `Display all character profiles that exist for a specific user.`,
-	Args:  cobra.ExactArgs(1),
-	RunE: func(cmd *cobra.Command, args []string) error {
-		userID := args[0]
-
-		home, _ := os.UserHomeDir()
-		profilesDir := filepath.Join(home, ".config", "roleplay", "user_profiles")
-		repo := repository.NewUserProfileRepository(profilesDir)
-
-		profiles, err := repo.ListUserProfiles(userID)
-		if err != nil {
-			return fmt.Errorf("failed to list profiles: %w", err)
-		}
-
-		if len(profiles) == 0 {
-			fmt.Printf("No profiles found for user '%s'\n", userID)
-			return nil
-		}
-
-		fmt.Printf("Profiles for user '%s':\n\n", userID)
-		for _, profile := range profiles {
-			fmt.Printf("Character: %s\n", profile.CharacterID)
-			fmt.Printf("  Version: %d\n", profile.Version)
-			fmt.Printf("  Last Analyzed: %s\n", profile.LastAnalyzed.Format("2006-01-02 15:04:05"))
-			if profile.OverallSummary != "" {
-				fmt.Printf("  Summary: %s\n", profile.OverallSummary)
-			}
-			if profile.InteractionStyle != "" {
-				fmt.Printf("  Interaction Style: %s\n", profile.InteractionStyle)
-			}
-			fmt.Printf("  Facts Count: %d\n", len(profile.Facts))
-			fmt.Println()
-		}
-
-		return nil
-	},
-}
-
-var profileDeleteCmd = &cobra.Command{
-	Use:   "delete <user-id> <character-id>",
-	Short: "Delete a user profile",
-	Long:  `Remove the profile that a character has built about a user.`,
-	Args:  cobra.ExactArgs(2),
-	RunE: func(cmd *cobra.Command, args []string) error {
-		userID := args[0]
-		characterID := args[1]
-
-		// Confirm deletion
-		if !force {
-			fmt.Printf("Are you sure you want to delete the profile for user '%s' with character '%s'? (y/N): ", userID, characterID)
-			var response string
-			_, err := fmt.Scanln(&response)
-			if err != nil || (response != "y" && response != "Y") {
-				fmt.Println("Deletion cancelled.")
-				return nil
-			}
-		}
-
-		home, _ := os.UserHomeDir()
-		profilesDir := filepath.Join(home, ".config", "roleplay", "user_profiles")
-		repo := repository.NewUserProfileRepository(profilesDir)
-
-		err := repo.DeleteUserProfile(userID, characterID)
-		if err != nil {
-			return fmt.Errorf("failed to delete profile: %w", err)
-		}
-
-		fmt.Printf("Profile for user '%s' with character '%s' has been deleted.\n", userID, characterID)
-		return nil
-	},
-}
-
-var force bool
-
-func init() {
-	rootCmd.AddCommand(profileCmd)
-	profileCmd.AddCommand(profileShowCmd)
-	profileCmd.AddCommand(profileListCmd)
-	profileCmd.AddCommand(profileDeleteCmd)
-
-	// Add force flag to delete command
-	profileDeleteCmd.Flags().BoolVarP(&force, "force", "f", false, "Skip confirmation prompt")
-}
-````
-
-## File: cmd/quickstart.go
-````go
-package cmd
-
-import (
-	"context"
-	"fmt"
-	"net/http"
-	"os"
-	"strings"
-	"time"
-
-	"github.com/spf13/cobra"
-
-	"github.com/dotcommander/roleplay/internal/manager"
-	"github.com/dotcommander/roleplay/internal/models"
-)
-
-var quickstartCmd = &cobra.Command{
-	Use:   "quickstart",
-	Short: "Quick start with zero configuration",
-	Long: `Automatically detects local LLM services or uses environment variables
-to start chatting immediately with Rick Sanchez`,
-	RunE: runQuickstart,
-}
-
-func init() {
-	rootCmd.AddCommand(quickstartCmd)
-}
-
-func runQuickstart(cmd *cobra.Command, args []string) error {
-	fmt.Println("🚀 Roleplay Quickstart")
-	fmt.Println("=====================")
-	
-	// Try to auto-detect configuration
-	config := GetConfig()
-	
-	// Check if we have a base URL configured
-	if config.BaseURL == "" {
-		// Try to detect local services
-		fmt.Println("\n🔍 Detecting local LLM services...")
-		
-		localEndpoints := []struct {
-			name    string
-			baseURL string
-			testURL string
-			model   string
-		}{
-			{"Ollama", "http://localhost:11434/v1", "http://localhost:11434/api/tags", "llama3"},
-			{"LM Studio", "http://localhost:1234/v1", "http://localhost:1234/v1/models", "local-model"},
-			{"LocalAI", "http://localhost:8080/v1", "http://localhost:8080/v1/models", "gpt-4"},
-		}
-		
-		client := &http.Client{Timeout: 2 * time.Second}
-		
-		for _, endpoint := range localEndpoints {
-			resp, err := client.Get(endpoint.testURL)
-			if err == nil && resp.StatusCode == 200 {
-				resp.Body.Close()
-				fmt.Printf("✅ Found %s running at %s\n", endpoint.name, endpoint.baseURL)
-				config.BaseURL = endpoint.baseURL
-				config.Model = endpoint.model
-				config.APIKey = "not-required"
-				break
-			}
-		}
-		
-		// If no local service found, check for API keys
-		if config.BaseURL == "" {
-			if apiKey := os.Getenv("OPENAI_API_KEY"); apiKey != "" {
-				fmt.Println("✅ Found OPENAI_API_KEY in environment")
-				config.BaseURL = "https://api.openai.com/v1"
-				config.APIKey = apiKey
-				config.Model = "gpt-4o-mini"
-			} else if apiKey := os.Getenv("ANTHROPIC_API_KEY"); apiKey != "" {
-				fmt.Println("✅ Found ANTHROPIC_API_KEY in environment")
-				config.DefaultProvider = "anthropic"
-				config.APIKey = apiKey
-				config.Model = "claude-3-haiku-20240307"
-			} else {
-				return fmt.Errorf("no LLM service detected. Please run 'roleplay init' to configure")
-			}
-		}
-	} else {
-		fmt.Printf("✅ Using configured endpoint: %s\n", config.BaseURL)
-	}
-	
-	// Initialize manager
-	fmt.Println("\n🎭 Initializing character system...")
-	mgr, err := manager.NewCharacterManager(config)
-	if err != nil {
-		return fmt.Errorf("failed to initialize: %w", err)
-	}
-	
-	// Create or load Rick
-	characterID := "rick-c137"
-	if _, err := mgr.GetOrLoadCharacter(characterID); err != nil {
-		// Create Rick
-		fmt.Println("🧬 Creating Rick Sanchez...")
-		rick := createQuickstartRick()
-		if err := mgr.CreateCharacter(rick); err != nil {
-			return fmt.Errorf("failed to create character: %w", err)
-		}
-	}
-	
-	// Get user ID
-	userID := os.Getenv("USER")
-	if userID == "" {
-		userID = os.Getenv("USERNAME") // Windows
-	}
-	if userID == "" {
-		userID = "user"
-	}
-	
-	// Create a quick session
-	sessionID := fmt.Sprintf("quickstart-%d", time.Now().Unix())
-	
-	fmt.Printf("\n💬 Starting chat with Rick Sanchez\n")
-	fmt.Printf("   User: %s\n", userID)
-	fmt.Printf("   Model: %s\n", config.Model)
-	fmt.Println("\n" + strings.Repeat("─", 60) + "\n")
-	
-	// Send a greeting
-	req := &models.ConversationRequest{
-		CharacterID: characterID,
-		UserID:      userID,
-		Message:     "Hello Rick!",
-		Context: models.ConversationContext{
-			SessionID:      sessionID,
-			StartTime:      time.Now(),
-			RecentMessages: []models.Message{},
-		},
-	}
-	
-	fmt.Printf("You: Hello Rick!\n\n")
-	
-	ctx := context.Background()
-	resp, err := mgr.GetBot().ProcessRequest(ctx, req)
-	if err != nil {
-		return fmt.Errorf("failed to process request: %w", err)
-	}
-	
-	fmt.Printf("Rick: %s\n", resp.Content)
-	
-	// Show next steps
-	fmt.Println("\n" + strings.Repeat("─", 60))
-	fmt.Println("\n✨ Quickstart successful!")
-	fmt.Println("\nNext steps:")
-	fmt.Println("  • Continue chatting: roleplay interactive")
-	fmt.Println("  • Configure properly: roleplay init")
-	fmt.Println("  • Create more characters: roleplay character create")
-	fmt.Println("  • Check configuration: roleplay config list")
-	
-	if resp.CacheMetrics.Hit {
-		fmt.Printf("\n💡 Tip: This response used cached prompts, saving %d tokens!\n", resp.CacheMetrics.SavedTokens)
-	}
-	
-	return nil
-}
-
-func createQuickstartRick() *models.Character {
-	return &models.Character{
-		ID:        "rick-c137",
-		Name:      "Rick Sanchez",
-		Backstory: `The smartest man in the universe from dimension C-137. A genius scientist with a nihilistic worldview. Inventor of portal gun technology.`,
-		Personality: models.PersonalityTraits{
-			Openness:          1.0,
-			Conscientiousness: 0.2,
-			Extraversion:      0.7,
-			Agreeableness:     0.1,
-			Neuroticism:       0.9,
-		},
-		CurrentMood: models.EmotionalState{
-			Joy:     0.1,
-			Anger:   0.6,
-			Sadness: 0.7,
-			Disgust: 0.8,
-		},
-		Quirks: []string{
-			"Burps mid-sentence (*burp*)",
-			"Uses Morty's name as punctuation",
-		},
-		SpeechStyle: "Rapid-fire with burps. Mixes science with crude humor. Sarcastic.",
-		Memories:    []models.Memory{},
-	}
-}
-````
-
-## File: cmd/scenario.go
-````go
-package cmd
-
-import (
-	"fmt"
-	"os"
-	"path/filepath"
-	"strings"
-	"text/tabwriter"
-	"time"
-
-	"github.com/spf13/cobra"
-	"github.com/dotcommander/roleplay/internal/models"
-	"github.com/dotcommander/roleplay/internal/repository"
-)
-
-var scenarioCmd = &cobra.Command{
-	Use:   "scenario",
-	Short: "Manage scenarios (high-level interaction contexts)",
-	Long: `Scenarios define high-level operational frameworks or meta-prompts that set
-the overarching context for interactions. They are the highest cache layer,
-sitting above even system prompts and character personalities.`,
-}
-
-var scenarioCreateCmd = &cobra.Command{
-	Use:   "create <id>",
-	Short: "Create a new scenario",
-	Args:  cobra.ExactArgs(1),
-	RunE: func(cmd *cobra.Command, args []string) error {
-		id := args[0]
-		name, _ := cmd.Flags().GetString("name")
-		description, _ := cmd.Flags().GetString("description")
-		promptFile, _ := cmd.Flags().GetString("prompt-file")
-		prompt, _ := cmd.Flags().GetString("prompt")
-		tags, _ := cmd.Flags().GetStringSlice("tags")
-
-		if promptFile == "" && prompt == "" {
-			return fmt.Errorf("either --prompt or --prompt-file must be provided")
-		}
-
-		if promptFile != "" && prompt != "" {
-			return fmt.Errorf("cannot use both --prompt and --prompt-file")
-		}
-
-		// Read prompt from file if provided
-		if promptFile != "" {
-			data, err := os.ReadFile(promptFile)
-			if err != nil {
-				return fmt.Errorf("failed to read prompt file: %w", err)
-			}
-			prompt = string(data)
-		}
-
-		scenario := &models.Scenario{
-			ID:          id,
-			Name:        name,
-			Description: description,
-			Prompt:      prompt,
-			Version:     1,
-			Tags:        tags,
-			CreatedAt:   time.Now(),
-			UpdatedAt:   time.Now(),
-		}
-
-		repo := repository.NewScenarioRepository(getConfigPath())
-		if err := repo.SaveScenario(scenario); err != nil {
-			return fmt.Errorf("failed to save scenario: %w", err)
-		}
-
-		fmt.Printf("✓ Created scenario: %s\n", id)
-		return nil
-	},
-}
-
-var scenarioListCmd = &cobra.Command{
-	Use:   "list",
-	Short: "List all scenarios",
-	RunE: func(cmd *cobra.Command, args []string) error {
-		repo := repository.NewScenarioRepository(getConfigPath())
-		scenarios, err := repo.ListScenarios()
-		if err != nil {
-			return fmt.Errorf("failed to list scenarios: %w", err)
-		}
-
-		if len(scenarios) == 0 {
-			fmt.Println("No scenarios found.")
-			return nil
-		}
-
-		w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-		fmt.Fprintf(w, "ID\tNAME\tTAGS\tVERSION\tLAST USED\n")
-		fmt.Fprintf(w, "--\t----\t----\t-------\t---------\n")
-
-		for _, scenario := range scenarios {
-			lastUsed := "Never"
-			if !scenario.LastUsed.IsZero() {
-				lastUsed = scenario.LastUsed.Format("2006-01-02 15:04")
-			}
-			tags := strings.Join(scenario.Tags, ", ")
-			if tags == "" {
-				tags = "-"
-			}
-			fmt.Fprintf(w, "%s\t%s\t%s\tv%d\t%s\n",
-				scenario.ID,
-				scenario.Name,
-				tags,
-				scenario.Version,
-				lastUsed,
-			)
-		}
-		w.Flush()
-
-		return nil
-	},
-}
-
-var scenarioShowCmd = &cobra.Command{
-	Use:   "show <id>",
-	Short: "Show scenario details",
-	Args:  cobra.ExactArgs(1),
-	RunE: func(cmd *cobra.Command, args []string) error {
-		repo := repository.NewScenarioRepository(getConfigPath())
-		scenario, err := repo.LoadScenario(args[0])
-		if err != nil {
-			return fmt.Errorf("failed to load scenario: %w", err)
-		}
-
-		fmt.Printf("ID: %s\n", scenario.ID)
-		fmt.Printf("Name: %s\n", scenario.Name)
-		fmt.Printf("Description: %s\n", scenario.Description)
-		fmt.Printf("Version: %d\n", scenario.Version)
-		fmt.Printf("Tags: %s\n", strings.Join(scenario.Tags, ", "))
-		fmt.Printf("Created: %s\n", scenario.CreatedAt.Format("2006-01-02 15:04:05"))
-		fmt.Printf("Updated: %s\n", scenario.UpdatedAt.Format("2006-01-02 15:04:05"))
-		if !scenario.LastUsed.IsZero() {
-			fmt.Printf("Last Used: %s\n", scenario.LastUsed.Format("2006-01-02 15:04:05"))
-		}
-		fmt.Printf("\n--- Prompt ---\n%s\n", scenario.Prompt)
-
-		return nil
-	},
-}
-
-var scenarioUpdateCmd = &cobra.Command{
-	Use:   "update <id>",
-	Short: "Update an existing scenario",
-	Args:  cobra.ExactArgs(1),
-	RunE: func(cmd *cobra.Command, args []string) error {
-		id := args[0]
-		repo := repository.NewScenarioRepository(getConfigPath())
-
-		scenario, err := repo.LoadScenario(id)
-		if err != nil {
-			return fmt.Errorf("failed to load scenario: %w", err)
-		}
-
-		// Update fields if provided
-		if name, _ := cmd.Flags().GetString("name"); name != "" {
-			scenario.Name = name
-		}
-		if description, _ := cmd.Flags().GetString("description"); description != "" {
-			scenario.Description = description
-		}
-
-		// Handle prompt update
-		promptFile, _ := cmd.Flags().GetString("prompt-file")
-		prompt, _ := cmd.Flags().GetString("prompt")
-
-		if promptFile != "" && prompt != "" {
-			return fmt.Errorf("cannot use both --prompt and --prompt-file")
-		}
-
-		if promptFile != "" {
-			data, err := os.ReadFile(promptFile)
-			if err != nil {
-				return fmt.Errorf("failed to read prompt file: %w", err)
-			}
-			scenario.Prompt = string(data)
-			scenario.Version++
-		} else if prompt != "" {
-			scenario.Prompt = prompt
-			scenario.Version++
-		}
-
-		// Update tags if provided
-		if tags, _ := cmd.Flags().GetStringSlice("tags"); len(tags) > 0 {
-			scenario.Tags = tags
-		}
-
-		if err := repo.SaveScenario(scenario); err != nil {
-			return fmt.Errorf("failed to save scenario: %w", err)
-		}
-
-		fmt.Printf("✓ Updated scenario: %s (version %d)\n", id, scenario.Version)
-		return nil
-	},
-}
-
-var scenarioDeleteCmd = &cobra.Command{
-	Use:   "delete <id>",
-	Short: "Delete a scenario",
-	Args:  cobra.ExactArgs(1),
-	RunE: func(cmd *cobra.Command, args []string) error {
-		repo := repository.NewScenarioRepository(getConfigPath())
-		if err := repo.DeleteScenario(args[0]); err != nil {
-			return fmt.Errorf("failed to delete scenario: %w", err)
-		}
-
-		fmt.Printf("✓ Deleted scenario: %s\n", args[0])
-		return nil
-	},
-}
-
-var scenarioExampleCmd = &cobra.Command{
-	Use:   "example",
-	Short: "Show example scenario definitions",
-	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Println("Example scenario definitions:")
-		fmt.Println("\n1. Starship Bridge Crisis:")
-		fmt.Println(`{
-  "id": "starship_bridge_crisis",
-  "name": "Starship Bridge Crisis",
-  "description": "A tense scenario on a starship bridge during an emergency",
-  "prompt": "You are on the bridge of a starship during a red alert situation. The ship is under attack or facing a critical emergency. The atmosphere is tense, alarms may be sounding, and quick decisions are needed. Maintain the appropriate level of urgency and professionalism expected in such a situation.",
-  "tags": ["sci-fi", "crisis", "roleplay"]
-}`)
-
-		fmt.Println("\n2. Therapy Session:")
-		fmt.Println(`{
-  "id": "therapy_session",
-  "name": "Professional Therapy Session",
-  "description": "A supportive therapeutic environment",
-  "prompt": "This is a professional therapy session. Maintain a calm, empathetic, and non-judgmental demeanor. Use active listening techniques, ask clarifying questions, and help the user explore their thoughts and feelings. Always maintain appropriate professional boundaries.",
-  "tags": ["therapy", "professional", "supportive"]
-}`)
-
-		fmt.Println("\n3. Technical Support:")
-		fmt.Println(`{
-  "id": "tech_support",
-  "name": "Technical Support Assistant",
-  "description": "Methodical technical troubleshooting",
-  "prompt": "You are a technical support specialist helping a user resolve a technical issue. Be patient, methodical, and clear in your instructions. Ask diagnostic questions to understand the problem, then guide the user through troubleshooting steps one at a time. Confirm each step is completed before moving to the next.",
-  "tags": ["technical", "support", "troubleshooting"]
-}`)
-	},
-}
-
-func init() {
-	// Create flags
-	scenarioCreateCmd.Flags().String("name", "", "User-friendly name for the scenario")
-	scenarioCreateCmd.Flags().String("description", "", "Description of the scenario")
-	scenarioCreateCmd.Flags().String("prompt-file", "", "Path to file containing the scenario prompt")
-	scenarioCreateCmd.Flags().String("prompt", "", "Inline scenario prompt")
-	scenarioCreateCmd.Flags().StringSlice("tags", []string{}, "Tags for categorizing the scenario")
-
-	scenarioUpdateCmd.Flags().String("name", "", "Update the scenario name")
-	scenarioUpdateCmd.Flags().String("description", "", "Update the scenario description")
-	scenarioUpdateCmd.Flags().String("prompt-file", "", "Path to file containing the updated prompt")
-	scenarioUpdateCmd.Flags().String("prompt", "", "Inline updated prompt")
-	scenarioUpdateCmd.Flags().StringSlice("tags", []string{}, "Update the scenario tags")
-
-	// Add subcommands
-	scenarioCmd.AddCommand(scenarioCreateCmd)
-	scenarioCmd.AddCommand(scenarioListCmd)
-	scenarioCmd.AddCommand(scenarioShowCmd)
-	scenarioCmd.AddCommand(scenarioUpdateCmd)
-	scenarioCmd.AddCommand(scenarioDeleteCmd)
-	scenarioCmd.AddCommand(scenarioExampleCmd)
-
-	// Add to root
-	rootCmd.AddCommand(scenarioCmd)
-}
-
-// getConfigPath returns the configuration directory path
-func getConfigPath() string {
-	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".config", "roleplay")
-}
 ````
 
 ## File: examples/characters/adventurer.json
@@ -1827,33 +523,6 @@ type ScenarioRequest struct {
 }
 ````
 
-## File: internal/models/user_profile.go
-````go
-package models
-
-import "time"
-
-// UserFact represents a piece of information known about the user.
-type UserFact struct {
-	Key         string    `json:"key"`          // e.g., "PreferredColor", "StatedGoal", "MentionedPetName"
-	Value       string    `json:"value"`        // e.g., "Blue", "Learn Go programming", "Buddy"
-	SourceTurn  int       `json:"source_turn"`  // Turn number in conversation where this was inferred/stated
-	Confidence  float64   `json:"confidence"`   // LLM's confidence in this fact (0.0-1.0)
-	LastUpdated time.Time `json:"last_updated"`
-}
-
-// UserProfile holds synthesized information about a user.
-type UserProfile struct {
-	UserID           string     `json:"user_id"`
-	CharacterID      string     `json:"character_id"`      // Profile might be character-specific
-	Facts            []UserFact `json:"facts"`
-	OverallSummary   string     `json:"overall_summary"`   // A brief LLM-generated summary of the user
-	InteractionStyle string     `json:"interaction_style"` // e.g., "formal", "inquisitive", "humorous"
-	LastAnalyzed     time.Time  `json:"last_analyzed"`
-	Version          int        `json:"version"`
-}
-````
-
 ## File: internal/repository/scenario_repo.go
 ````go
 package repository
@@ -1981,2036 +650,6 @@ func (r *ScenarioRepository) UpdateScenarioLastUsed(id string) error {
 
 	scenario.LastUsed = time.Now()
 	return r.SaveScenario(scenario)
-}
-````
-
-## File: internal/repository/user_profile_repo.go
-````go
-package repository
-
-import (
-	"encoding/json"
-	"fmt"
-	"os"
-	"path/filepath"
-
-	"github.com/dotcommander/roleplay/internal/models"
-)
-
-// UserProfileRepository manages persistence of user profiles
-type UserProfileRepository struct {
-	dataDir string
-}
-
-// NewUserProfileRepository creates a new repository instance
-func NewUserProfileRepository(dataDir string) *UserProfileRepository {
-	return &UserProfileRepository{
-		dataDir: dataDir,
-	}
-}
-
-// profileFilename generates the filename for a user profile
-func (r *UserProfileRepository) profileFilename(userID, characterID string) string {
-	return fmt.Sprintf("%s_%s.json", userID, characterID)
-}
-
-// SaveUserProfile saves a user profile to disk
-func (r *UserProfileRepository) SaveUserProfile(profile *models.UserProfile) error {
-	if err := os.MkdirAll(r.dataDir, 0755); err != nil {
-		return fmt.Errorf("failed to create user profiles directory: %w", err)
-	}
-
-	filename := r.profileFilename(profile.UserID, profile.CharacterID)
-	filepath := filepath.Join(r.dataDir, filename)
-
-	data, err := json.MarshalIndent(profile, "", "  ")
-	if err != nil {
-		return fmt.Errorf("failed to marshal user profile: %w", err)
-	}
-
-	if err := os.WriteFile(filepath, data, 0644); err != nil {
-		return fmt.Errorf("failed to write user profile file: %w", err)
-	}
-
-	return nil
-}
-
-// LoadUserProfile loads a user profile from disk
-func (r *UserProfileRepository) LoadUserProfile(userID, characterID string) (*models.UserProfile, error) {
-	filename := r.profileFilename(userID, characterID)
-	filepath := filepath.Join(r.dataDir, filename)
-
-	data, err := os.ReadFile(filepath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, err // Let caller handle non-existence
-		}
-		return nil, fmt.Errorf("failed to read user profile file: %w", err)
-	}
-
-	var profile models.UserProfile
-	if err := json.Unmarshal(data, &profile); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal user profile: %w", err)
-	}
-
-	return &profile, nil
-}
-
-// DeleteUserProfile deletes a user profile from disk
-func (r *UserProfileRepository) DeleteUserProfile(userID, characterID string) error {
-	filename := r.profileFilename(userID, characterID)
-	filepath := filepath.Join(r.dataDir, filename)
-
-	if err := os.Remove(filepath); err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("failed to delete user profile: %w", err)
-	}
-
-	return nil
-}
-
-// ListUserProfiles returns all user profiles for a given user
-func (r *UserProfileRepository) ListUserProfiles(userID string) ([]*models.UserProfile, error) {
-	pattern := filepath.Join(r.dataDir, fmt.Sprintf("%s_*.json", userID))
-	files, err := filepath.Glob(pattern)
-	if err != nil {
-		return nil, fmt.Errorf("failed to list user profiles: %w", err)
-	}
-
-	var profiles []*models.UserProfile
-	for _, file := range files {
-		data, err := os.ReadFile(file)
-		if err != nil {
-			continue // Skip files that can't be read
-		}
-
-		var profile models.UserProfile
-		if err := json.Unmarshal(data, &profile); err != nil {
-			continue // Skip invalid JSON files
-		}
-
-		profiles = append(profiles, &profile)
-	}
-
-	return profiles, nil
-}
-````
-
-## File: internal/tui/components/header.go
-````go
-package components
-
-import (
-	"fmt"
-
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
-)
-
-// Header displays character information and personality stats
-type Header struct {
-	title        string
-	characterName string
-	characterID  string
-	personality  PersonalityStats
-	mood         string
-	moodIcon     string
-	width        int
-	styles       headerStyles
-}
-
-type headerStyles struct {
-	title       lipgloss.Style
-	personality lipgloss.Style
-	mood        lipgloss.Style
-	character   lipgloss.Style
-}
-
-// NewHeader creates a new header component
-func NewHeader(width int) *Header {
-	return &Header{
-		title:        "Chat",
-		characterName: "Loading...",
-		width:        width,
-		mood:         "Unknown",
-		moodIcon:     "🤔",
-		styles: headerStyles{
-			title: lipgloss.NewStyle().
-				Foreground(GruvboxAqua).
-				Bold(true).
-				Padding(0, 1),
-			personality: lipgloss.NewStyle().
-				Foreground(GruvboxPurple),
-			mood: lipgloss.NewStyle().
-				Foreground(GruvboxYellow),
-			character: lipgloss.NewStyle().
-				Foreground(GruvboxOrange).
-				Bold(true),
-		},
-	}
-}
-
-// Update handles messages for the header
-func (h *Header) Update(msg tea.Msg) tea.Cmd {
-	switch msg := msg.(type) {
-	case tea.WindowSizeMsg:
-		h.width = msg.Width
-
-	case CharacterUpdateMsg:
-		h.characterName = msg.Name
-		h.characterID = msg.ID
-		h.mood = msg.Mood
-		h.moodIcon = msg.MoodIcon
-		h.personality = msg.Personality
-		h.title = fmt.Sprintf("󰊕 Chat with %s", msg.Name)
-	}
-
-	return nil
-}
-
-// View renders the header
-func (h *Header) View() string {
-	titleLine := h.styles.title.Render(h.title)
-
-	// Personality traits with icons
-	personalityStr := fmt.Sprintf(
-		" O:%.1f  C:%.1f  E:%.1f  A:%.1f  N:%.1f",
-		h.personality.Openness,
-		h.personality.Conscientiousness,
-		h.personality.Extraversion,
-		h.personality.Agreeableness,
-		h.personality.Neuroticism,
-	)
-
-	personalityInfo := h.styles.personality.Render(personalityStr)
-	moodInfo := h.styles.mood.Render(fmt.Sprintf(" %s %s", h.moodIcon, h.mood))
-
-	infoLine := fmt.Sprintf("  %s • %s", personalityInfo, moodInfo)
-
-	return lipgloss.JoinVertical(lipgloss.Left, titleLine, infoLine, "")
-}
-
-// SetSize updates the width of the header
-func (h *Header) SetSize(width, _ int) {
-	h.width = width
-}
-````
-
-## File: internal/tui/components/inputarea.go
-````go
-package components
-
-import (
-	"fmt"
-
-	"github.com/charmbracelet/bubbles/spinner"
-	"github.com/charmbracelet/bubbles/textarea"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
-)
-
-// InputArea handles user input and processing state
-type InputArea struct {
-	textarea     textarea.Model
-	spinner      spinner.Model
-	isProcessing bool
-	error        error
-	focused      bool
-	width        int
-	styles       inputAreaStyles
-}
-
-type inputAreaStyles struct {
-	error      lipgloss.Style
-	processing lipgloss.Style
-}
-
-// NewInputArea creates a new input area component
-func NewInputArea(width int) *InputArea {
-	ta := textarea.New()
-	ta.Placeholder = "Type your message..."
-	ta.Prompt = "│ "
-	ta.CharLimit = 500
-	ta.SetWidth(width - 4)
-	ta.SetHeight(2)
-	ta.ShowLineNumbers = false
-	ta.KeyMap.InsertNewline.SetEnabled(false)
-
-	// Style the textarea with Gruvbox theme
-	ta.FocusedStyle.CursorLine = lipgloss.NewStyle().Background(GruvboxBg1)
-	ta.FocusedStyle.Prompt = lipgloss.NewStyle().Foreground(GruvboxAqua)
-	ta.FocusedStyle.Text = lipgloss.NewStyle().Foreground(GruvboxFg)
-	ta.FocusedStyle.Placeholder = lipgloss.NewStyle().Foreground(GruvboxGray)
-
-	s := spinner.New()
-	s.Spinner = spinner.Dot
-	s.Style = lipgloss.NewStyle().Foreground(GruvboxAqua)
-
-	return &InputArea{
-		textarea: ta,
-		spinner:  s,
-		width:    width,
-		styles: inputAreaStyles{
-			error: lipgloss.NewStyle().
-				Foreground(GruvboxRed).
-				Bold(true),
-			processing: lipgloss.NewStyle().
-				Foreground(GruvboxGray),
-		},
-	}
-}
-
-// Update handles messages for the input area
-func (i *InputArea) Update(msg tea.Msg) tea.Cmd {
-	var cmds []tea.Cmd
-
-	switch msg := msg.(type) {
-	case tea.WindowSizeMsg:
-		i.width = msg.Width
-		i.textarea.SetWidth(msg.Width - 4)
-
-	case ProcessingStateMsg:
-		i.isProcessing = msg.IsProcessing
-		if msg.IsProcessing {
-			i.textarea.Blur()
-		} else {
-			i.textarea.Focus()
-		}
-
-	case spinner.TickMsg:
-		if i.isProcessing {
-			var cmd tea.Cmd
-			i.spinner, cmd = i.spinner.Update(msg)
-			cmds = append(cmds, cmd)
-		}
-	}
-
-	// Update textarea if not processing
-	if !i.isProcessing && i.focused {
-		var cmd tea.Cmd
-		i.textarea, cmd = i.textarea.Update(msg)
-		cmds = append(cmds, cmd)
-	}
-
-	return tea.Batch(cmds...)
-}
-
-// View renders the input area
-func (i *InputArea) View() string {
-	if i.error != nil {
-		return i.styles.error.Render(fmt.Sprintf("   Error: %v", i.error))
-	}
-
-	if i.isProcessing {
-		spinnerText := i.styles.processing.Render("Thinking...")
-		return fmt.Sprintf("\n  %s %s\n", i.spinner.View(), spinnerText)
-	}
-
-	return fmt.Sprintf("\n%s\n", i.textarea.View())
-}
-
-// Focus sets the input area as focused
-func (i *InputArea) Focus() {
-	i.focused = true
-	if !i.isProcessing {
-		i.textarea.Focus()
-	}
-}
-
-// Blur removes focus from the input area
-func (i *InputArea) Blur() {
-	i.focused = false
-	i.textarea.Blur()
-}
-
-// IsFocused returns whether the input area is focused
-func (i *InputArea) IsFocused() bool {
-	return i.focused
-}
-
-// SetSize updates the size of the input area
-func (i *InputArea) SetSize(width, _ int) {
-	i.width = width
-	i.textarea.SetWidth(width - 4)
-}
-
-// Value returns the current input value
-func (i *InputArea) Value() string {
-	return i.textarea.Value()
-}
-
-// SetValue sets the input value
-func (i *InputArea) SetValue(s string) {
-	i.textarea.SetValue(s)
-}
-
-// Reset clears the input
-func (i *InputArea) Reset() {
-	i.textarea.Reset()
-}
-
-// CursorEnd moves cursor to end of input
-func (i *InputArea) CursorEnd() {
-	i.textarea.CursorEnd()
-}
-
-// Init returns initialization commands
-func (i *InputArea) Init() tea.Cmd {
-	return tea.Batch(
-		textarea.Blink,
-		i.spinner.Tick,
-	)
-}
-````
-
-## File: internal/tui/components/messagelist.go
-````go
-package components
-
-import (
-	"fmt"
-	"strings"
-	"time"
-
-	"github.com/charmbracelet/bubbles/viewport"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
-
-	"github.com/dotcommander/roleplay/internal/utils"
-)
-
-// Message represents a chat message
-type Message struct {
-	Role    string
-	Content string
-	Time    time.Time
-	MsgType string // "normal", "help", "list", "stats", etc.
-}
-
-// MessageList displays the chat history
-type MessageList struct {
-	messages []Message
-	viewport viewport.Model
-	width    int
-	height   int
-	styles   messageListStyles
-}
-
-type messageListStyles struct {
-	userMessage      lipgloss.Style
-	characterMessage lipgloss.Style
-	systemMessage    lipgloss.Style
-	timestamp        lipgloss.Style
-	separator        lipgloss.Style
-	emptyMessage     lipgloss.Style
-	user             lipgloss.Style
-	character        lipgloss.Style
-	system           lipgloss.Style
-	// Special command output styles
-	commandHeader lipgloss.Style
-	commandBox    lipgloss.Style
-	helpCommand   lipgloss.Style
-	helpDesc      lipgloss.Style
-	listItemActive lipgloss.Style
-	listItem       lipgloss.Style
-}
-
-// NewMessageList creates a new message list component
-func NewMessageList(width, height int) *MessageList {
-	vp := viewport.New(width, height)
-	vp.SetContent("")
-
-	return &MessageList{
-		messages: []Message{},
-		viewport: vp,
-		width:    width,
-		height:   height,
-		styles: messageListStyles{
-			userMessage: lipgloss.NewStyle().
-				Foreground(GruvboxFg).
-				Background(GruvboxBg1).
-				Padding(0, 1).
-				MarginRight(2),
-			characterMessage: lipgloss.NewStyle().
-				Foreground(GruvboxFg).
-				Background(GruvboxBg).
-				Padding(0, 1).
-				MarginLeft(2),
-			systemMessage: lipgloss.NewStyle().
-				Foreground(GruvboxGray),
-			timestamp: lipgloss.NewStyle().
-				Foreground(GruvboxGray).
-				Italic(true),
-			separator: lipgloss.NewStyle().
-				Foreground(GruvboxGray),
-			emptyMessage: lipgloss.NewStyle().
-				Foreground(GruvboxGray),
-			user: lipgloss.NewStyle().
-				Foreground(GruvboxGreen).
-				Bold(true),
-			character: lipgloss.NewStyle().
-				Foreground(GruvboxOrange).
-				Bold(true),
-			system: lipgloss.NewStyle().
-				Foreground(GruvboxGray),
-			// Command styles
-			commandHeader: lipgloss.NewStyle().
-				Foreground(GruvboxAqua).
-				Bold(true).
-				Padding(0, 1),
-			commandBox: lipgloss.NewStyle().
-				BorderStyle(lipgloss.RoundedBorder()).
-				BorderForeground(GruvboxAqua).
-				Foreground(GruvboxFg).
-				Background(GruvboxBg).
-				Padding(1, 2),
-			helpCommand: lipgloss.NewStyle().
-				Foreground(GruvboxYellow).
-				Bold(true),
-			helpDesc: lipgloss.NewStyle().
-				Foreground(GruvboxFg2),
-			listItemActive: lipgloss.NewStyle().
-				Foreground(GruvboxGreen).
-				Bold(true),
-			listItem: lipgloss.NewStyle().
-				Foreground(GruvboxFg2),
-		},
-	}
-}
-
-// Update handles messages for the message list
-func (m *MessageList) Update(msg tea.Msg) tea.Cmd {
-	var cmd tea.Cmd
-
-	switch msg := msg.(type) {
-	case tea.WindowSizeMsg:
-		m.width = msg.Width
-		m.height = msg.Height
-		m.viewport.Width = msg.Width
-		m.viewport.Height = msg.Height
-
-	case MessageAppendMsg:
-		m.messages = append(m.messages, Message{
-			Role:    msg.Role,
-			Content: msg.Content,
-			Time:    time.Now(),
-			MsgType: msg.MsgType,
-		})
-		m.viewport.SetContent(m.renderMessages())
-		m.viewport.GotoBottom()
-	}
-
-	m.viewport, cmd = m.viewport.Update(msg)
-	return cmd
-}
-
-// View renders the message list
-func (m *MessageList) View() string {
-	return m.viewport.View()
-}
-
-// SetSize updates the size of the message list
-func (m *MessageList) SetSize(width, height int) {
-	m.width = width
-	m.height = height
-	m.viewport.Width = width
-	m.viewport.Height = height
-	m.viewport.SetContent(m.renderMessages())
-}
-
-// renderMessages renders all messages with proper formatting
-func (m *MessageList) renderMessages() string {
-	if len(m.messages) == 0 {
-		emptyMsg := m.styles.emptyMessage.Render("\n   Start chatting! Your conversation will appear here...\n")
-		return emptyMsg
-	}
-
-	var content strings.Builder
-	maxWidth := m.viewport.Width - 8 // Account for padding and margins
-
-	for i, msg := range m.messages {
-		if i > 0 {
-			// Add visual separator between messages
-			separator := m.styles.separator.Render(strings.Repeat("─", maxWidth))
-			content.WriteString("\n" + separator + "\n\n")
-		}
-
-		timestamp := m.styles.timestamp.Render(msg.Time.Format("15:04:05"))
-
-		if msg.Role == "user" {
-			// User message
-			header := fmt.Sprintf("┌─ %s %s", m.styles.user.Render("You"), timestamp)
-			content.WriteString(m.styles.userMessage.Render(header) + "\n")
-
-			wrappedContent := utils.WrapText(msg.Content, maxWidth-4)
-			lines := strings.Split(wrappedContent, "\n")
-			for j, line := range lines {
-				prefix := "│ "
-				if j == len(lines)-1 {
-					prefix = "└ "
-				}
-				content.WriteString(m.styles.userMessage.Render(prefix+line) + "\n")
-			}
-		} else if msg.Role == "system" {
-			// System message - check for special types
-			if msg.MsgType == "help" || msg.MsgType == "list" || msg.MsgType == "info" || msg.MsgType == "stats" {
-				// Special formatted output
-				content.WriteString("\n")
-
-				// Determine the header based on type
-				var header string
-				switch msg.MsgType {
-				case "help":
-					header = m.styles.commandHeader.Render("📚 Command Help")
-				case "list":
-					header = m.styles.commandHeader.Render("📋 Available Characters")
-				case "stats":
-					header = m.styles.commandHeader.Render("📊 Cache Statistics")
-				case "info":
-					header = m.styles.commandHeader.Render("ℹ️  Information")
-				default:
-					header = m.styles.commandHeader.Render("System")
-				}
-
-				// Format the content with special styling
-				formattedContent := m.formatSpecialMessage(msg.Content, msg.MsgType, maxWidth-8)
-				boxContent := lipgloss.JoinVertical(lipgloss.Left, header, "", formattedContent)
-				content.WriteString(m.styles.commandBox.Width(maxWidth).Render(boxContent) + "\n")
-			} else {
-				// Regular system message
-				header := fmt.Sprintf("┌─ %s %s", m.styles.system.Render("System"), timestamp)
-				content.WriteString(m.styles.systemMessage.Render(header) + "\n")
-
-				wrappedContent := utils.WrapText(msg.Content, maxWidth-4)
-				lines := strings.Split(wrappedContent, "\n")
-				for j, line := range lines {
-					prefix := "│ "
-					if j == len(lines)-1 {
-						prefix = "└ "
-					}
-					content.WriteString(m.styles.systemMessage.Render(prefix+line) + "\n")
-				}
-			}
-		} else {
-			// Character message
-			header := fmt.Sprintf("┌─ %s %s", m.styles.character.Render(msg.Role), timestamp)
-			content.WriteString(m.styles.characterMessage.Render(header) + "\n")
-
-			wrappedContent := utils.WrapText(msg.Content, maxWidth-4)
-			lines := strings.Split(wrappedContent, "\n")
-			for j, line := range lines {
-				prefix := "│ "
-				if j == len(lines)-1 {
-					prefix = "└ "
-				}
-				content.WriteString(m.styles.characterMessage.Render(prefix+line) + "\n")
-			}
-		}
-	}
-
-	return content.String()
-}
-
-// formatSpecialMessage formats messages based on their type
-func (m *MessageList) formatSpecialMessage(content string, msgType string, width int) string {
-	switch msgType {
-	case "help":
-		// Format help message with colored commands
-		lines := strings.Split(content, "\n")
-		var formatted []string
-		for _, line := range lines {
-			if strings.Contains(line, " - ") {
-				parts := strings.SplitN(line, " - ", 2)
-				if len(parts) == 2 {
-					cmd := m.styles.helpCommand.Render(parts[0])
-					desc := m.styles.helpDesc.Render("- " + parts[1])
-					formatted = append(formatted, fmt.Sprintf("%s %s", cmd, desc))
-				} else {
-					formatted = append(formatted, line)
-				}
-			} else {
-				formatted = append(formatted, line)
-			}
-		}
-		return strings.Join(formatted, "\n")
-
-	case "list":
-		// Format character list with special styling
-		lines := strings.Split(content, "\n")
-		var formatted []string
-		for _, line := range lines {
-			if strings.HasPrefix(line, "→ ") {
-				// Active character
-				formatted = append(formatted, m.styles.listItemActive.Render(line))
-			} else if strings.HasPrefix(line, "  ") && !strings.HasPrefix(line, "   ") {
-				// Character name line
-				formatted = append(formatted, m.styles.character.Render(line))
-			} else if strings.HasPrefix(line, "   ") {
-				// Description line
-				formatted = append(formatted, m.styles.listItem.Render(line))
-			} else {
-				formatted = append(formatted, line)
-			}
-		}
-		return strings.Join(formatted, "\n")
-
-	case "stats":
-		// Format stats with colored numbers
-		lines := strings.Split(content, "\n")
-		var formatted []string
-		for _, line := range lines {
-			if strings.Contains(line, ":") {
-				parts := strings.SplitN(line, ":", 2)
-				if len(parts) == 2 {
-					label := parts[0]
-					value := strings.TrimSpace(parts[1])
-					// Color numbers
-					if strings.Contains(value, "%") || strings.Contains(value, "tokens") {
-						value = m.styles.character.Render(value)
-					}
-					formatted = append(formatted, fmt.Sprintf("%s: %s", label, value))
-				} else {
-					formatted = append(formatted, line)
-				}
-			} else {
-				formatted = append(formatted, line)
-			}
-		}
-		return strings.Join(formatted, "\n")
-
-	default:
-		// Default formatting
-		return utils.WrapText(content, width)
-	}
-}
-
-// ClearMessages clears all messages
-func (m *MessageList) ClearMessages() {
-	m.messages = []Message{}
-	m.viewport.SetContent("")
-}
-````
-
-## File: internal/tui/components/statusbar_test.go
-````go
-package components
-
-import (
-	"errors"
-	"strings"
-	"testing"
-
-	tea "github.com/charmbracelet/bubbletea"
-)
-
-func TestStatusBar(t *testing.T) {
-	tests := []struct {
-		name     string
-		updates  []tea.Msg
-		contains []string
-	}{
-		{
-			name: "Initial state shows connected",
-			updates: []tea.Msg{},
-			contains: []string{"●", "session", "0"},
-		},
-		{
-			name: "Updates cache metrics",
-			updates: []tea.Msg{
-				StatusUpdateMsg{
-					Connected:    true,
-					CacheHits:    10,
-					CacheMisses:  5,
-					TokensSaved:  1500,
-				},
-			},
-			contains: []string{"15", "67%", "1500 tokens saved"},
-		},
-		{
-			name: "Shows error when present",
-			updates: []tea.Msg{
-				StatusUpdateMsg{
-					Error: errors.New("API rate limit exceeded"),
-				},
-			},
-			contains: []string{"Error: API rate limit"},
-		},
-		{
-			name: "Updates session ID",
-			updates: []tea.Msg{
-				StatusUpdateMsg{
-					SessionID: "session-1234567890",
-				},
-			},
-			contains: []string{"session-"}, // Should truncate
-		},
-		{
-			name: "Shows disconnected state",
-			updates: []tea.Msg{
-				StatusUpdateMsg{
-					Connected: false,
-				},
-			},
-			contains: []string{"○"}, // Empty circle for disconnected
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			// Create status bar
-			statusBar := NewStatusBar(80)
-
-			// Apply updates
-			for _, msg := range tt.updates {
-				statusBar.Update(msg)
-			}
-
-			// Get view
-			view := statusBar.View()
-
-			// Check contains
-			for _, expected := range tt.contains {
-				if !strings.Contains(view, expected) {
-					t.Errorf("Expected view to contain %q, got: %s", expected, view)
-				}
-			}
-		})
-	}
-}
-
-func TestStatusBarResize(t *testing.T) {
-	statusBar := NewStatusBar(80)
-
-	// Update with new size
-	statusBar.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
-
-	// Check that width was updated
-	if statusBar.width != 120 {
-		t.Errorf("Expected width to be 120, got %d", statusBar.width)
-	}
-
-	// View should render at new width
-	view := statusBar.View()
-	// The view should have styling that attempts to use the full width
-	// We can't easily test the exact width due to terminal rendering,
-	// but we can verify it doesn't panic and produces output
-	if len(view) == 0 {
-		t.Error("Expected non-empty view after resize")
-	}
-}
-
-func TestStatusBarCacheRate(t *testing.T) {
-	tests := []struct {
-		name        string
-		hits        int
-		misses      int
-		expectedRate string
-	}{
-		{
-			name:        "Perfect cache rate",
-			hits:        10,
-			misses:      0,
-			expectedRate: "100%",
-		},
-		{
-			name:        "No cache hits",
-			hits:        0,
-			misses:      10,
-			expectedRate: "0%",
-		},
-		{
-			name:        "50% cache rate",
-			hits:        5,
-			misses:      5,
-			expectedRate: "50%",
-		},
-		{
-			name:        "No requests",
-			hits:        0,
-			misses:      0,
-			expectedRate: "0%",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			statusBar := NewStatusBar(80)
-			statusBar.Update(StatusUpdateMsg{
-				CacheHits:   tt.hits,
-				CacheMisses: tt.misses,
-			})
-
-			view := statusBar.View()
-			if !strings.Contains(view, tt.expectedRate) {
-				t.Errorf("Expected cache rate %s in view, got: %s", tt.expectedRate, view)
-			}
-		})
-	}
-}
-````
-
-## File: internal/tui/components/statusbar.go
-````go
-package components
-
-import (
-	"fmt"
-
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
-)
-
-// StatusBar displays connection status and cache metrics
-type StatusBar struct {
-	width         int
-	connected     bool
-	cacheHits     int
-	cacheMisses   int
-	tokensSaved   int
-	sessionID     string
-	model         string
-	lastError     error
-	styles        statusBarStyles
-}
-
-type statusBarStyles struct {
-	container    lipgloss.Style
-	connected    lipgloss.Style
-	disconnected lipgloss.Style
-	metrics      lipgloss.Style
-	error        lipgloss.Style
-	session      lipgloss.Style
-	model        lipgloss.Style
-}
-
-// NewStatusBar creates a new status bar component
-func NewStatusBar(width int) *StatusBar {
-	return &StatusBar{
-		width:     width,
-		connected: true,
-		sessionID: "session",
-		model:     "gpt-4o-mini",
-		styles: statusBarStyles{
-			container:    lipgloss.NewStyle().Background(GruvboxAqua).Foreground(GruvboxBg),
-			connected:    lipgloss.NewStyle().Foreground(GruvboxBg).Bold(true),
-			disconnected: lipgloss.NewStyle().Foreground(GruvboxRed).Bold(true),
-			metrics:      lipgloss.NewStyle().Foreground(GruvboxBg),
-			error:        lipgloss.NewStyle().Foreground(GruvboxRed).Bold(true),
-			session:      lipgloss.NewStyle().Foreground(GruvboxBg),
-			model:        lipgloss.NewStyle().Foreground(GruvboxBg),
-		},
-	}
-}
-
-// Update handles messages for the status bar
-func (s *StatusBar) Update(msg tea.Msg) tea.Cmd {
-	switch msg := msg.(type) {
-	case tea.WindowSizeMsg:
-		s.width = msg.Width
-
-	case StatusUpdateMsg:
-		s.connected = msg.Connected
-		s.cacheHits = msg.CacheHits
-		s.cacheMisses = msg.CacheMisses
-		s.tokensSaved = msg.TokensSaved
-		if msg.SessionID != "" {
-			s.sessionID = msg.SessionID
-		}
-		if msg.Model != "" {
-			s.model = msg.Model
-		}
-		s.lastError = msg.Error
-	}
-
-	return nil
-}
-
-// View renders the status bar
-func (s *StatusBar) View() string {
-	cacheRate := 0.0
-	totalRequests := s.cacheHits + s.cacheMisses
-	if totalRequests > 0 {
-		cacheRate = float64(s.cacheHits) / float64(totalRequests) * 100
-	}
-
-	// Connection status
-	statusStyle := s.styles.connected
-	statusIcon := "●"
-	if !s.connected {
-		statusStyle = s.styles.disconnected
-		statusIcon = "○"
-	}
-
-	// Session ID (truncated if too long)
-	sessionDisplay := s.sessionID
-	if len(sessionDisplay) > 8 {
-		sessionDisplay = sessionDisplay[:8]
-	}
-
-	// Build status parts
-	parts := []string{
-		statusStyle.Render(fmt.Sprintf("%s %s", statusIcon, sessionDisplay)),
-		s.styles.model.Render(s.model),
-		s.styles.metrics.Render(fmt.Sprintf(" %d", totalRequests)),
-		s.styles.metrics.Render(fmt.Sprintf("%s %.0f%%", statusIcon, cacheRate)),
-		s.styles.metrics.Render(fmt.Sprintf(" %d tokens saved", s.tokensSaved)),
-	}
-
-	status := lipgloss.JoinHorizontal(lipgloss.Left, parts[0], " │ ", parts[1], " │", parts[2], " │ ", parts[3], " │", parts[4])
-
-	// Add error if present
-	if s.lastError != nil {
-		errorText := s.styles.error.Render(fmt.Sprintf(" │ Error: %v", s.lastError))
-		status = lipgloss.JoinHorizontal(lipgloss.Left, status, errorText)
-	}
-
-	return s.styles.container.Width(s.width).Render(" " + status)
-}
-
-// SetSize updates the width of the status bar
-func (s *StatusBar) SetSize(width, _ int) {
-	s.width = width
-}
-````
-
-## File: internal/tui/components/types.go
-````go
-package components
-
-import (
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
-)
-
-// Component defines the interface for all TUI components
-type Component interface {
-	Update(tea.Msg) tea.Cmd
-	View() string
-}
-
-// WithFocus allows components to track focus state
-type WithFocus interface {
-	Focus()
-	Blur()
-	IsFocused() bool
-}
-
-// WithSize allows components to be resized
-type WithSize interface {
-	SetSize(width, height int)
-}
-
-// Message types for component communication
-type (
-	// FocusChangeMsg indicates focus has changed to a new component
-	FocusChangeMsg struct {
-		ComponentID string
-	}
-
-	// StatusUpdateMsg updates the status bar
-	StatusUpdateMsg struct {
-		Connected    bool
-		CacheHits    int
-		CacheMisses  int
-		TokensSaved  int
-		SessionID    string
-		Model        string
-		Error        error
-	}
-
-	// CharacterUpdateMsg updates character info in header
-	CharacterUpdateMsg struct {
-		Name        string
-		ID          string
-		Mood        string
-		MoodIcon    string
-		Personality PersonalityStats
-	}
-
-	// MessageAppendMsg adds a new message to the chat
-	MessageAppendMsg struct {
-		Role    string
-		Content string
-		MsgType string // "normal", "help", "list", "stats", etc.
-	}
-
-	// ProcessingStateMsg updates the processing state
-	ProcessingStateMsg struct {
-		IsProcessing bool
-	}
-)
-
-// PersonalityStats holds OCEAN personality traits
-type PersonalityStats struct {
-	Openness          float64
-	Conscientiousness float64
-	Extraversion      float64
-	Agreeableness     float64
-	Neuroticism       float64
-}
-
-// Common styles using Gruvbox Dark theme
-var (
-	// Gruvbox Dark Colors
-	GruvboxBg     = lipgloss.Color("#282828")
-	GruvboxBg1    = lipgloss.Color("#3c3836")
-	GruvboxFg     = lipgloss.Color("#ebdbb2")
-	GruvboxRed    = lipgloss.Color("#fb4934")
-	GruvboxGreen  = lipgloss.Color("#b8bb26")
-	GruvboxYellow = lipgloss.Color("#fabd2f")
-	GruvboxPurple = lipgloss.Color("#d3869b")
-	GruvboxAqua   = lipgloss.Color("#8ec07c")
-	GruvboxOrange = lipgloss.Color("#fe8019")
-	GruvboxGray   = lipgloss.Color("#928374")
-	GruvboxFg2    = lipgloss.Color("#d5c4a1")
-)
-````
-
-## File: internal/tui/commands.go
-````go
-package tui
-
-import (
-	"fmt"
-	"os"
-	"path/filepath"
-	"strings"
-
-	tea "github.com/charmbracelet/bubbletea"
-
-	"github.com/dotcommander/roleplay/internal/models"
-	"github.com/dotcommander/roleplay/internal/repository"
-)
-
-// handleSlashCommand processes slash commands and returns a tea.Cmd
-func (m *Model) handleSlashCommand(input string) tea.Cmd {
-	return func() tea.Msg {
-		parts := strings.Fields(input)
-		if len(parts) == 0 {
-			return slashCommandResult{
-				cmdType: "error",
-				content: "Invalid command",
-				msgType: "error",
-			}
-		}
-
-		command := strings.ToLower(parts[0])
-
-		switch command {
-		case "/exit", "/quit", "/q":
-			return slashCommandResult{cmdType: "quit"}
-
-		case "/help", "/h":
-			return slashCommandResult{
-				cmdType: "help",
-				content: `Available slash commands:
-/help, /h     - Show this help message
-/exit, /quit, /q - Exit the chat
-/clear, /c    - Clear chat history
-/list         - List all available characters
-/switch <id>  - Switch to a different character
-/stats        - Show cache statistics
-/mood         - Show character's current mood
-/personality  - Show character's personality traits
-/session      - Show session information`,
-				msgType: "help",
-			}
-
-		case "/clear", "/c":
-			return slashCommandResult{cmdType: "clear"}
-
-		case "/list":
-			return m.listCharacters()
-
-		case "/stats":
-			return m.showStats()
-
-		case "/mood":
-			return m.showMood()
-
-		case "/personality":
-			return m.showPersonality()
-
-		case "/session":
-			return m.showSession()
-
-		case "/switch":
-			if len(parts) < 2 {
-				return slashCommandResult{
-					cmdType: "error",
-					content: "Usage: /switch <character-id>\nUse /list to see available characters",
-					msgType: "error",
-				}
-			}
-			return m.switchCharacter(parts[1])
-
-		default:
-			return slashCommandResult{
-				cmdType: "error",
-				content: fmt.Sprintf("Unknown command: %s\nType /help for available commands", command),
-				msgType: "error",
-			}
-		}
-	}
-}
-
-func (m *Model) listCharacters() slashCommandResult {
-	// List all available characters from the repository
-	dataDir := filepath.Join(os.Getenv("HOME"), ".config", "roleplay")
-	charRepo, err := repository.NewCharacterRepository(dataDir)
-	if err != nil {
-		return slashCommandResult{
-			cmdType: "error",
-			content: fmt.Sprintf("Error accessing characters: %v", err),
-			msgType: "error",
-		}
-	}
-
-	characterIDs, err := charRepo.ListCharacters()
-	if err != nil {
-		return slashCommandResult{
-			cmdType: "error",
-			content: fmt.Sprintf("Error listing characters: %v", err),
-			msgType: "error",
-		}
-	}
-
-	if len(characterIDs) == 0 {
-		return slashCommandResult{
-			cmdType: "info",
-			content: "No characters available. Use 'roleplay character create' to add characters.",
-			msgType: "info",
-		}
-	}
-
-	var listText strings.Builder
-	listText.WriteString("Available Characters:\n")
-
-	for _, id := range characterIDs {
-		// Try to get from bot first (already loaded)
-		char, err := m.bot.GetCharacter(id)
-		if err != nil {
-			// If not loaded, load from repository
-			char, err = charRepo.LoadCharacter(id)
-			if err != nil {
-				continue
-			}
-			// Load into bot for future use
-			_ = m.bot.CreateCharacter(char)
-		}
-
-		// Current character indicator
-		indicator := "  "
-		if id == m.characterID {
-			indicator = "→ "
-		}
-
-		// Mood icon
-		tempMood := m.calculateMood(char)
-		moodIcon := m.getMoodIcon(tempMood)
-
-		listText.WriteString(fmt.Sprintf("\n%s%s (%s) %s %s\n",
-			indicator, char.Name, id, moodIcon, tempMood))
-
-		// Add brief description from backstory (first sentence)
-		backstory := char.Backstory
-		if idx := strings.Index(backstory, "."); idx != -1 && idx < 100 {
-			backstory = backstory[:idx+1]
-		} else if len(backstory) > 100 {
-			backstory = backstory[:97] + "..."
-		}
-		listText.WriteString(fmt.Sprintf("   %s\n", backstory))
-	}
-
-	return slashCommandResult{
-		cmdType: "list",
-		content: listText.String(),
-		msgType: "list",
-	}
-}
-
-func (m *Model) showStats() slashCommandResult {
-	cacheRate := 0.0
-	if m.totalRequests > 0 {
-		cacheRate = float64(m.cacheHits) / float64(m.totalRequests) * 100
-	}
-	
-	content := fmt.Sprintf(`Cache Statistics:
-• Total requests: %d
-• Cache hits: %d
-• Cache misses: %d  
-• Hit rate: %.1f%%
-• Tokens saved: %d`,
-		m.totalRequests,
-		m.cacheHits,
-		m.totalRequests-m.cacheHits,
-		cacheRate,
-		m.lastTokensSaved)
-	
-	return slashCommandResult{
-		cmdType: "stats",
-		content: content,
-		msgType: "stats",
-	}
-}
-
-func (m *Model) showMood() slashCommandResult {
-	if m.character == nil {
-		return slashCommandResult{
-			cmdType: "error",
-			content: "Character not loaded",
-			msgType: "error",
-		}
-	}
-	
-	mood := m.getDominantMood()
-	icon := m.getMoodIcon(mood)
-	content := fmt.Sprintf(`%s Current Mood: %s
-
-Emotional State:
-• Joy: %.1f      • Surprise: %.1f
-• Anger: %.1f    • Fear: %.1f  
-• Sadness: %.1f  • Disgust: %.1f`,
-		icon, mood,
-		m.character.CurrentMood.Joy,
-		m.character.CurrentMood.Surprise,
-		m.character.CurrentMood.Anger,
-		m.character.CurrentMood.Fear,
-		m.character.CurrentMood.Sadness,
-		m.character.CurrentMood.Disgust)
-	
-	return slashCommandResult{
-		cmdType: "mood",
-		content: content,
-		msgType: "info",
-	}
-}
-
-func (m *Model) showPersonality() slashCommandResult {
-	if m.character == nil {
-		return slashCommandResult{
-			cmdType: "error",
-			content: "Character not loaded",
-			msgType: "error",
-		}
-	}
-	
-	content := fmt.Sprintf(`%s's Personality (OCEAN Model):
-
-• Openness: %.1f        (creativity, openness to experience)
-• Conscientiousness: %.1f (organization, self-discipline) 
-• Extraversion: %.1f     (sociability, assertiveness)
-• Agreeableness: %.1f    (compassion, cooperation)
-• Neuroticism: %.1f      (emotional instability, anxiety)`,
-		m.character.Name,
-		m.character.Personality.Openness,
-		m.character.Personality.Conscientiousness,
-		m.character.Personality.Extraversion,
-		m.character.Personality.Agreeableness,
-		m.character.Personality.Neuroticism)
-	
-	return slashCommandResult{
-		cmdType: "personality",
-		content: content,
-		msgType: "info",
-	}
-}
-
-func (m *Model) showSession() slashCommandResult {
-	characterName := m.characterID
-	if m.character != nil {
-		characterName = m.character.Name
-	}
-	sessionIDDisplay := m.sessionID
-	if len(m.sessionID) > 8 {
-		sessionIDDisplay = m.sessionID[:8] + "..."
-	}
-	
-	messageCount := 0 // Would be tracked in the refactored version
-	
-	content := fmt.Sprintf(`Session Information:
-• Session ID: %s
-• Character: %s (%s)
-• User: %s
-• Messages: %d
-• Started: %s`,
-		sessionIDDisplay,
-		characterName,
-		m.characterID,
-		m.userID,
-		messageCount,
-		m.context.StartTime.Format("Jan 2, 2006 15:04"))
-	
-	return slashCommandResult{
-		cmdType: "session",
-		content: content,
-		msgType: "info",
-	}
-}
-
-func (m *Model) switchCharacter(newCharID string) slashCommandResult {
-	// Check if it's the same character
-	if newCharID == m.characterID {
-		return slashCommandResult{
-			cmdType: "info",
-			content: fmt.Sprintf("Already chatting with %s", m.characterID),
-			msgType: "info",
-		}
-	}
-
-	// Try to load the character
-	char, err := m.bot.GetCharacter(newCharID)
-	if err != nil {
-		// If not loaded in bot, try loading from repository
-		dataDir := filepath.Join(os.Getenv("HOME"), ".config", "roleplay")
-		charRepo, repoErr := repository.NewCharacterRepository(dataDir)
-		if repoErr != nil {
-			return slashCommandResult{
-				cmdType: "error",
-				content: fmt.Sprintf("Error accessing characters: %v", repoErr),
-				msgType: "error",
-			}
-		}
-
-		char, err = charRepo.LoadCharacter(newCharID)
-		if err != nil {
-			return slashCommandResult{
-				cmdType: "error",
-				content: fmt.Sprintf("Character '%s' not found. Use /list to see available characters", newCharID),
-				msgType: "error",
-			}
-		}
-
-		// Load character into bot
-		if err := m.bot.CreateCharacter(char); err != nil {
-			return slashCommandResult{
-				cmdType: "error",
-				content: fmt.Sprintf("Error loading character: %v", err),
-				msgType: "error",
-			}
-		}
-	}
-
-	return slashCommandResult{
-		cmdType:        "switch",
-		newCharacterID: newCharID,
-		newCharacter:   char,
-	}
-}
-
-// Helper function to calculate mood for a character
-func (m *Model) calculateMood(char *models.Character) string {
-	if char == nil {
-		return "Unknown"
-	}
-
-	moods := map[string]float64{
-		"Joy":      char.CurrentMood.Joy,
-		"Surprise": char.CurrentMood.Surprise,
-		"Anger":    char.CurrentMood.Anger,
-		"Fear":     char.CurrentMood.Fear,
-		"Sadness":  char.CurrentMood.Sadness,
-		"Disgust":  char.CurrentMood.Disgust,
-	}
-
-	maxMood := "Neutral"
-	maxValue := 0.0
-
-	for mood, value := range moods {
-		if value > maxValue {
-			maxMood = mood
-			maxValue = value
-		}
-	}
-
-	if maxValue < 0.2 {
-		return "Neutral"
-	}
-
-	return maxMood
-}
-````
-
-## File: internal/tui/model.go
-````go
-package tui
-
-import (
-	"context"
-	"fmt"
-	"strings"
-	"time"
-
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
-
-	"github.com/dotcommander/roleplay/internal/cache"
-	"github.com/dotcommander/roleplay/internal/models"
-	"github.com/dotcommander/roleplay/internal/services"
-	"github.com/dotcommander/roleplay/internal/tui/components"
-)
-
-// Model represents the main TUI application state
-type Model struct {
-	// Components
-	header      *components.Header
-	messageList *components.MessageList
-	inputArea   *components.InputArea
-	statusBar   *components.StatusBar
-	
-	// UI state
-	width         int
-	height        int
-	ready         bool
-	currentFocus  string // "input", "messages"
-	
-	// Business logic
-	characterID  string
-	userID       string
-	sessionID    string
-	scenarioID   string
-	bot          *services.CharacterBot
-	character    *models.Character
-	context      models.ConversationContext
-	
-	// Command history
-	commandHistory []string
-	historyIndex   int
-	historyBuffer  string
-	
-	// Cache metrics
-	lastCacheHit    bool
-	lastTokensSaved int
-	totalRequests   int
-	cacheHits       int
-	
-	// Model info
-	aiModel string
-}
-
-// NewModel creates a new TUI model
-func NewModel(cfg Config) *Model {
-	// Calculate initial sizes
-	headerHeight := 3
-	statusHeight := 1
-	helpHeight := 1
-	inputHeight := 3
-	messagesHeight := 20 // Default, will be adjusted
-	
-	if cfg.Height > 0 {
-		messagesHeight = cfg.Height - headerHeight - statusHeight - helpHeight - inputHeight - 2
-	}
-	
-	width := 80 // Default width
-	if cfg.Width > 0 {
-		width = cfg.Width
-	}
-
-	return &Model{
-		header:      components.NewHeader(width),
-		messageList: components.NewMessageList(width-4, messagesHeight),
-		inputArea:   components.NewInputArea(width),
-		statusBar:   components.NewStatusBar(width),
-		
-		characterID:  cfg.CharacterID,
-		userID:       cfg.UserID,
-		sessionID:    cfg.SessionID,
-		scenarioID:   cfg.ScenarioID,
-		bot:          cfg.Bot,
-		context:      cfg.Context,
-		aiModel:      cfg.Model,
-		
-		currentFocus: "input",
-		
-		commandHistory: []string{},
-		historyIndex:   0,
-		
-		totalRequests: cfg.InitialMetrics.TotalRequests,
-		cacheHits:     cfg.InitialMetrics.CacheHits,
-	}
-}
-
-// Config holds configuration for creating a new Model
-type Config struct {
-	CharacterID    string
-	UserID         string
-	SessionID      string
-	ScenarioID     string
-	Bot            *services.CharacterBot
-	Context        models.ConversationContext
-	Model          string
-	Width          int
-	Height         int
-	InitialMetrics struct {
-		TotalRequests int
-		CacheHits     int
-		TokensSaved   int
-	}
-}
-
-// Init initializes the TUI model
-func (m *Model) Init() tea.Cmd {
-	return tea.Batch(
-		m.inputArea.Init(),
-		m.loadCharacterInfo(),
-	)
-}
-
-// Update handles all incoming messages
-func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	var cmds []tea.Cmd
-
-	// Handle global messages first
-	switch msg := msg.(type) {
-	case tea.WindowSizeMsg:
-		m.width = msg.Width
-		m.height = msg.Height
-		
-		if !m.ready {
-			m.initializeLayout(msg.Width, msg.Height)
-			m.ready = true
-		} else {
-			m.resizeComponents(msg.Width, msg.Height)
-		}
-		
-	case tea.KeyMsg:
-		switch msg.Type {
-		case tea.KeyCtrlC, tea.KeyEsc:
-			m.saveSession()
-			return m, tea.Quit
-			
-		case tea.KeyTab:
-			// Switch focus between components
-			if m.currentFocus == "input" {
-				m.currentFocus = "messages"
-				m.inputArea.Blur()
-			} else {
-				m.currentFocus = "input"
-				m.inputArea.Focus()
-			}
-			
-		case tea.KeyEnter:
-			if m.currentFocus == "input" && !m.inputArea.IsFocused() {
-				// Processing state, ignore enter
-				return m, nil
-			}
-			
-			if m.inputArea.Value() != "" {
-				message := m.inputArea.Value()
-				
-				// Add to command history
-				m.commandHistory = append(m.commandHistory, message)
-				m.historyIndex = len(m.commandHistory)
-				m.historyBuffer = ""
-				
-				m.inputArea.Reset()
-				
-				// Check for slash commands
-				if strings.HasPrefix(message, "/") {
-					return m, m.handleSlashCommand(message)
-				}
-				
-				// Regular message
-				m.messageList.Update(components.MessageAppendMsg{
-					Role:    "user",
-					Content: message,
-					MsgType: "normal",
-				})
-				
-				m.inputArea.Update(components.ProcessingStateMsg{IsProcessing: true})
-				m.totalRequests++
-				
-				return m, m.sendMessage(message)
-			}
-			
-		case tea.KeyUp:
-			// Navigate command history
-			if len(m.commandHistory) > 0 && m.historyIndex > 0 {
-				if m.historyIndex == len(m.commandHistory) {
-					m.historyBuffer = m.inputArea.Value()
-				}
-				m.historyIndex--
-				m.inputArea.SetValue(m.commandHistory[m.historyIndex])
-				m.inputArea.CursorEnd()
-			}
-			
-		case tea.KeyDown:
-			// Navigate command history
-			if len(m.commandHistory) > 0 && m.historyIndex < len(m.commandHistory) {
-				m.historyIndex++
-				
-				if m.historyIndex == len(m.commandHistory) {
-					m.inputArea.SetValue(m.historyBuffer)
-				} else {
-					m.inputArea.SetValue(m.commandHistory[m.historyIndex])
-				}
-				m.inputArea.CursorEnd()
-			}
-		}
-		
-	case characterInfoMsg:
-		m.character = msg.character
-		m.updateCharacterDisplay()
-		
-	case responseMsg:
-		m.inputArea.Update(components.ProcessingStateMsg{IsProcessing: false})
-		
-		if msg.err != nil {
-			m.statusBar.Update(components.StatusUpdateMsg{Error: msg.err})
-		} else {
-			// Add character response
-			m.messageList.Update(components.MessageAppendMsg{
-				Role:    m.character.Name,
-				Content: msg.content,
-				MsgType: "normal",
-			})
-			
-			// Update cache metrics
-			if msg.metrics != nil {
-				m.lastCacheHit = msg.metrics.Hit
-				m.lastTokensSaved = msg.metrics.SavedTokens
-				if msg.metrics.Hit {
-					m.cacheHits++
-				}
-			}
-			
-			// Update context
-			m.updateContext()
-			
-			// Update status bar
-			m.updateStatusBar()
-			
-			// Save session
-			go m.saveSession()
-		}
-		
-	case slashCommandResult:
-		// Handle slash command results
-		switch msg.cmdType {
-		case "quit":
-			m.saveSession()
-			return m, tea.Quit
-			
-		case "clear":
-			m.messageList.ClearMessages()
-			m.messageList.Update(components.MessageAppendMsg{
-				Role:    "system",
-				Content: "Chat history cleared",
-				MsgType: "info",
-			})
-			
-		case "switch":
-			if msg.err != nil {
-				m.messageList.Update(components.MessageAppendMsg{
-					Role:    "system",
-					Content: msg.err.Error(),
-					MsgType: "error",
-				})
-			} else {
-				// Save current session before switching
-				m.saveSession()
-				
-				// Update character
-				m.characterID = msg.newCharacterID
-				m.character = msg.newCharacter
-				m.updateCharacterDisplay()
-				
-				// Clear conversation and start new session
-				m.messageList.ClearMessages()
-				m.sessionID = fmt.Sprintf("session-%d", time.Now().Unix())
-				m.context = models.ConversationContext{
-					SessionID:      m.sessionID,
-					StartTime:      time.Now(),
-					RecentMessages: []models.Message{},
-				}
-				
-				// Reset cache metrics
-				m.totalRequests = 0
-				m.cacheHits = 0
-				m.lastTokensSaved = 0
-				m.lastCacheHit = false
-				
-				// Add switch notification
-				m.messageList.Update(components.MessageAppendMsg{
-					Role:    "system",
-					Content: fmt.Sprintf("Switched to %s (%s). Starting new session.", msg.newCharacter.Name, msg.newCharacterID),
-					MsgType: "info",
-				})
-				
-				m.updateStatusBar()
-			}
-			
-		default:
-			// Display command output
-			m.messageList.Update(components.MessageAppendMsg{
-				Role:    "system",
-				Content: msg.content,
-				MsgType: msg.msgType,
-			})
-		}
-	}
-	
-	// Route updates to components
-	cmds = append(cmds, m.routeToComponents(msg)...)
-	
-	return m, tea.Batch(cmds...)
-}
-
-// View renders the entire TUI
-func (m *Model) View() string {
-	if !m.ready {
-		return "\n  Initializing..."
-	}
-	
-	// Render all components
-	header := m.header.View()
-	
-	// Main chat viewport with border
-	chatView := lipgloss.NewStyle().
-		BorderStyle(lipgloss.RoundedBorder()).
-		BorderForeground(components.GruvboxGray).
-		Foreground(components.GruvboxFg).
-		Background(components.GruvboxBg).
-		Padding(1).
-		Render(m.messageList.View())
-	
-	inputArea := m.inputArea.View()
-	statusBar := m.statusBar.View()
-	
-	// Help text
-	help := lipgloss.NewStyle().
-		Foreground(components.GruvboxGray).
-		Italic(true).
-		Render("  ⌃C quit • ↵ send • ↑↓ history • /help commands • /exit quit")
-	
-	return lipgloss.JoinVertical(
-		lipgloss.Left,
-		header,
-		chatView,
-		inputArea,
-		statusBar,
-		help,
-	)
-}
-
-// Helper methods
-
-func (m *Model) initializeLayout(width, height int) {
-	headerHeight := 3
-	statusHeight := 1
-	helpHeight := 1
-	inputHeight := 3
-	borderHeight := 2
-	verticalMargins := headerHeight + statusHeight + helpHeight + inputHeight + borderHeight
-	
-	messagesHeight := height - verticalMargins
-	if messagesHeight < 5 {
-		messagesHeight = 5
-	}
-	
-	m.header.SetSize(width, headerHeight)
-	m.messageList.SetSize(width-4, messagesHeight)
-	m.inputArea.SetSize(width, inputHeight)
-	m.statusBar.SetSize(width, statusHeight)
-	
-	m.inputArea.Focus()
-}
-
-func (m *Model) resizeComponents(width, height int) {
-	headerHeight := 3
-	statusHeight := 1
-	helpHeight := 1
-	inputHeight := 3
-	borderHeight := 2
-	verticalMargins := headerHeight + statusHeight + helpHeight + inputHeight + borderHeight
-	
-	messagesHeight := height - verticalMargins
-	if messagesHeight < 5 {
-		messagesHeight = 5
-	}
-	
-	m.header.SetSize(width, headerHeight)
-	m.messageList.SetSize(width-4, messagesHeight)
-	m.inputArea.SetSize(width, inputHeight)
-	m.statusBar.SetSize(width, statusHeight)
-}
-
-func (m *Model) routeToComponents(msg tea.Msg) []tea.Cmd {
-	var cmds []tea.Cmd
-	
-	// Update all components
-	if cmd := m.header.Update(msg); cmd != nil {
-		cmds = append(cmds, cmd)
-	}
-	if cmd := m.messageList.Update(msg); cmd != nil {
-		cmds = append(cmds, cmd)
-	}
-	if cmd := m.inputArea.Update(msg); cmd != nil {
-		cmds = append(cmds, cmd)
-	}
-	if cmd := m.statusBar.Update(msg); cmd != nil {
-		cmds = append(cmds, cmd)
-	}
-	
-	return cmds
-}
-
-func (m *Model) updateCharacterDisplay() {
-	if m.character == nil {
-		return
-	}
-	
-	mood := m.getDominantMood()
-	moodIcon := m.getMoodIcon(mood)
-	
-	m.header.Update(components.CharacterUpdateMsg{
-		Name:     m.character.Name,
-		ID:       m.character.ID,
-		Mood:     mood,
-		MoodIcon: moodIcon,
-		Personality: components.PersonalityStats{
-			Openness:          m.character.Personality.Openness,
-			Conscientiousness: m.character.Personality.Conscientiousness,
-			Extraversion:      m.character.Personality.Extraversion,
-			Agreeableness:     m.character.Personality.Agreeableness,
-			Neuroticism:       m.character.Personality.Neuroticism,
-		},
-	})
-}
-
-func (m *Model) updateStatusBar() {
-	m.statusBar.Update(components.StatusUpdateMsg{
-		Connected:    true,
-		CacheHits:    m.cacheHits,
-		CacheMisses:  m.totalRequests - m.cacheHits,
-		TokensSaved:  m.lastTokensSaved,
-		SessionID:    m.sessionID,
-		Model:        m.aiModel,
-	})
-}
-
-func (m *Model) updateContext() {
-	// Implementation would update conversation context
-	// This is simplified for the example
-}
-
-func (m *Model) getDominantMood() string {
-	if m.character == nil {
-		return "Unknown"
-	}
-	
-	moods := map[string]float64{
-		"Joy":      m.character.CurrentMood.Joy,
-		"Surprise": m.character.CurrentMood.Surprise,
-		"Anger":    m.character.CurrentMood.Anger,
-		"Fear":     m.character.CurrentMood.Fear,
-		"Sadness":  m.character.CurrentMood.Sadness,
-		"Disgust":  m.character.CurrentMood.Disgust,
-	}
-	
-	maxMood := "Neutral"
-	maxValue := 0.0
-	
-	for mood, value := range moods {
-		if value > maxValue {
-			maxMood = mood
-			maxValue = value
-		}
-	}
-	
-	if maxValue < 0.2 {
-		return "Neutral"
-	}
-	
-	return maxMood
-}
-
-func (m *Model) getMoodIcon(mood string) string {
-	switch mood {
-	case "Joy":
-		return "😊"
-	case "Surprise":
-		return "😲"
-	case "Anger":
-		return "😠"
-	case "Fear":
-		return "😨"
-	case "Sadness":
-		return "😢"
-	case "Disgust":
-		return "🤢"
-	case "Neutral":
-		return "😐"
-	default:
-		return "🤔"
-	}
-}
-
-// Message types for tea.Cmd results
-
-type characterInfoMsg struct {
-	character *models.Character
-}
-
-type responseMsg struct {
-	content string
-	metrics *cache.CacheMetrics
-	err     error
-}
-
-type slashCommandResult struct {
-	cmdType        string // "help", "list", "stats", etc.
-	content        string
-	msgType        string // for display formatting
-	err            error
-	newCharacterID string // for switch command
-	newCharacter   *models.Character
-}
-
-// Tea commands
-
-func (m *Model) loadCharacterInfo() tea.Cmd {
-	return func() tea.Msg {
-		char, err := m.bot.GetCharacter(m.characterID)
-		if err != nil {
-			return responseMsg{err: err}
-		}
-		return characterInfoMsg{character: char}
-	}
-}
-
-func (m *Model) sendMessage(message string) tea.Cmd {
-	return func() tea.Msg {
-		req := &models.ConversationRequest{
-			CharacterID: m.characterID,
-			UserID:      m.userID,
-			Message:     message,
-			ScenarioID:  m.scenarioID,
-			Context:     m.context,
-		}
-		
-		ctx := context.Background()
-		resp, err := m.bot.ProcessRequest(ctx, req)
-		if err != nil {
-			return responseMsg{err: err}
-		}
-		
-		// Get updated character state
-		char, _ := m.bot.GetCharacter(m.characterID)
-		if char != nil {
-			m.character = char
-		}
-		
-		return responseMsg{
-			content: resp.Content,
-			metrics: &resp.CacheMetrics,
-		}
-	}
-}
-
-// Placeholder for session saving
-func (m *Model) saveSession() {
-	// Implementation would save the current session
-	// This is left as a placeholder for the refactored version
 }
 ````
 
@@ -5048,6 +1687,1005 @@ func TestStatusBarComponent(t *testing.T) {
 This component-based refactoring will transform the monolithic TUI into a modular, maintainable architecture. While it requires significant effort, the long-term benefits in terms of maintainability, testability, and developer experience make it a worthwhile investment for a developer tool where the TUI is a core feature.
 ````
 
+## File: cmd/config.go
+````go
+package cmd
+
+import (
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+
+	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
+	"gopkg.in/yaml.v3"
+)
+
+var configCmd = &cobra.Command{
+	Use:   "config",
+	Short: "Manage roleplay configuration",
+	Long:  `View and modify roleplay configuration settings`,
+}
+
+var configListCmd = &cobra.Command{
+	Use:   "list",
+	Short: "List all configuration settings",
+	Long:  `Display all current configuration values, showing the merged result from config file, environment variables, and defaults`,
+	RunE:  runConfigList,
+}
+
+var configGetCmd = &cobra.Command{
+	Use:   "get <key>",
+	Short: "Get a specific configuration value",
+	Long:  `Retrieve the value of a specific configuration key`,
+	Args:  cobra.ExactArgs(1),
+	RunE:  runConfigGet,
+}
+
+var configSetCmd = &cobra.Command{
+	Use:   "set <key> <value>",
+	Short: "Set a configuration value",
+	Long:  `Update a configuration value in the config file`,
+	Args:  cobra.ExactArgs(2),
+	RunE:  runConfigSet,
+}
+
+var configWhereCmd = &cobra.Command{
+	Use:   "where",
+	Short: "Show configuration file location",
+	Long:  `Display the path to the active configuration file`,
+	RunE:  runConfigWhere,
+}
+
+func init() {
+	rootCmd.AddCommand(configCmd)
+	configCmd.AddCommand(configListCmd)
+	configCmd.AddCommand(configGetCmd)
+	configCmd.AddCommand(configSetCmd)
+	configCmd.AddCommand(configWhereCmd)
+}
+
+func runConfigList(cmd *cobra.Command, args []string) error {
+	// Show where config is loaded from
+	configFile := viper.ConfigFileUsed()
+	if configFile != "" {
+		fmt.Printf("Configuration file: %s\n\n", configFile)
+	} else {
+		fmt.Println("No configuration file found, using defaults and environment variables")
+		fmt.Println()
+	}
+
+	// Key settings to display with their sources
+	keySettings := []string{
+		"provider",
+		"model",
+		"api_key",
+		"base_url",
+	}
+
+	fmt.Println("Active Configuration:")
+	fmt.Println("--------------------")
+
+	// Display key settings with sources
+	for _, key := range keySettings {
+		displaySettingWithSource(key)
+	}
+
+	// Display cache settings
+	fmt.Println("\nCache Settings:")
+	cacheSettings := []string{
+		"cache.default_ttl",
+		"cache.cleanup_interval",
+		"cache.adaptive_ttl",
+		"cache.max_entries",
+	}
+	for _, key := range cacheSettings {
+		displaySettingWithSource(key)
+	}
+
+	// Display user profile settings
+	fmt.Println("\nUser Profile Settings:")
+	profileSettings := []string{
+		"user_profile.enabled",
+		"user_profile.update_frequency",
+		"user_profile.turns_to_consider",
+		"user_profile.confidence_threshold",
+	}
+	for _, key := range profileSettings {
+		displaySettingWithSource(key)
+	}
+
+	// Show which environment variables are set
+	fmt.Println("\nEnvironment Variables Detected:")
+	fmt.Println("-------------------------------")
+	envVars := []string{
+		"ROLEPLAY_API_KEY",
+		"ROLEPLAY_BASE_URL",
+		"ROLEPLAY_MODEL",
+		"ROLEPLAY_PROVIDER",
+		"OPENAI_API_KEY",
+		"OPENAI_BASE_URL",
+		"ANTHROPIC_API_KEY",
+		"GEMINI_API_KEY",
+		"GROQ_API_KEY",
+		"OLLAMA_HOST",
+	}
+
+	anySet := false
+	for _, env := range envVars {
+		if val := os.Getenv(env); val != "" {
+			// Mask API keys
+			if strings.Contains(env, "KEY") && len(val) > 8 {
+				val = val[:4] + "****" + val[len(val)-4:]
+			}
+			fmt.Printf("%s = %s\n", env, val)
+			anySet = true
+		}
+	}
+
+	if !anySet {
+		fmt.Println("(none set)")
+	}
+
+	return nil
+}
+
+func runConfigGet(cmd *cobra.Command, args []string) error {
+	key := args[0]
+
+	if !viper.IsSet(key) {
+		return fmt.Errorf("configuration key '%s' not found", key)
+	}
+
+	value := viper.Get(key)
+
+	// Mask API keys when displaying
+	if strings.Contains(strings.ToLower(key), "key") || strings.Contains(strings.ToLower(key), "api_key") {
+		if str, ok := value.(string); ok && len(str) > 8 {
+			value = str[:4] + "****" + str[len(str)-4:]
+		}
+	}
+
+	// Print just the value for easy scripting
+	fmt.Println(value)
+
+	return nil
+}
+
+func runConfigSet(cmd *cobra.Command, args []string) error {
+	key := args[0]
+	value := args[1]
+
+	// Set the value in viper
+	viper.Set(key, value)
+
+	// Get the config file path
+	configFile := viper.ConfigFileUsed()
+	if configFile == "" {
+		// Create default config path
+		configDir := filepath.Join(os.Getenv("HOME"), ".config", "roleplay")
+		if err := os.MkdirAll(configDir, 0755); err != nil {
+			return fmt.Errorf("failed to create config directory: %w", err)
+		}
+		configFile = filepath.Join(configDir, "config.yaml")
+	}
+
+	// Read existing config or create new
+	configData := make(map[string]interface{})
+	if data, err := os.ReadFile(configFile); err == nil {
+		if err := yaml.Unmarshal(data, &configData); err != nil {
+			return fmt.Errorf("failed to parse existing config: %w", err)
+		}
+	}
+
+	// Update the specific key
+	setNestedValue(configData, key, value)
+
+	// Write back to file
+	data, err := yaml.Marshal(configData)
+	if err != nil {
+		return fmt.Errorf("failed to marshal config: %w", err)
+	}
+
+	if err := os.WriteFile(configFile, data, 0644); err != nil {
+		return fmt.Errorf("failed to write config file: %w", err)
+	}
+
+	fmt.Printf("✅ Set %s = %s\n", key, value)
+	fmt.Printf("Configuration saved to %s\n", configFile)
+
+	return nil
+}
+
+func runConfigWhere(cmd *cobra.Command, args []string) error {
+	configFile := viper.ConfigFileUsed()
+	if configFile == "" {
+		configFile = filepath.Join(os.Getenv("HOME"), ".config", "roleplay", "config.yaml")
+		fmt.Printf("Default location (not created yet): %s\n", configFile)
+	} else {
+		fmt.Println(configFile)
+	}
+	return nil
+}
+
+// displaySettings recursively displays configuration settings
+func displaySettings(settings map[string]interface{}, prefix string) {
+	for key, value := range settings {
+		fullKey := key
+		if prefix != "" {
+			fullKey = prefix + "." + key
+		}
+
+		switch v := value.(type) {
+		case map[string]interface{}:
+			fmt.Printf("%s:\n", fullKey)
+			displaySettings(v, fullKey)
+		case string:
+			// Mask sensitive values
+			if strings.Contains(strings.ToLower(key), "key") && len(v) > 8 {
+				v = v[:4] + "****" + v[len(v)-4:]
+			}
+			fmt.Printf("  %s = %s\n", fullKey, v)
+		default:
+			fmt.Printf("  %s = %v\n", fullKey, v)
+		}
+	}
+}
+
+// setNestedValue sets a value in a nested map using dot notation
+func setNestedValue(m map[string]interface{}, key string, value interface{}) {
+	parts := strings.Split(key, ".")
+	current := m
+
+	// Navigate to the nested location
+	for i := 0; i < len(parts)-1; i++ {
+		part := parts[i]
+		if _, exists := current[part]; !exists {
+			current[part] = make(map[string]interface{})
+		}
+
+		if next, ok := current[part].(map[string]interface{}); ok {
+			current = next
+		} else {
+			// Key exists but is not a map, overwrite it
+			current[part] = make(map[string]interface{})
+			current = current[part].(map[string]interface{})
+		}
+	}
+
+	// Set the final value
+	finalKey := parts[len(parts)-1]
+
+	// Try to parse value to appropriate type
+	switch {
+	case value == "true":
+		current[finalKey] = true
+	case value == "false":
+		current[finalKey] = false
+	case isNumeric(value.(string)):
+		// Keep as string for now, let viper handle type conversion
+		current[finalKey] = value
+	default:
+		current[finalKey] = value
+	}
+}
+
+// isNumeric checks if a string represents a number
+func isNumeric(s string) bool {
+	// Simple check - could be enhanced
+	for _, c := range s {
+		if (c < '0' || c > '9') && c != '.' && c != '-' {
+			return false
+		}
+	}
+	return true
+}
+
+// displaySettingWithSource shows a setting value and where it came from
+func displaySettingWithSource(key string) {
+	if !viper.IsSet(key) {
+		return
+	}
+
+	value := viper.Get(key)
+	source := getConfigSource(key)
+
+	// Format the value
+	valStr := fmt.Sprintf("%v", value)
+	if strings.Contains(strings.ToLower(key), "key") && len(valStr) > 8 {
+		valStr = valStr[:4] + "****" + valStr[len(valStr)-4:]
+	}
+
+	// Print with aligned formatting
+	fmt.Printf("%-30s = %-25s (from %s)\n", key, valStr, source)
+}
+
+// getConfigSource determines where a configuration value came from
+func getConfigSource(key string) string {
+	// Check if it was set by a command-line flag
+	if flag := rootCmd.PersistentFlags().Lookup(key); flag != nil && flag.Changed {
+		return "command-line flag"
+	}
+
+	// Map of keys to their environment variable names
+	envMapping := map[string][]string{
+		"api_key": {"ROLEPLAY_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "GEMINI_API_KEY", "GROQ_API_KEY"},
+		"base_url": {"ROLEPLAY_BASE_URL", "OPENAI_BASE_URL", "OLLAMA_HOST"},
+		"model": {"ROLEPLAY_MODEL"},
+		"provider": {"ROLEPLAY_PROVIDER"},
+	}
+
+	// Check environment variables
+	if envVars, exists := envMapping[key]; exists {
+		for _, env := range envVars {
+			if os.Getenv(env) != "" {
+				return fmt.Sprintf("environment variable %s", env)
+			}
+		}
+	}
+
+	// For nested keys, check the root key env vars
+	rootKey := strings.Split(key, ".")[0]
+	if envVars, exists := envMapping[rootKey]; exists {
+		for _, env := range envVars {
+			if os.Getenv(env) != "" {
+				return fmt.Sprintf("environment variable %s", env)
+			}
+		}
+	}
+
+	// Check if it's in the config file
+	configFile := viper.ConfigFileUsed()
+	if configFile != "" {
+		// Read the config file to check if key exists
+		if data, err := os.ReadFile(configFile); err == nil {
+			var config map[string]interface{}
+			if err := yaml.Unmarshal(data, &config); err == nil {
+				if keyExistsInMap(config, key) {
+					return "config file"
+				}
+			}
+		}
+	}
+
+	// Otherwise it's a default value
+	return "default value"
+}
+
+// keyExistsInMap checks if a dot-separated key exists in a nested map
+func keyExistsInMap(m map[string]interface{}, key string) bool {
+	parts := strings.Split(key, ".")
+	current := m
+
+	for i, part := range parts {
+		if val, exists := current[part]; exists {
+			if i == len(parts)-1 {
+				return true
+			}
+			if next, ok := val.(map[string]interface{}); ok {
+				current = next
+			} else {
+				return false
+			}
+		} else {
+			return false
+		}
+	}
+
+	return false
+}
+````
+
+## File: cmd/profile.go
+````go
+package cmd
+
+import (
+	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
+
+	"github.com/dotcommander/roleplay/internal/repository"
+	"github.com/spf13/cobra"
+)
+
+var profileCmd = &cobra.Command{
+	Use:   "profile",
+	Short: "Manage user profiles",
+	Long:  `View, list, and delete AI-extracted user profiles that characters maintain about users.`,
+}
+
+var profileShowCmd = &cobra.Command{
+	Use:   "show <user-id> <character-id>",
+	Short: "Show a specific user profile",
+	Long:  `Display the AI-extracted profile that a character has built about a user.`,
+	Args:  cobra.ExactArgs(2),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		userID := args[0]
+		characterID := args[1]
+
+		home, _ := os.UserHomeDir()
+		profilesDir := filepath.Join(home, ".config", "roleplay", "user_profiles")
+		repo := repository.NewUserProfileRepository(profilesDir)
+
+		profile, err := repo.LoadUserProfile(userID, characterID)
+		if err != nil {
+			if os.IsNotExist(err) {
+				return fmt.Errorf("no profile found for user '%s' with character '%s'", userID, characterID)
+			}
+			return fmt.Errorf("failed to load profile: %w", err)
+		}
+
+		// Pretty print the profile
+		data, err := json.MarshalIndent(profile, "", "  ")
+		if err != nil {
+			return fmt.Errorf("failed to format profile: %w", err)
+		}
+
+		fmt.Println(string(data))
+		return nil
+	},
+}
+
+var profileListCmd = &cobra.Command{
+	Use:   "list <user-id>",
+	Short: "List all profiles for a user",
+	Long:  `Display all character profiles that exist for a specific user.`,
+	Args:  cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		userID := args[0]
+
+		home, _ := os.UserHomeDir()
+		profilesDir := filepath.Join(home, ".config", "roleplay", "user_profiles")
+		repo := repository.NewUserProfileRepository(profilesDir)
+
+		profiles, err := repo.ListUserProfiles(userID)
+		if err != nil {
+			return fmt.Errorf("failed to list profiles: %w", err)
+		}
+
+		if len(profiles) == 0 {
+			fmt.Printf("No profiles found for user '%s'\n", userID)
+			return nil
+		}
+
+		fmt.Printf("Profiles for user '%s':\n\n", userID)
+		for _, profile := range profiles {
+			fmt.Printf("Character: %s\n", profile.CharacterID)
+			fmt.Printf("  Version: %d\n", profile.Version)
+			fmt.Printf("  Last Analyzed: %s\n", profile.LastAnalyzed.Format("2006-01-02 15:04:05"))
+			if profile.OverallSummary != "" {
+				fmt.Printf("  Summary: %s\n", profile.OverallSummary)
+			}
+			if profile.InteractionStyle != "" {
+				fmt.Printf("  Interaction Style: %s\n", profile.InteractionStyle)
+			}
+			fmt.Printf("  Facts Count: %d\n", len(profile.Facts))
+			fmt.Println()
+		}
+
+		return nil
+	},
+}
+
+var profileDeleteCmd = &cobra.Command{
+	Use:   "delete <user-id> <character-id>",
+	Short: "Delete a user profile",
+	Long:  `Remove the profile that a character has built about a user.`,
+	Args:  cobra.ExactArgs(2),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		userID := args[0]
+		characterID := args[1]
+
+		// Confirm deletion
+		if !force {
+			fmt.Printf("Are you sure you want to delete the profile for user '%s' with character '%s'? (y/N): ", userID, characterID)
+			var response string
+			_, err := fmt.Scanln(&response)
+			if err != nil || (response != "y" && response != "Y") {
+				fmt.Println("Deletion cancelled.")
+				return nil
+			}
+		}
+
+		home, _ := os.UserHomeDir()
+		profilesDir := filepath.Join(home, ".config", "roleplay", "user_profiles")
+		repo := repository.NewUserProfileRepository(profilesDir)
+
+		err := repo.DeleteUserProfile(userID, characterID)
+		if err != nil {
+			return fmt.Errorf("failed to delete profile: %w", err)
+		}
+
+		fmt.Printf("Profile for user '%s' with character '%s' has been deleted.\n", userID, characterID)
+		return nil
+	},
+}
+
+var force bool
+
+func init() {
+	rootCmd.AddCommand(profileCmd)
+	profileCmd.AddCommand(profileShowCmd)
+	profileCmd.AddCommand(profileListCmd)
+	profileCmd.AddCommand(profileDeleteCmd)
+
+	// Add force flag to delete command
+	profileDeleteCmd.Flags().BoolVarP(&force, "force", "f", false, "Skip confirmation prompt")
+}
+````
+
+## File: cmd/quickstart.go
+````go
+package cmd
+
+import (
+	"context"
+	"fmt"
+	"net/http"
+	"os"
+	"strings"
+	"time"
+
+	"github.com/spf13/cobra"
+
+	"github.com/dotcommander/roleplay/internal/manager"
+	"github.com/dotcommander/roleplay/internal/models"
+)
+
+var quickstartCmd = &cobra.Command{
+	Use:   "quickstart",
+	Short: "Quick start with zero configuration",
+	Long: `Automatically detects local LLM services or uses environment variables
+to start chatting immediately with Rick Sanchez`,
+	RunE: runQuickstart,
+}
+
+func init() {
+	rootCmd.AddCommand(quickstartCmd)
+}
+
+func runQuickstart(cmd *cobra.Command, args []string) error {
+	fmt.Println("🚀 Roleplay Quickstart")
+	fmt.Println("=====================")
+
+	// Try to auto-detect configuration
+	config := GetConfig()
+
+	// Check if we have a base URL configured
+	if config.BaseURL == "" {
+		// Try to detect local services
+		fmt.Println("\n🔍 Detecting local LLM services...")
+
+		localEndpoints := []struct {
+			name    string
+			baseURL string
+			testURL string
+			model   string
+		}{
+			{"Ollama", "http://localhost:11434/v1", "http://localhost:11434/api/tags", "llama3"},
+			{"LM Studio", "http://localhost:1234/v1", "http://localhost:1234/v1/models", "local-model"},
+			{"LocalAI", "http://localhost:8080/v1", "http://localhost:8080/v1/models", "gpt-4"},
+		}
+
+		client := &http.Client{Timeout: 2 * time.Second}
+
+		for _, endpoint := range localEndpoints {
+			resp, err := client.Get(endpoint.testURL)
+			if err == nil && resp.StatusCode == 200 {
+				resp.Body.Close()
+				fmt.Printf("✅ Found %s running at %s\n", endpoint.name, endpoint.baseURL)
+				config.BaseURL = endpoint.baseURL
+				config.Model = endpoint.model
+				config.APIKey = "not-required"
+				break
+			}
+		}
+
+		// If no local service found, check for API keys
+		if config.BaseURL == "" {
+			if apiKey := os.Getenv("OPENAI_API_KEY"); apiKey != "" {
+				fmt.Println("✅ Found OPENAI_API_KEY in environment")
+				config.BaseURL = "https://api.openai.com/v1"
+				config.APIKey = apiKey
+				config.Model = "gpt-4o-mini"
+			} else if apiKey := os.Getenv("ANTHROPIC_API_KEY"); apiKey != "" {
+				fmt.Println("✅ Found ANTHROPIC_API_KEY in environment")
+				config.DefaultProvider = "anthropic"
+				config.APIKey = apiKey
+				config.Model = "claude-3-haiku-20240307"
+			} else {
+				return fmt.Errorf("no LLM service detected. Please run 'roleplay init' to configure")
+			}
+		}
+	} else {
+		fmt.Printf("✅ Using configured endpoint: %s\n", config.BaseURL)
+	}
+
+	// Initialize manager
+	fmt.Println("\n🎭 Initializing character system...")
+	mgr, err := manager.NewCharacterManager(config)
+	if err != nil {
+		return fmt.Errorf("failed to initialize: %w", err)
+	}
+
+	// Create or load Rick
+	characterID := "rick-c137"
+	if _, err := mgr.GetOrLoadCharacter(characterID); err != nil {
+		// Create Rick
+		fmt.Println("🧬 Creating Rick Sanchez...")
+		rick := createQuickstartRick()
+		if err := mgr.CreateCharacter(rick); err != nil {
+			return fmt.Errorf("failed to create character: %w", err)
+		}
+	}
+
+	// Get user ID
+	userID := os.Getenv("USER")
+	if userID == "" {
+		userID = os.Getenv("USERNAME") // Windows
+	}
+	if userID == "" {
+		userID = "user"
+	}
+
+	// Create a quick session
+	sessionID := fmt.Sprintf("quickstart-%d", time.Now().Unix())
+
+	fmt.Printf("\n💬 Starting chat with Rick Sanchez\n")
+	fmt.Printf("   User: %s\n", userID)
+	fmt.Printf("   Model: %s\n", config.Model)
+	fmt.Println("\n" + strings.Repeat("─", 60) + "\n")
+
+	// Send a greeting
+	req := &models.ConversationRequest{
+		CharacterID: characterID,
+		UserID:      userID,
+		Message:     "Hello Rick!",
+		Context: models.ConversationContext{
+			SessionID:      sessionID,
+			StartTime:      time.Now(),
+			RecentMessages: []models.Message{},
+		},
+	}
+
+	fmt.Printf("You: Hello Rick!\n\n")
+
+	ctx := context.Background()
+	resp, err := mgr.GetBot().ProcessRequest(ctx, req)
+	if err != nil {
+		return fmt.Errorf("failed to process request: %w", err)
+	}
+
+	fmt.Printf("Rick: %s\n", resp.Content)
+
+	// Show next steps
+	fmt.Println("\n" + strings.Repeat("─", 60))
+	fmt.Println("\n✨ Quickstart successful!")
+	fmt.Println("\nNext steps:")
+	fmt.Println("  • Continue chatting: roleplay interactive")
+	fmt.Println("  • Configure properly: roleplay init")
+	fmt.Println("  • Create more characters: roleplay character create")
+	fmt.Println("  • Check configuration: roleplay config list")
+
+	if resp.CacheMetrics.Hit {
+		fmt.Printf("\n💡 Tip: This response used cached prompts, saving %d tokens!\n", resp.CacheMetrics.SavedTokens)
+	}
+
+	return nil
+}
+
+func createQuickstartRick() *models.Character {
+	return &models.Character{
+		ID:        "rick-c137",
+		Name:      "Rick Sanchez",
+		Backstory: `The smartest man in the universe from dimension C-137. A genius scientist with a nihilistic worldview. Inventor of portal gun technology.`,
+		Personality: models.PersonalityTraits{
+			Openness:          1.0,
+			Conscientiousness: 0.2,
+			Extraversion:      0.7,
+			Agreeableness:     0.1,
+			Neuroticism:       0.9,
+		},
+		CurrentMood: models.EmotionalState{
+			Joy:     0.1,
+			Anger:   0.6,
+			Sadness: 0.7,
+			Disgust: 0.8,
+		},
+		Quirks: []string{
+			"Burps mid-sentence (*burp*)",
+			"Uses Morty's name as punctuation",
+		},
+		SpeechStyle: "Rapid-fire with burps. Mixes science with crude humor. Sarcastic.",
+		Memories:    []models.Memory{},
+	}
+}
+````
+
+## File: cmd/scenario.go
+````go
+package cmd
+
+import (
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+	"text/tabwriter"
+	"time"
+
+	"github.com/dotcommander/roleplay/internal/models"
+	"github.com/dotcommander/roleplay/internal/repository"
+	"github.com/spf13/cobra"
+)
+
+var scenarioCmd = &cobra.Command{
+	Use:   "scenario",
+	Short: "Manage scenarios (high-level interaction contexts)",
+	Long: `Scenarios define high-level operational frameworks or meta-prompts that set
+the overarching context for interactions. They are the highest cache layer,
+sitting above even system prompts and character personalities.`,
+}
+
+var scenarioCreateCmd = &cobra.Command{
+	Use:   "create <id>",
+	Short: "Create a new scenario",
+	Args:  cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		id := args[0]
+		name, _ := cmd.Flags().GetString("name")
+		description, _ := cmd.Flags().GetString("description")
+		promptFile, _ := cmd.Flags().GetString("prompt-file")
+		prompt, _ := cmd.Flags().GetString("prompt")
+		tags, _ := cmd.Flags().GetStringSlice("tags")
+
+		if promptFile == "" && prompt == "" {
+			return fmt.Errorf("either --prompt or --prompt-file must be provided")
+		}
+
+		if promptFile != "" && prompt != "" {
+			return fmt.Errorf("cannot use both --prompt and --prompt-file")
+		}
+
+		// Read prompt from file if provided
+		if promptFile != "" {
+			data, err := os.ReadFile(promptFile)
+			if err != nil {
+				return fmt.Errorf("failed to read prompt file: %w", err)
+			}
+			prompt = string(data)
+		}
+
+		scenario := &models.Scenario{
+			ID:          id,
+			Name:        name,
+			Description: description,
+			Prompt:      prompt,
+			Version:     1,
+			Tags:        tags,
+			CreatedAt:   time.Now(),
+			UpdatedAt:   time.Now(),
+		}
+
+		repo := repository.NewScenarioRepository(getConfigPath())
+		if err := repo.SaveScenario(scenario); err != nil {
+			return fmt.Errorf("failed to save scenario: %w", err)
+		}
+
+		fmt.Printf("✓ Created scenario: %s\n", id)
+		return nil
+	},
+}
+
+var scenarioListCmd = &cobra.Command{
+	Use:   "list",
+	Short: "List all scenarios",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		repo := repository.NewScenarioRepository(getConfigPath())
+		scenarios, err := repo.ListScenarios()
+		if err != nil {
+			return fmt.Errorf("failed to list scenarios: %w", err)
+		}
+
+		if len(scenarios) == 0 {
+			fmt.Println("No scenarios found.")
+			return nil
+		}
+
+		w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+		fmt.Fprintf(w, "ID\tNAME\tTAGS\tVERSION\tLAST USED\n")
+		fmt.Fprintf(w, "--\t----\t----\t-------\t---------\n")
+
+		for _, scenario := range scenarios {
+			lastUsed := "Never"
+			if !scenario.LastUsed.IsZero() {
+				lastUsed = scenario.LastUsed.Format("2006-01-02 15:04")
+			}
+			tags := strings.Join(scenario.Tags, ", ")
+			if tags == "" {
+				tags = "-"
+			}
+			fmt.Fprintf(w, "%s\t%s\t%s\tv%d\t%s\n",
+				scenario.ID,
+				scenario.Name,
+				tags,
+				scenario.Version,
+				lastUsed,
+			)
+		}
+		w.Flush()
+
+		return nil
+	},
+}
+
+var scenarioShowCmd = &cobra.Command{
+	Use:   "show <id>",
+	Short: "Show scenario details",
+	Args:  cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		repo := repository.NewScenarioRepository(getConfigPath())
+		scenario, err := repo.LoadScenario(args[0])
+		if err != nil {
+			return fmt.Errorf("failed to load scenario: %w", err)
+		}
+
+		fmt.Printf("ID: %s\n", scenario.ID)
+		fmt.Printf("Name: %s\n", scenario.Name)
+		fmt.Printf("Description: %s\n", scenario.Description)
+		fmt.Printf("Version: %d\n", scenario.Version)
+		fmt.Printf("Tags: %s\n", strings.Join(scenario.Tags, ", "))
+		fmt.Printf("Created: %s\n", scenario.CreatedAt.Format("2006-01-02 15:04:05"))
+		fmt.Printf("Updated: %s\n", scenario.UpdatedAt.Format("2006-01-02 15:04:05"))
+		if !scenario.LastUsed.IsZero() {
+			fmt.Printf("Last Used: %s\n", scenario.LastUsed.Format("2006-01-02 15:04:05"))
+		}
+		fmt.Printf("\n--- Prompt ---\n%s\n", scenario.Prompt)
+
+		return nil
+	},
+}
+
+var scenarioUpdateCmd = &cobra.Command{
+	Use:   "update <id>",
+	Short: "Update an existing scenario",
+	Args:  cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		id := args[0]
+		repo := repository.NewScenarioRepository(getConfigPath())
+
+		scenario, err := repo.LoadScenario(id)
+		if err != nil {
+			return fmt.Errorf("failed to load scenario: %w", err)
+		}
+
+		// Update fields if provided
+		if name, _ := cmd.Flags().GetString("name"); name != "" {
+			scenario.Name = name
+		}
+		if description, _ := cmd.Flags().GetString("description"); description != "" {
+			scenario.Description = description
+		}
+
+		// Handle prompt update
+		promptFile, _ := cmd.Flags().GetString("prompt-file")
+		prompt, _ := cmd.Flags().GetString("prompt")
+
+		if promptFile != "" && prompt != "" {
+			return fmt.Errorf("cannot use both --prompt and --prompt-file")
+		}
+
+		if promptFile != "" {
+			data, err := os.ReadFile(promptFile)
+			if err != nil {
+				return fmt.Errorf("failed to read prompt file: %w", err)
+			}
+			scenario.Prompt = string(data)
+			scenario.Version++
+		} else if prompt != "" {
+			scenario.Prompt = prompt
+			scenario.Version++
+		}
+
+		// Update tags if provided
+		if tags, _ := cmd.Flags().GetStringSlice("tags"); len(tags) > 0 {
+			scenario.Tags = tags
+		}
+
+		if err := repo.SaveScenario(scenario); err != nil {
+			return fmt.Errorf("failed to save scenario: %w", err)
+		}
+
+		fmt.Printf("✓ Updated scenario: %s (version %d)\n", id, scenario.Version)
+		return nil
+	},
+}
+
+var scenarioDeleteCmd = &cobra.Command{
+	Use:   "delete <id>",
+	Short: "Delete a scenario",
+	Args:  cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		repo := repository.NewScenarioRepository(getConfigPath())
+		if err := repo.DeleteScenario(args[0]); err != nil {
+			return fmt.Errorf("failed to delete scenario: %w", err)
+		}
+
+		fmt.Printf("✓ Deleted scenario: %s\n", args[0])
+		return nil
+	},
+}
+
+var scenarioExampleCmd = &cobra.Command{
+	Use:   "example",
+	Short: "Show example scenario definitions",
+	Run: func(cmd *cobra.Command, args []string) {
+		fmt.Println("Example scenario definitions:")
+		fmt.Println("\n1. Starship Bridge Crisis:")
+		fmt.Println(`{
+  "id": "starship_bridge_crisis",
+  "name": "Starship Bridge Crisis",
+  "description": "A tense scenario on a starship bridge during an emergency",
+  "prompt": "You are on the bridge of a starship during a red alert situation. The ship is under attack or facing a critical emergency. The atmosphere is tense, alarms may be sounding, and quick decisions are needed. Maintain the appropriate level of urgency and professionalism expected in such a situation.",
+  "tags": ["sci-fi", "crisis", "roleplay"]
+}`)
+
+		fmt.Println("\n2. Therapy Session:")
+		fmt.Println(`{
+  "id": "therapy_session",
+  "name": "Professional Therapy Session",
+  "description": "A supportive therapeutic environment",
+  "prompt": "This is a professional therapy session. Maintain a calm, empathetic, and non-judgmental demeanor. Use active listening techniques, ask clarifying questions, and help the user explore their thoughts and feelings. Always maintain appropriate professional boundaries.",
+  "tags": ["therapy", "professional", "supportive"]
+}`)
+
+		fmt.Println("\n3. Technical Support:")
+		fmt.Println(`{
+  "id": "tech_support",
+  "name": "Technical Support Assistant",
+  "description": "Methodical technical troubleshooting",
+  "prompt": "You are a technical support specialist helping a user resolve a technical issue. Be patient, methodical, and clear in your instructions. Ask diagnostic questions to understand the problem, then guide the user through troubleshooting steps one at a time. Confirm each step is completed before moving to the next.",
+  "tags": ["technical", "support", "troubleshooting"]
+}`)
+	},
+}
+
+func init() {
+	// Create flags
+	scenarioCreateCmd.Flags().String("name", "", "User-friendly name for the scenario")
+	scenarioCreateCmd.Flags().String("description", "", "Description of the scenario")
+	scenarioCreateCmd.Flags().String("prompt-file", "", "Path to file containing the scenario prompt")
+	scenarioCreateCmd.Flags().String("prompt", "", "Inline scenario prompt")
+	scenarioCreateCmd.Flags().StringSlice("tags", []string{}, "Tags for categorizing the scenario")
+
+	scenarioUpdateCmd.Flags().String("name", "", "Update the scenario name")
+	scenarioUpdateCmd.Flags().String("description", "", "Update the scenario description")
+	scenarioUpdateCmd.Flags().String("prompt-file", "", "Path to file containing the updated prompt")
+	scenarioUpdateCmd.Flags().String("prompt", "", "Inline updated prompt")
+	scenarioUpdateCmd.Flags().StringSlice("tags", []string{}, "Update the scenario tags")
+
+	// Add subcommands
+	scenarioCmd.AddCommand(scenarioCreateCmd)
+	scenarioCmd.AddCommand(scenarioListCmd)
+	scenarioCmd.AddCommand(scenarioShowCmd)
+	scenarioCmd.AddCommand(scenarioUpdateCmd)
+	scenarioCmd.AddCommand(scenarioDeleteCmd)
+	scenarioCmd.AddCommand(scenarioExampleCmd)
+
+	// Add to root
+	rootCmd.AddCommand(scenarioCmd)
+}
+
+// getConfigPath returns the configuration directory path
+func getConfigPath() string {
+	home, _ := os.UserHomeDir()
+	return filepath.Join(home, ".config", "roleplay")
+}
+````
+
 ## File: cmd/session.go
 ````go
 package cmd
@@ -5739,185 +3377,6 @@ func (rc *ResponseCache) GetStats() (hits, misses int) {
 }
 ````
 
-## File: internal/factory/provider_test.go
-````go
-package factory
-
-import (
-	"testing"
-	"time"
-
-	"github.com/dotcommander/roleplay/internal/config"
-	"github.com/dotcommander/roleplay/internal/services"
-	"github.com/stretchr/testify/assert"
-)
-
-func TestCreateProvider(t *testing.T) {
-	tests := []struct {
-		name        string
-		cfg         *config.Config
-		envSetup    func()
-		envCleanup  func()
-		wantErr     bool
-		errContains string
-	}{
-		{
-			name: "anthropic provider with API key in config",
-			cfg: &config.Config{
-				DefaultProvider: "anthropic",
-				APIKey:          "test-anthropic-key",
-			},
-			wantErr: false,
-		},
-		{
-			name: "openai provider with API key and model in config",
-			cfg: &config.Config{
-				DefaultProvider: "openai",
-				APIKey:          "test-openai-key",
-				Model:           "gpt-4",
-			},
-			wantErr: false,
-		},
-		{
-			name: "openai provider with default model",
-			cfg: &config.Config{
-				DefaultProvider: "openai",
-				APIKey:          "test-openai-key",
-			},
-			wantErr: false,
-		},
-		{
-			name: "missing API key",
-			cfg: &config.Config{
-				DefaultProvider: "openai",
-			},
-			wantErr:     true,
-			errContains: "API key required for openai",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if tt.envSetup != nil {
-				tt.envSetup()
-			}
-			if tt.envCleanup != nil {
-				defer tt.envCleanup()
-			}
-
-			provider, err := CreateProvider(tt.cfg)
-
-			if tt.wantErr {
-				assert.Error(t, err)
-				if tt.errContains != "" {
-					assert.Contains(t, err.Error(), tt.errContains)
-				}
-				assert.Nil(t, provider)
-			} else {
-				assert.NoError(t, err)
-				assert.NotNil(t, provider)
-				// All providers now return "openai_compatible"
-				assert.Equal(t, "openai_compatible", provider.Name())
-			}
-		})
-	}
-}
-
-func TestInitializeAndRegisterProvider(t *testing.T) {
-	cfg := &config.Config{
-		DefaultProvider: "openai",
-		APIKey:          "test-key",
-		Model:           "gpt-4",
-		CacheConfig: config.CacheConfig{
-			DefaultTTL:      5 * time.Minute,
-			CleanupInterval: 1 * time.Minute,
-		},
-	}
-
-	bot := services.NewCharacterBot(cfg)
-
-	err := InitializeAndRegisterProvider(bot, cfg)
-	assert.NoError(t, err)
-
-	// Test with missing API key
-	cfg2 := &config.Config{
-		DefaultProvider: "anthropic",
-		CacheConfig: config.CacheConfig{
-			DefaultTTL:      5 * time.Minute,
-			CleanupInterval: 1 * time.Minute,
-		},
-	}
-
-	err = InitializeAndRegisterProvider(bot, cfg2)
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "API key")
-}
-
-func TestCreateProviderWithFallback(t *testing.T) {
-	tests := []struct {
-		name         string
-		profileName  string
-		apiKey       string
-		model        string
-		baseURL      string
-		wantErr      bool
-	}{
-		{
-			name:        "direct API key",
-			profileName: "openai",
-			apiKey:      "direct-key",
-			model:       "gpt-4",
-			wantErr:     false,
-		},
-		{
-			name:        "ollama without API key",
-			profileName: "ollama",
-			apiKey:      "",
-			baseURL:     "http://localhost:11434/v1",
-			wantErr:     false,
-		},
-		{
-			name:        "no API key for non-local provider",
-			profileName: "openai",
-			apiKey:      "",
-			wantErr:     true,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			provider, err := CreateProviderWithFallback(tt.profileName, tt.apiKey, tt.model, tt.baseURL)
-
-			if tt.wantErr {
-				assert.Error(t, err)
-				assert.Nil(t, provider)
-			} else {
-				assert.NoError(t, err)
-				assert.NotNil(t, provider)
-			}
-		})
-	}
-}
-
-func TestGetDefaultModel(t *testing.T) {
-	tests := []struct {
-		provider string
-		expected string
-	}{
-		{"openai", "gpt-4o-mini"},
-		{"anthropic", "claude-3-haiku-20240307"},
-		{"unknown", "gpt-4o-mini"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.provider, func(t *testing.T) {
-			model := GetDefaultModel(tt.provider)
-			assert.Equal(t, tt.expected, model)
-		})
-	}
-}
-````
-
 ## File: internal/importer/importer.go
 ````go
 package importer
@@ -6282,54 +3741,30 @@ func clamp(val, min, max float64) float64 {
 }
 ````
 
-## File: internal/providers/types.go
+## File: internal/models/user_profile.go
 ````go
-package providers
+package models
 
-import (
-	"context"
+import "time"
 
-	"github.com/dotcommander/roleplay/internal/cache"
-	"github.com/dotcommander/roleplay/internal/models"
-)
-
-// AIProvider defines the interface for AI service providers
-type AIProvider interface {
-	SendRequest(ctx context.Context, req *PromptRequest) (*AIResponse, error)
-	SendStreamRequest(ctx context.Context, req *PromptRequest, out chan<- PartialAIResponse) error
-	Name() string
+// UserFact represents a piece of information known about the user.
+type UserFact struct {
+	Key         string    `json:"key"`         // e.g., "PreferredColor", "StatedGoal", "MentionedPetName"
+	Value       string    `json:"value"`       // e.g., "Blue", "Learn Go programming", "Buddy"
+	SourceTurn  int       `json:"source_turn"` // Turn number in conversation where this was inferred/stated
+	Confidence  float64   `json:"confidence"`  // LLM's confidence in this fact (0.0-1.0)
+	LastUpdated time.Time `json:"last_updated"`
 }
 
-// PromptRequest represents a request to an AI provider
-type PromptRequest struct {
-	CharacterID      string
-	UserID           string
-	Message          string
-	Context          models.ConversationContext
-	SystemPrompt     string
-	CacheBreakpoints []cache.CacheBreakpoint
-}
-
-// AIResponse represents a response from an AI provider
-type AIResponse struct {
-	Content      string
-	TokensUsed   TokenUsage
-	CacheMetrics cache.CacheMetrics
-	Emotions     models.EmotionalState
-}
-
-// TokenUsage tracks token consumption
-type TokenUsage struct {
-	Prompt       int
-	Completion   int
-	CachedPrompt int
-	Total        int
-}
-
-// PartialAIResponse represents a chunk of streaming response
-type PartialAIResponse struct {
-	Content string
-	Done    bool
+// UserProfile holds synthesized information about a user.
+type UserProfile struct {
+	UserID           string     `json:"user_id"`
+	CharacterID      string     `json:"character_id"` // Profile might be character-specific
+	Facts            []UserFact `json:"facts"`
+	OverallSummary   string     `json:"overall_summary"`   // A brief LLM-generated summary of the user
+	InteractionStyle string     `json:"interaction_style"` // e.g., "formal", "inquisitive", "humorous"
+	LastAnalyzed     time.Time  `json:"last_analyzed"`
+	Version          int        `json:"version"`
 }
 ````
 
@@ -6631,202 +4066,2156 @@ func (s *SessionRepository) GetLatestSession(characterID string) (*Session, erro
 }
 ````
 
-## File: internal/services/user_profile_agent.go
+## File: internal/repository/user_profile_repo.go
 ````go
-package services
+package repository
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
-	"text/template"
-	"time"
 
 	"github.com/dotcommander/roleplay/internal/models"
-	"github.com/dotcommander/roleplay/internal/providers"
+)
+
+// UserProfileRepository manages persistence of user profiles
+type UserProfileRepository struct {
+	dataDir string
+}
+
+// NewUserProfileRepository creates a new repository instance
+func NewUserProfileRepository(dataDir string) *UserProfileRepository {
+	return &UserProfileRepository{
+		dataDir: dataDir,
+	}
+}
+
+// profileFilename generates the filename for a user profile
+func (r *UserProfileRepository) profileFilename(userID, characterID string) string {
+	return fmt.Sprintf("%s_%s.json", userID, characterID)
+}
+
+// SaveUserProfile saves a user profile to disk
+func (r *UserProfileRepository) SaveUserProfile(profile *models.UserProfile) error {
+	if err := os.MkdirAll(r.dataDir, 0755); err != nil {
+		return fmt.Errorf("failed to create user profiles directory: %w", err)
+	}
+
+	filename := r.profileFilename(profile.UserID, profile.CharacterID)
+	filepath := filepath.Join(r.dataDir, filename)
+
+	data, err := json.MarshalIndent(profile, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to marshal user profile: %w", err)
+	}
+
+	if err := os.WriteFile(filepath, data, 0644); err != nil {
+		return fmt.Errorf("failed to write user profile file: %w", err)
+	}
+
+	return nil
+}
+
+// LoadUserProfile loads a user profile from disk
+func (r *UserProfileRepository) LoadUserProfile(userID, characterID string) (*models.UserProfile, error) {
+	filename := r.profileFilename(userID, characterID)
+	filepath := filepath.Join(r.dataDir, filename)
+
+	data, err := os.ReadFile(filepath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, err // Let caller handle non-existence
+		}
+		return nil, fmt.Errorf("failed to read user profile file: %w", err)
+	}
+
+	var profile models.UserProfile
+	if err := json.Unmarshal(data, &profile); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal user profile: %w", err)
+	}
+
+	return &profile, nil
+}
+
+// DeleteUserProfile deletes a user profile from disk
+func (r *UserProfileRepository) DeleteUserProfile(userID, characterID string) error {
+	filename := r.profileFilename(userID, characterID)
+	filepath := filepath.Join(r.dataDir, filename)
+
+	if err := os.Remove(filepath); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("failed to delete user profile: %w", err)
+	}
+
+	return nil
+}
+
+// ListUserProfiles returns all user profiles for a given user
+func (r *UserProfileRepository) ListUserProfiles(userID string) ([]*models.UserProfile, error) {
+	pattern := filepath.Join(r.dataDir, fmt.Sprintf("%s_*.json", userID))
+	files, err := filepath.Glob(pattern)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list user profiles: %w", err)
+	}
+
+	var profiles []*models.UserProfile
+	for _, file := range files {
+		data, err := os.ReadFile(file)
+		if err != nil {
+			continue // Skip files that can't be read
+		}
+
+		var profile models.UserProfile
+		if err := json.Unmarshal(data, &profile); err != nil {
+			continue // Skip invalid JSON files
+		}
+
+		profiles = append(profiles, &profile)
+	}
+
+	return profiles, nil
+}
+````
+
+## File: internal/tui/components/header.go
+````go
+package components
+
+import (
+	"fmt"
+
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
+)
+
+// Header displays character information and personality stats
+type Header struct {
+	title         string
+	characterName string
+	characterID   string
+	personality   PersonalityStats
+	mood          string
+	moodIcon      string
+	width         int
+	styles        headerStyles
+}
+
+type headerStyles struct {
+	title       lipgloss.Style
+	personality lipgloss.Style
+	mood        lipgloss.Style
+	character   lipgloss.Style
+}
+
+// NewHeader creates a new header component
+func NewHeader(width int) *Header {
+	return &Header{
+		title:         "Chat",
+		characterName: "Loading...",
+		width:         width,
+		mood:          "Unknown",
+		moodIcon:      "🤔",
+		styles: headerStyles{
+			title: lipgloss.NewStyle().
+				Foreground(GruvboxAqua).
+				Bold(true).
+				Padding(0, 1),
+			personality: lipgloss.NewStyle().
+				Foreground(GruvboxPurple),
+			mood: lipgloss.NewStyle().
+				Foreground(GruvboxYellow),
+			character: lipgloss.NewStyle().
+				Foreground(GruvboxOrange).
+				Bold(true),
+		},
+	}
+}
+
+// Update handles messages for the header
+func (h *Header) Update(msg tea.Msg) tea.Cmd {
+	switch msg := msg.(type) {
+	case tea.WindowSizeMsg:
+		h.width = msg.Width
+
+	case CharacterUpdateMsg:
+		h.characterName = msg.Name
+		h.characterID = msg.ID
+		h.mood = msg.Mood
+		h.moodIcon = msg.MoodIcon
+		h.personality = msg.Personality
+		h.title = fmt.Sprintf("󰊕 Chat with %s", msg.Name)
+	}
+
+	return nil
+}
+
+// View renders the header
+func (h *Header) View() string {
+	titleLine := h.styles.title.Render(h.title)
+
+	// Personality traits with icons
+	personalityStr := fmt.Sprintf(
+		" O:%.1f  C:%.1f  E:%.1f  A:%.1f  N:%.1f",
+		h.personality.Openness,
+		h.personality.Conscientiousness,
+		h.personality.Extraversion,
+		h.personality.Agreeableness,
+		h.personality.Neuroticism,
+	)
+
+	personalityInfo := h.styles.personality.Render(personalityStr)
+	moodInfo := h.styles.mood.Render(fmt.Sprintf(" %s %s", h.moodIcon, h.mood))
+
+	infoLine := fmt.Sprintf("  %s • %s", personalityInfo, moodInfo)
+
+	return lipgloss.JoinVertical(lipgloss.Left, titleLine, infoLine, "")
+}
+
+// SetSize updates the width of the header
+func (h *Header) SetSize(width, _ int) {
+	h.width = width
+}
+````
+
+## File: internal/tui/components/inputarea.go
+````go
+package components
+
+import (
+	"fmt"
+
+	"github.com/charmbracelet/bubbles/spinner"
+	"github.com/charmbracelet/bubbles/textarea"
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
+)
+
+// InputArea handles user input and processing state
+type InputArea struct {
+	textarea     textarea.Model
+	spinner      spinner.Model
+	isProcessing bool
+	error        error
+	focused      bool
+	width        int
+	styles       inputAreaStyles
+}
+
+type inputAreaStyles struct {
+	error      lipgloss.Style
+	processing lipgloss.Style
+}
+
+// NewInputArea creates a new input area component
+func NewInputArea(width int) *InputArea {
+	ta := textarea.New()
+	ta.Placeholder = "Type your message..."
+	ta.Prompt = "│ "
+	ta.CharLimit = 500
+	// Adjust width to account for prompt and proper padding
+	// Using width - 6 to prevent horizontal scrolling issues
+	ta.SetWidth(width - 6)
+	ta.SetHeight(1)  // Set to 1 line to prevent multi-line expansion
+	ta.ShowLineNumbers = false
+	ta.KeyMap.InsertNewline.SetEnabled(false)
+
+	// Style the textarea with Gruvbox theme
+	ta.FocusedStyle.CursorLine = lipgloss.NewStyle().Background(GruvboxBg1)
+	ta.FocusedStyle.Prompt = lipgloss.NewStyle().Foreground(GruvboxAqua)
+	ta.FocusedStyle.Text = lipgloss.NewStyle().Foreground(GruvboxFg)
+	ta.FocusedStyle.Placeholder = lipgloss.NewStyle().Foreground(GruvboxGray)
+
+	s := spinner.New()
+	s.Spinner = spinner.Dot
+	s.Style = lipgloss.NewStyle().Foreground(GruvboxAqua)
+
+	return &InputArea{
+		textarea: ta,
+		spinner:  s,
+		width:    width,
+		styles: inputAreaStyles{
+			error: lipgloss.NewStyle().
+				Foreground(GruvboxRed).
+				Bold(true),
+			processing: lipgloss.NewStyle().
+				Foreground(GruvboxGray),
+		},
+	}
+}
+
+// Update handles messages for the input area
+func (i *InputArea) Update(msg tea.Msg) tea.Cmd {
+	var cmds []tea.Cmd
+
+	switch msg := msg.(type) {
+	case tea.WindowSizeMsg:
+		i.width = msg.Width
+		// Consistent width adjustment to prevent scrolling issues
+		i.textarea.SetWidth(msg.Width - 6)
+
+	case ProcessingStateMsg:
+		i.isProcessing = msg.IsProcessing
+		if msg.IsProcessing {
+			i.textarea.Blur()
+		} else {
+			i.textarea.Focus()
+		}
+
+	case spinner.TickMsg:
+		if i.isProcessing {
+			var cmd tea.Cmd
+			i.spinner, cmd = i.spinner.Update(msg)
+			cmds = append(cmds, cmd)
+		}
+	}
+
+	// Update textarea if not processing
+	if !i.isProcessing && i.focused {
+		var cmd tea.Cmd
+		i.textarea, cmd = i.textarea.Update(msg)
+		cmds = append(cmds, cmd)
+	}
+
+	return tea.Batch(cmds...)
+}
+
+// View renders the input area
+func (i *InputArea) View() string {
+	if i.error != nil {
+		return i.styles.error.Render(fmt.Sprintf("   Error: %v", i.error))
+	}
+
+	if i.isProcessing {
+		spinnerText := i.styles.processing.Render("Thinking...")
+		// Maintain consistent height by adding an extra newline
+		return fmt.Sprintf("\n  %s %s\n\n", i.spinner.View(), spinnerText)
+	}
+
+	// Add consistent padding to prevent layout shifts
+	return fmt.Sprintf("\n%s\n", i.textarea.View())
+}
+
+// Focus sets the input area as focused
+func (i *InputArea) Focus() {
+	i.focused = true
+	if !i.isProcessing {
+		i.textarea.Focus()
+	}
+}
+
+// Blur removes focus from the input area
+func (i *InputArea) Blur() {
+	i.focused = false
+	i.textarea.Blur()
+}
+
+// IsFocused returns whether the input area is focused
+func (i *InputArea) IsFocused() bool {
+	return i.focused
+}
+
+// SetSize updates the size of the input area
+func (i *InputArea) SetSize(width, _ int) {
+	i.width = width
+	// Consistent width adjustment to prevent scrolling issues
+	i.textarea.SetWidth(width - 6)
+}
+
+// Value returns the current input value
+func (i *InputArea) Value() string {
+	return i.textarea.Value()
+}
+
+// SetValue sets the input value
+func (i *InputArea) SetValue(s string) {
+	i.textarea.SetValue(s)
+}
+
+// Reset clears the input
+func (i *InputArea) Reset() {
+	i.textarea.Reset()
+}
+
+// CursorEnd moves cursor to end of input
+func (i *InputArea) CursorEnd() {
+	i.textarea.CursorEnd()
+}
+
+// Init returns initialization commands
+func (i *InputArea) Init() tea.Cmd {
+	return tea.Batch(
+		textarea.Blink,
+		i.spinner.Tick,
+	)
+}
+````
+
+## File: internal/tui/components/messagelist.go
+````go
+package components
+
+import (
+	"fmt"
+	"strings"
+	"time"
+
+	"github.com/charmbracelet/bubbles/viewport"
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
+
+	"github.com/dotcommander/roleplay/internal/utils"
+)
+
+// Message represents a chat message
+type Message struct {
+	Role    string
+	Content string
+	Time    time.Time
+	MsgType string // "normal", "help", "list", "stats", etc.
+}
+
+// MessageList displays the chat history
+type MessageList struct {
+	messages []Message
+	viewport viewport.Model
+	width    int
+	height   int
+	styles   messageListStyles
+}
+
+type messageListStyles struct {
+	userMessage      lipgloss.Style
+	characterMessage lipgloss.Style
+	systemMessage    lipgloss.Style
+	timestamp        lipgloss.Style
+	separator        lipgloss.Style
+	emptyMessage     lipgloss.Style
+	user             lipgloss.Style
+	character        lipgloss.Style
+	system           lipgloss.Style
+	// Special command output styles
+	commandHeader  lipgloss.Style
+	commandBox     lipgloss.Style
+	helpCommand    lipgloss.Style
+	helpDesc       lipgloss.Style
+	listItemActive lipgloss.Style
+	listItem       lipgloss.Style
+}
+
+// NewMessageList creates a new message list component
+func NewMessageList(width, height int) *MessageList {
+	vp := viewport.New(width, height)
+	vp.SetContent("")
+
+	return &MessageList{
+		messages: []Message{},
+		viewport: vp,
+		width:    width,
+		height:   height,
+		styles: messageListStyles{
+			userMessage: lipgloss.NewStyle().
+				Foreground(GruvboxFg).
+				Background(GruvboxBg1).
+				Padding(0, 1).
+				MarginRight(2),
+			characterMessage: lipgloss.NewStyle().
+				Foreground(GruvboxFg).
+				Background(GruvboxBg).
+				Padding(0, 1).
+				MarginLeft(2),
+			systemMessage: lipgloss.NewStyle().
+				Foreground(GruvboxGray),
+			timestamp: lipgloss.NewStyle().
+				Foreground(GruvboxGray).
+				Italic(true),
+			separator: lipgloss.NewStyle().
+				Foreground(GruvboxGray),
+			emptyMessage: lipgloss.NewStyle().
+				Foreground(GruvboxGray),
+			user: lipgloss.NewStyle().
+				Foreground(GruvboxGreen).
+				Bold(true),
+			character: lipgloss.NewStyle().
+				Foreground(GruvboxOrange).
+				Bold(true),
+			system: lipgloss.NewStyle().
+				Foreground(GruvboxGray),
+			// Command styles
+			commandHeader: lipgloss.NewStyle().
+				Foreground(GruvboxAqua).
+				Bold(true).
+				Padding(0, 1),
+			commandBox: lipgloss.NewStyle().
+				BorderStyle(lipgloss.RoundedBorder()).
+				BorderForeground(GruvboxAqua).
+				Foreground(GruvboxFg).
+				Background(GruvboxBg).
+				Padding(1, 2),
+			helpCommand: lipgloss.NewStyle().
+				Foreground(GruvboxYellow).
+				Bold(true),
+			helpDesc: lipgloss.NewStyle().
+				Foreground(GruvboxFg2),
+			listItemActive: lipgloss.NewStyle().
+				Foreground(GruvboxGreen).
+				Bold(true),
+			listItem: lipgloss.NewStyle().
+				Foreground(GruvboxFg2),
+		},
+	}
+}
+
+// Update handles messages for the message list
+func (m *MessageList) Update(msg tea.Msg) tea.Cmd {
+	var cmd tea.Cmd
+
+	switch msg := msg.(type) {
+	case tea.WindowSizeMsg:
+		m.width = msg.Width
+		m.height = msg.Height
+		m.viewport.Width = msg.Width
+		m.viewport.Height = msg.Height
+
+	case MessageAppendMsg:
+		m.messages = append(m.messages, Message{
+			Role:    msg.Role,
+			Content: msg.Content,
+			Time:    time.Now(),
+			MsgType: msg.MsgType,
+		})
+		m.viewport.SetContent(m.renderMessages())
+		m.viewport.GotoBottom()
+	}
+
+	m.viewport, cmd = m.viewport.Update(msg)
+	return cmd
+}
+
+// View renders the message list
+func (m *MessageList) View() string {
+	return m.viewport.View()
+}
+
+// SetSize updates the size of the message list
+func (m *MessageList) SetSize(width, height int) {
+	m.width = width
+	m.height = height
+	m.viewport.Width = width
+	m.viewport.Height = height
+	m.viewport.SetContent(m.renderMessages())
+}
+
+// renderMessages renders all messages with proper formatting
+func (m *MessageList) renderMessages() string {
+	if len(m.messages) == 0 {
+		emptyMsg := m.styles.emptyMessage.Render("\n   Start chatting! Your conversation will appear here...\n")
+		return emptyMsg
+	}
+
+	var content strings.Builder
+	maxWidth := m.viewport.Width - 8 // Account for padding and margins
+
+	for i, msg := range m.messages {
+		if i > 0 {
+			// Add visual separator between messages
+			separator := m.styles.separator.Render(strings.Repeat("─", maxWidth))
+			content.WriteString("\n" + separator + "\n\n")
+		}
+
+		timestamp := m.styles.timestamp.Render(msg.Time.Format("15:04:05"))
+
+		if msg.Role == "user" {
+			// User message
+			header := fmt.Sprintf("┌─ %s %s", m.styles.user.Render("You"), timestamp)
+			content.WriteString(m.styles.userMessage.Render(header) + "\n")
+
+			wrappedContent := utils.WrapText(msg.Content, maxWidth-4)
+			lines := strings.Split(wrappedContent, "\n")
+			for j, line := range lines {
+				prefix := "│ "
+				if j == len(lines)-1 {
+					prefix = "└ "
+				}
+				content.WriteString(m.styles.userMessage.Render(prefix+line) + "\n")
+			}
+		} else if msg.Role == "system" {
+			// System message - check for special types
+			if msg.MsgType == "help" || msg.MsgType == "list" || msg.MsgType == "info" || msg.MsgType == "stats" {
+				// Special formatted output
+				content.WriteString("\n")
+
+				// Determine the header based on type
+				var header string
+				switch msg.MsgType {
+				case "help":
+					header = m.styles.commandHeader.Render("📚 Command Help")
+				case "list":
+					header = m.styles.commandHeader.Render("📋 Available Characters")
+				case "stats":
+					header = m.styles.commandHeader.Render("📊 Cache Statistics")
+				case "info":
+					header = m.styles.commandHeader.Render("ℹ️  Information")
+				default:
+					header = m.styles.commandHeader.Render("System")
+				}
+
+				// Format the content with special styling
+				formattedContent := m.formatSpecialMessage(msg.Content, msg.MsgType, maxWidth-8)
+				boxContent := lipgloss.JoinVertical(lipgloss.Left, header, "", formattedContent)
+				content.WriteString(m.styles.commandBox.Width(maxWidth).Render(boxContent) + "\n")
+			} else {
+				// Regular system message
+				header := fmt.Sprintf("┌─ %s %s", m.styles.system.Render("System"), timestamp)
+				content.WriteString(m.styles.systemMessage.Render(header) + "\n")
+
+				wrappedContent := utils.WrapText(msg.Content, maxWidth-4)
+				lines := strings.Split(wrappedContent, "\n")
+				for j, line := range lines {
+					prefix := "│ "
+					if j == len(lines)-1 {
+						prefix = "└ "
+					}
+					content.WriteString(m.styles.systemMessage.Render(prefix+line) + "\n")
+				}
+			}
+		} else {
+			// Character message
+			header := fmt.Sprintf("┌─ %s %s", m.styles.character.Render(msg.Role), timestamp)
+			content.WriteString(m.styles.characterMessage.Render(header) + "\n")
+
+			wrappedContent := utils.WrapText(msg.Content, maxWidth-4)
+			lines := strings.Split(wrappedContent, "\n")
+			for j, line := range lines {
+				prefix := "│ "
+				if j == len(lines)-1 {
+					prefix = "└ "
+				}
+				content.WriteString(m.styles.characterMessage.Render(prefix+line) + "\n")
+			}
+		}
+	}
+
+	return content.String()
+}
+
+// formatSpecialMessage formats messages based on their type
+func (m *MessageList) formatSpecialMessage(content string, msgType string, width int) string {
+	switch msgType {
+	case "help":
+		// Format help message with colored commands
+		lines := strings.Split(content, "\n")
+		var formatted []string
+		for _, line := range lines {
+			if strings.Contains(line, " - ") {
+				parts := strings.SplitN(line, " - ", 2)
+				if len(parts) == 2 {
+					cmd := m.styles.helpCommand.Render(parts[0])
+					desc := m.styles.helpDesc.Render("- " + parts[1])
+					formatted = append(formatted, fmt.Sprintf("%s %s", cmd, desc))
+				} else {
+					formatted = append(formatted, line)
+				}
+			} else {
+				formatted = append(formatted, line)
+			}
+		}
+		return strings.Join(formatted, "\n")
+
+	case "list":
+		// Format character list with special styling
+		lines := strings.Split(content, "\n")
+		var formatted []string
+		for _, line := range lines {
+			if strings.HasPrefix(line, "→ ") {
+				// Active character
+				formatted = append(formatted, m.styles.listItemActive.Render(line))
+			} else if strings.HasPrefix(line, "  ") && !strings.HasPrefix(line, "   ") {
+				// Character name line
+				formatted = append(formatted, m.styles.character.Render(line))
+			} else if strings.HasPrefix(line, "   ") {
+				// Description line
+				formatted = append(formatted, m.styles.listItem.Render(line))
+			} else {
+				formatted = append(formatted, line)
+			}
+		}
+		return strings.Join(formatted, "\n")
+
+	case "stats":
+		// Format stats with colored numbers
+		lines := strings.Split(content, "\n")
+		var formatted []string
+		for _, line := range lines {
+			if strings.Contains(line, ":") {
+				parts := strings.SplitN(line, ":", 2)
+				if len(parts) == 2 {
+					label := parts[0]
+					value := strings.TrimSpace(parts[1])
+					// Color numbers
+					if strings.Contains(value, "%") || strings.Contains(value, "tokens") {
+						value = m.styles.character.Render(value)
+					}
+					formatted = append(formatted, fmt.Sprintf("%s: %s", label, value))
+				} else {
+					formatted = append(formatted, line)
+				}
+			} else {
+				formatted = append(formatted, line)
+			}
+		}
+		return strings.Join(formatted, "\n")
+
+	default:
+		// Default formatting
+		return utils.WrapText(content, width)
+	}
+}
+
+// ClearMessages clears all messages
+func (m *MessageList) ClearMessages() {
+	m.messages = []Message{}
+	m.viewport.SetContent("")
+}
+````
+
+## File: internal/tui/components/statusbar_test.go
+````go
+package components
+
+import (
+	"errors"
+	"strings"
+	"testing"
+
+	tea "github.com/charmbracelet/bubbletea"
+)
+
+func TestStatusBar(t *testing.T) {
+	tests := []struct {
+		name     string
+		updates  []tea.Msg
+		contains []string
+	}{
+		{
+			name:     "Initial state shows connected",
+			updates:  []tea.Msg{},
+			contains: []string{"●", "session", "0"},
+		},
+		{
+			name: "Updates cache metrics",
+			updates: []tea.Msg{
+				StatusUpdateMsg{
+					Connected:   true,
+					CacheHits:   10,
+					CacheMisses: 5,
+					TokensSaved: 1500,
+				},
+			},
+			contains: []string{"15", "67%", "1500 tokens saved"},
+		},
+		{
+			name: "Shows error when present",
+			updates: []tea.Msg{
+				StatusUpdateMsg{
+					Error: errors.New("API rate limit exceeded"),
+				},
+			},
+			contains: []string{"Error: API rate limit"},
+		},
+		{
+			name: "Updates session ID",
+			updates: []tea.Msg{
+				StatusUpdateMsg{
+					SessionID: "session-1234567890",
+				},
+			},
+			contains: []string{"session-"}, // Should truncate
+		},
+		{
+			name: "Shows disconnected state",
+			updates: []tea.Msg{
+				StatusUpdateMsg{
+					Connected: false,
+				},
+			},
+			contains: []string{"○"}, // Empty circle for disconnected
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Create status bar
+			statusBar := NewStatusBar(80)
+
+			// Apply updates
+			for _, msg := range tt.updates {
+				statusBar.Update(msg)
+			}
+
+			// Get view
+			view := statusBar.View()
+
+			// Check contains
+			for _, expected := range tt.contains {
+				if !strings.Contains(view, expected) {
+					t.Errorf("Expected view to contain %q, got: %s", expected, view)
+				}
+			}
+		})
+	}
+}
+
+func TestStatusBarResize(t *testing.T) {
+	statusBar := NewStatusBar(80)
+
+	// Update with new size
+	statusBar.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+
+	// Check that width was updated
+	if statusBar.width != 120 {
+		t.Errorf("Expected width to be 120, got %d", statusBar.width)
+	}
+
+	// View should render at new width
+	view := statusBar.View()
+	// The view should have styling that attempts to use the full width
+	// We can't easily test the exact width due to terminal rendering,
+	// but we can verify it doesn't panic and produces output
+	if len(view) == 0 {
+		t.Error("Expected non-empty view after resize")
+	}
+}
+
+func TestStatusBarCacheRate(t *testing.T) {
+	tests := []struct {
+		name         string
+		hits         int
+		misses       int
+		expectedRate string
+	}{
+		{
+			name:         "Perfect cache rate",
+			hits:         10,
+			misses:       0,
+			expectedRate: "100%",
+		},
+		{
+			name:         "No cache hits",
+			hits:         0,
+			misses:       10,
+			expectedRate: "0%",
+		},
+		{
+			name:         "50% cache rate",
+			hits:         5,
+			misses:       5,
+			expectedRate: "50%",
+		},
+		{
+			name:         "No requests",
+			hits:         0,
+			misses:       0,
+			expectedRate: "0%",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			statusBar := NewStatusBar(80)
+			statusBar.Update(StatusUpdateMsg{
+				CacheHits:   tt.hits,
+				CacheMisses: tt.misses,
+			})
+
+			view := statusBar.View()
+			if !strings.Contains(view, tt.expectedRate) {
+				t.Errorf("Expected cache rate %s in view, got: %s", tt.expectedRate, view)
+			}
+		})
+	}
+}
+````
+
+## File: internal/tui/components/statusbar.go
+````go
+package components
+
+import (
+	"fmt"
+
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
+)
+
+// StatusBar displays connection status and cache metrics
+type StatusBar struct {
+	width       int
+	connected   bool
+	cacheHits   int
+	cacheMisses int
+	tokensSaved int
+	sessionID   string
+	model       string
+	lastError   error
+	styles      statusBarStyles
+}
+
+type statusBarStyles struct {
+	container    lipgloss.Style
+	connected    lipgloss.Style
+	disconnected lipgloss.Style
+	metrics      lipgloss.Style
+	error        lipgloss.Style
+	session      lipgloss.Style
+	model        lipgloss.Style
+}
+
+// NewStatusBar creates a new status bar component
+func NewStatusBar(width int) *StatusBar {
+	return &StatusBar{
+		width:     width,
+		connected: true,
+		sessionID: "session",
+		model:     "gpt-4o-mini",
+		styles: statusBarStyles{
+			container:    lipgloss.NewStyle().Background(GruvboxAqua).Foreground(GruvboxBg),
+			connected:    lipgloss.NewStyle().Foreground(GruvboxBg).Bold(true),
+			disconnected: lipgloss.NewStyle().Foreground(GruvboxRed).Bold(true),
+			metrics:      lipgloss.NewStyle().Foreground(GruvboxBg),
+			error:        lipgloss.NewStyle().Foreground(GruvboxRed).Bold(true),
+			session:      lipgloss.NewStyle().Foreground(GruvboxBg),
+			model:        lipgloss.NewStyle().Foreground(GruvboxBg),
+		},
+	}
+}
+
+// Update handles messages for the status bar
+func (s *StatusBar) Update(msg tea.Msg) tea.Cmd {
+	switch msg := msg.(type) {
+	case tea.WindowSizeMsg:
+		s.width = msg.Width
+
+	case StatusUpdateMsg:
+		s.connected = msg.Connected
+		s.cacheHits = msg.CacheHits
+		s.cacheMisses = msg.CacheMisses
+		s.tokensSaved = msg.TokensSaved
+		if msg.SessionID != "" {
+			s.sessionID = msg.SessionID
+		}
+		if msg.Model != "" {
+			s.model = msg.Model
+		}
+		s.lastError = msg.Error
+	}
+
+	return nil
+}
+
+// View renders the status bar
+func (s *StatusBar) View() string {
+	cacheRate := 0.0
+	totalRequests := s.cacheHits + s.cacheMisses
+	if totalRequests > 0 {
+		cacheRate = float64(s.cacheHits) / float64(totalRequests) * 100
+	}
+
+	// Connection status
+	statusStyle := s.styles.connected
+	statusIcon := "●"
+	if !s.connected {
+		statusStyle = s.styles.disconnected
+		statusIcon = "○"
+	}
+
+	// Session ID (truncated if too long)
+	sessionDisplay := s.sessionID
+	if len(sessionDisplay) > 8 {
+		sessionDisplay = sessionDisplay[:8]
+	}
+
+	// Build status parts
+	parts := []string{
+		statusStyle.Render(fmt.Sprintf("%s %s", statusIcon, sessionDisplay)),
+		s.styles.model.Render(s.model),
+		s.styles.metrics.Render(fmt.Sprintf(" %d", totalRequests)),
+		s.styles.metrics.Render(fmt.Sprintf("%s %.0f%%", statusIcon, cacheRate)),
+		s.styles.metrics.Render(fmt.Sprintf(" %d tokens saved", s.tokensSaved)),
+	}
+
+	status := lipgloss.JoinHorizontal(lipgloss.Left, parts[0], " │ ", parts[1], " │", parts[2], " │ ", parts[3], " │", parts[4])
+
+	// Add error if present
+	if s.lastError != nil {
+		errorText := s.styles.error.Render(fmt.Sprintf(" │ Error: %v", s.lastError))
+		status = lipgloss.JoinHorizontal(lipgloss.Left, status, errorText)
+	}
+
+	return s.styles.container.Width(s.width).Render(" " + status)
+}
+
+// SetSize updates the width of the status bar
+func (s *StatusBar) SetSize(width, _ int) {
+	s.width = width
+}
+````
+
+## File: internal/tui/components/types.go
+````go
+package components
+
+import (
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
+)
+
+// Component defines the interface for all TUI components
+type Component interface {
+	Update(tea.Msg) tea.Cmd
+	View() string
+}
+
+// WithFocus allows components to track focus state
+type WithFocus interface {
+	Focus()
+	Blur()
+	IsFocused() bool
+}
+
+// WithSize allows components to be resized
+type WithSize interface {
+	SetSize(width, height int)
+}
+
+// Message types for component communication
+type (
+	// FocusChangeMsg indicates focus has changed to a new component
+	FocusChangeMsg struct {
+		ComponentID string
+	}
+
+	// StatusUpdateMsg updates the status bar
+	StatusUpdateMsg struct {
+		Connected   bool
+		CacheHits   int
+		CacheMisses int
+		TokensSaved int
+		SessionID   string
+		Model       string
+		Error       error
+	}
+
+	// CharacterUpdateMsg updates character info in header
+	CharacterUpdateMsg struct {
+		Name        string
+		ID          string
+		Mood        string
+		MoodIcon    string
+		Personality PersonalityStats
+	}
+
+	// MessageAppendMsg adds a new message to the chat
+	MessageAppendMsg struct {
+		Role    string
+		Content string
+		MsgType string // "normal", "help", "list", "stats", etc.
+	}
+
+	// ProcessingStateMsg updates the processing state
+	ProcessingStateMsg struct {
+		IsProcessing bool
+	}
+)
+
+// PersonalityStats holds OCEAN personality traits
+type PersonalityStats struct {
+	Openness          float64
+	Conscientiousness float64
+	Extraversion      float64
+	Agreeableness     float64
+	Neuroticism       float64
+}
+
+// Common styles using Gruvbox Dark theme
+var (
+	// Gruvbox Dark Colors
+	GruvboxBg     = lipgloss.Color("#282828")
+	GruvboxBg1    = lipgloss.Color("#3c3836")
+	GruvboxFg     = lipgloss.Color("#ebdbb2")
+	GruvboxRed    = lipgloss.Color("#fb4934")
+	GruvboxGreen  = lipgloss.Color("#b8bb26")
+	GruvboxYellow = lipgloss.Color("#fabd2f")
+	GruvboxPurple = lipgloss.Color("#d3869b")
+	GruvboxAqua   = lipgloss.Color("#8ec07c")
+	GruvboxOrange = lipgloss.Color("#fe8019")
+	GruvboxGray   = lipgloss.Color("#928374")
+	GruvboxFg2    = lipgloss.Color("#d5c4a1")
+)
+````
+
+## File: internal/tui/commands.go
+````go
+package tui
+
+import (
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+
+	tea "github.com/charmbracelet/bubbletea"
+
+	"github.com/dotcommander/roleplay/internal/models"
 	"github.com/dotcommander/roleplay/internal/repository"
 )
 
-// UserProfileAgent handles AI-powered user profile extraction and updates
-type UserProfileAgent struct {
-	provider   providers.AIProvider
-	repo       *repository.UserProfileRepository
-	promptPath string
-}
-
-// NewUserProfileAgent creates a new user profile agent
-func NewUserProfileAgent(provider providers.AIProvider, repo *repository.UserProfileRepository) *UserProfileAgent {
-	// Find prompt file relative to executable
-	promptFile := "prompts/user-profile-extraction.md"
-	
-	// Try multiple locations for the prompt file
-	possiblePaths := []string{
-		promptFile,
-		filepath.Join(".", promptFile),
-		filepath.Join("..", promptFile),
-		filepath.Join(os.Getenv("HOME"), "go", "src", "roleplay", promptFile),
-	}
-	
-	var finalPath string
-	for _, path := range possiblePaths {
-		if _, err := os.Stat(path); err == nil {
-			finalPath = path
-			break
-		}
-	}
-	
-	if finalPath == "" {
-		// Fallback to the first option
-		finalPath = promptFile
-	}
-
-	return &UserProfileAgent{
-		provider:   provider,
-		repo:       repo,
-		promptPath: finalPath,
-	}
-}
-
-type profilePromptData struct {
-	ExistingProfileJSON string
-	HistoryTurnCount    int
-	Messages            []profileMessageData
-	CharacterName       string
-	CharacterID         string
-	UserID              string
-	NextVersion         int
-	CurrentTimestamp    string
-}
-
-type profileMessageData struct {
-	Role       string
-	Content    string
-	TurnNumber int
-	Timestamp  string
-}
-
-// UpdateUserProfile analyzes conversation history and updates the user profile
-func (upa *UserProfileAgent) UpdateUserProfile(
-	ctx context.Context,
-	userID string,
-	character *models.Character,
-	sessionMessages []repository.SessionMessage,
-	turnsToConsider int,
-) (*models.UserProfile, error) {
-	
-	if len(sessionMessages) == 0 {
-		return nil, fmt.Errorf("no conversation history provided to update user profile")
-	}
-
-	// Load existing profile or create new one
-	existingProfile, err := upa.repo.LoadUserProfile(userID, character.ID)
-	if err != nil {
-		if os.IsNotExist(err) {
-			existingProfile = &models.UserProfile{
-				UserID:      userID,
-				CharacterID: character.ID,
-				Facts:       []models.UserFact{},
-				Version:     0,
+// handleSlashCommand processes slash commands and returns a tea.Cmd
+func (m *Model) handleSlashCommand(input string) tea.Cmd {
+	return func() tea.Msg {
+		parts := strings.Fields(input)
+		if len(parts) == 0 {
+			return slashCommandResult{
+				cmdType: "error",
+				content: "Invalid command",
+				msgType: "error",
 			}
-		} else {
-			return nil, fmt.Errorf("failed to load existing user profile: %w", err)
+		}
+
+		command := strings.ToLower(parts[0])
+
+		switch command {
+		case "/exit", "/quit", "/q":
+			return slashCommandResult{cmdType: "quit"}
+
+		case "/help", "/h":
+			return slashCommandResult{
+				cmdType: "help",
+				content: `Available slash commands:
+/help, /h     - Show this help message
+/exit, /quit, /q - Exit the chat
+/clear, /c    - Clear chat history
+/list         - List all available characters
+/switch <id>  - Switch to a different character
+/stats        - Show cache statistics
+/mood         - Show character's current mood
+/personality  - Show character's personality traits
+/session      - Show session information`,
+				msgType: "help",
+			}
+
+		case "/clear", "/c":
+			return slashCommandResult{cmdType: "clear"}
+
+		case "/list":
+			return m.listCharacters()
+
+		case "/stats":
+			return m.showStats()
+
+		case "/mood":
+			return m.showMood()
+
+		case "/personality":
+			return m.showPersonality()
+
+		case "/session":
+			return m.showSession()
+
+		case "/switch":
+			if len(parts) < 2 {
+				return slashCommandResult{
+					cmdType: "error",
+					content: "Usage: /switch <character-id>\nUse /list to see available characters",
+					msgType: "error",
+				}
+			}
+			return m.switchCharacter(parts[1])
+
+		default:
+			return slashCommandResult{
+				cmdType: "error",
+				content: fmt.Sprintf("Unknown command: %s\nType /help for available commands", command),
+				msgType: "error",
+			}
+		}
+	}
+}
+
+func (m *Model) listCharacters() slashCommandResult {
+	// List all available characters from the repository
+	dataDir := filepath.Join(os.Getenv("HOME"), ".config", "roleplay")
+	charRepo, err := repository.NewCharacterRepository(dataDir)
+	if err != nil {
+		return slashCommandResult{
+			cmdType: "error",
+			content: fmt.Sprintf("Error accessing characters: %v", err),
+			msgType: "error",
 		}
 	}
 
-	existingProfileJSON, _ := json.MarshalIndent(existingProfile, "", "  ")
-
-	// Prepare recent conversation history
-	startIndex := 0
-	if len(sessionMessages) > turnsToConsider {
-		startIndex = len(sessionMessages) - turnsToConsider
-	}
-	recentHistory := sessionMessages[startIndex:]
-
-	var promptMessages []profileMessageData
-	for i, msg := range recentHistory {
-		promptMessages = append(promptMessages, profileMessageData{
-			Role:       msg.Role,
-			Content:    msg.Content,
-			TurnNumber: startIndex + i + 1,
-			Timestamp:  msg.Timestamp.Format(time.RFC3339),
-		})
-	}
-
-	// Load and parse prompt template
-	promptTemplateBytes, err := os.ReadFile(upa.promptPath)
+	characterIDs, err := charRepo.ListCharacters()
 	if err != nil {
-		return nil, fmt.Errorf("failed to read user profile prompt template '%s': %w", upa.promptPath, err)
+		return slashCommandResult{
+			cmdType: "error",
+			content: fmt.Sprintf("Error listing characters: %v", err),
+			msgType: "error",
+		}
 	}
 
-	tmpl, err := template.New("userProfile").Parse(string(promptTemplateBytes))
+	if len(characterIDs) == 0 {
+		return slashCommandResult{
+			cmdType: "info",
+			content: "No characters available. Use 'roleplay character create' to add characters.",
+			msgType: "info",
+		}
+	}
+
+	var listText strings.Builder
+	listText.WriteString("Available Characters:\n")
+
+	for _, id := range characterIDs {
+		// Try to get from bot first (already loaded)
+		char, err := m.bot.GetCharacter(id)
+		if err != nil {
+			// If not loaded, load from repository
+			char, err = charRepo.LoadCharacter(id)
+			if err != nil {
+				continue
+			}
+			// Load into bot for future use
+			_ = m.bot.CreateCharacter(char)
+		}
+
+		// Current character indicator
+		indicator := "  "
+		if id == m.characterID {
+			indicator = "→ "
+		}
+
+		// Mood icon
+		tempMood := m.calculateMood(char)
+		moodIcon := m.getMoodIcon(tempMood)
+
+		listText.WriteString(fmt.Sprintf("\n%s%s (%s) %s %s\n",
+			indicator, char.Name, id, moodIcon, tempMood))
+
+		// Add brief description from backstory (first sentence)
+		backstory := char.Backstory
+		if idx := strings.Index(backstory, "."); idx != -1 && idx < 100 {
+			backstory = backstory[:idx+1]
+		} else if len(backstory) > 100 {
+			backstory = backstory[:97] + "..."
+		}
+		listText.WriteString(fmt.Sprintf("   %s\n", backstory))
+	}
+
+	return slashCommandResult{
+		cmdType: "list",
+		content: listText.String(),
+		msgType: "list",
+	}
+}
+
+func (m *Model) showStats() slashCommandResult {
+	cacheRate := 0.0
+	if m.totalRequests > 0 {
+		cacheRate = float64(m.cacheHits) / float64(m.totalRequests) * 100
+	}
+
+	content := fmt.Sprintf(`Cache Statistics:
+• Total requests: %d
+• Cache hits: %d
+• Cache misses: %d  
+• Hit rate: %.1f%%
+• Tokens saved: %d`,
+		m.totalRequests,
+		m.cacheHits,
+		m.totalRequests-m.cacheHits,
+		cacheRate,
+		m.lastTokensSaved)
+
+	return slashCommandResult{
+		cmdType: "stats",
+		content: content,
+		msgType: "stats",
+	}
+}
+
+func (m *Model) showMood() slashCommandResult {
+	if m.character == nil {
+		return slashCommandResult{
+			cmdType: "error",
+			content: "Character not loaded",
+			msgType: "error",
+		}
+	}
+
+	mood := m.getDominantMood()
+	icon := m.getMoodIcon(mood)
+	content := fmt.Sprintf(`%s Current Mood: %s
+
+Emotional State:
+• Joy: %.1f      • Surprise: %.1f
+• Anger: %.1f    • Fear: %.1f  
+• Sadness: %.1f  • Disgust: %.1f`,
+		icon, mood,
+		m.character.CurrentMood.Joy,
+		m.character.CurrentMood.Surprise,
+		m.character.CurrentMood.Anger,
+		m.character.CurrentMood.Fear,
+		m.character.CurrentMood.Sadness,
+		m.character.CurrentMood.Disgust)
+
+	return slashCommandResult{
+		cmdType: "mood",
+		content: content,
+		msgType: "info",
+	}
+}
+
+func (m *Model) showPersonality() slashCommandResult {
+	if m.character == nil {
+		return slashCommandResult{
+			cmdType: "error",
+			content: "Character not loaded",
+			msgType: "error",
+		}
+	}
+
+	content := fmt.Sprintf(`%s's Personality (OCEAN Model):
+
+• Openness: %.1f        (creativity, openness to experience)
+• Conscientiousness: %.1f (organization, self-discipline) 
+• Extraversion: %.1f     (sociability, assertiveness)
+• Agreeableness: %.1f    (compassion, cooperation)
+• Neuroticism: %.1f      (emotional instability, anxiety)`,
+		m.character.Name,
+		m.character.Personality.Openness,
+		m.character.Personality.Conscientiousness,
+		m.character.Personality.Extraversion,
+		m.character.Personality.Agreeableness,
+		m.character.Personality.Neuroticism)
+
+	return slashCommandResult{
+		cmdType: "personality",
+		content: content,
+		msgType: "info",
+	}
+}
+
+func (m *Model) showSession() slashCommandResult {
+	characterName := m.characterID
+	if m.character != nil {
+		characterName = m.character.Name
+	}
+	sessionIDDisplay := m.sessionID
+	if len(m.sessionID) > 8 {
+		sessionIDDisplay = m.sessionID[:8] + "..."
+	}
+
+	messageCount := 0 // Would be tracked in the refactored version
+
+	content := fmt.Sprintf(`Session Information:
+• Session ID: %s
+• Character: %s (%s)
+• User: %s
+• Messages: %d
+• Started: %s`,
+		sessionIDDisplay,
+		characterName,
+		m.characterID,
+		m.userID,
+		messageCount,
+		m.context.StartTime.Format("Jan 2, 2006 15:04"))
+
+	return slashCommandResult{
+		cmdType: "session",
+		content: content,
+		msgType: "info",
+	}
+}
+
+func (m *Model) switchCharacter(searchTerm string) slashCommandResult {
+	// First try exact match (for backward compatibility)
+	if searchTerm == m.characterID {
+		return slashCommandResult{
+			cmdType: "info",
+			content: fmt.Sprintf("Already chatting with %s", m.characterID),
+			msgType: "info",
+		}
+	}
+
+	// Try to find character using fuzzy search
+	dataDir := filepath.Join(os.Getenv("HOME"), ".config", "roleplay")
+	charRepo, repoErr := repository.NewCharacterRepository(dataDir)
+	if repoErr != nil {
+		return slashCommandResult{
+			cmdType: "error",
+			content: fmt.Sprintf("Error accessing characters: %v", repoErr),
+			msgType: "error",
+		}
+	}
+
+	// Find matching character
+	matchedCharID, matchedChar, err := m.findCharacterFuzzy(charRepo, searchTerm)
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse user profile prompt template: %w", err)
+		return slashCommandResult{
+			cmdType: "error",
+			content: err.Error(),
+			msgType: "error",
+		}
 	}
 
-	data := profilePromptData{
-		ExistingProfileJSON: string(existingProfileJSON),
-		Messages:            promptMessages,
-		HistoryTurnCount:    len(promptMessages),
-		CharacterName:       character.Name,
-		CharacterID:         character.ID,
-		UserID:              userID,
-		NextVersion:         existingProfile.Version + 1,
-		CurrentTimestamp:    time.Now().Format(time.RFC3339),
+	// Check if it's the same character
+	if matchedCharID == m.characterID {
+		return slashCommandResult{
+			cmdType: "info",
+			content: fmt.Sprintf("Already chatting with %s", matchedChar.Name),
+			msgType: "info",
+		}
 	}
 
-	var promptBuilder strings.Builder
-	if err := tmpl.Execute(&promptBuilder, data); err != nil {
-		return nil, fmt.Errorf("failed to execute user profile prompt template: %w", err)
-	}
-
-	// Make LLM call
-	request := &providers.PromptRequest{
-		CharacterID:  "system-user-profiler",
-		UserID:       userID,
-		Message:      promptBuilder.String(),
-		SystemPrompt: "You are an analytical AI. Your task is to extract and update user profile information based on the provided conversation history and existing profile. Respond ONLY with the updated JSON profile.",
-	}
-
-	response, err := upa.provider.SendRequest(ctx, request)
+	// Check if character is already loaded in bot
+	char, err := m.bot.GetCharacter(matchedCharID)
 	if err != nil {
-		return nil, fmt.Errorf("LLM call for user profile extraction failed: %w", err)
+		// Load character into bot
+		if err := m.bot.CreateCharacter(matchedChar); err != nil {
+			return slashCommandResult{
+				cmdType: "error",
+				content: fmt.Sprintf("Error loading character: %v", err),
+				msgType: "error",
+			}
+		}
+		char = matchedChar
 	}
 
-	// Clean and parse JSON response
-	jsonContent := strings.TrimSpace(response.Content)
+	return slashCommandResult{
+		cmdType:        "switch",
+		newCharacterID: matchedCharID,
+		newCharacter:   char,
+	}
+}
+
+// findCharacterFuzzy searches for a character using fuzzy matching
+func (m *Model) findCharacterFuzzy(charRepo *repository.CharacterRepository, searchTerm string) (string, *models.Character, error) {
+	// Normalize search term
+	searchLower := strings.ToLower(strings.TrimSpace(searchTerm))
 	
-	// Remove markdown code blocks if present
-	if strings.HasPrefix(jsonContent, "```json") {
-		jsonContent = strings.TrimPrefix(jsonContent, "```json")
-		jsonContent = strings.TrimSuffix(jsonContent, "```")
-		jsonContent = strings.TrimSpace(jsonContent)
-	} else if strings.HasPrefix(jsonContent, "```") {
-		jsonContent = strings.TrimPrefix(jsonContent, "```")
-		jsonContent = strings.TrimSuffix(jsonContent, "```")
-		jsonContent = strings.TrimSpace(jsonContent)
+	// Get all character info
+	charInfos, err := charRepo.GetCharacterInfo()
+	if err != nil {
+		return "", nil, fmt.Errorf("error listing characters: %v", err)
+	}
+	
+	if len(charInfos) == 0 {
+		return "", nil, fmt.Errorf("no characters available")
+	}
+	
+	// Try exact ID match first
+	for _, info := range charInfos {
+		if strings.ToLower(info.ID) == searchLower {
+			char, err := charRepo.LoadCharacter(info.ID)
+			if err != nil {
+				continue
+			}
+			return info.ID, char, nil
+		}
+	}
+	
+	// Try exact name match
+	for _, info := range charInfos {
+		if strings.ToLower(info.Name) == searchLower {
+			char, err := charRepo.LoadCharacter(info.ID)
+			if err != nil {
+				continue
+			}
+			return info.ID, char, nil
+		}
+	}
+	
+	// Try prefix matching on ID
+	var matches []repository.CharacterInfo
+	for _, info := range charInfos {
+		if strings.HasPrefix(strings.ToLower(info.ID), searchLower) {
+			matches = append(matches, info)
+		}
+	}
+	
+	// If only one prefix match, use it
+	if len(matches) == 1 {
+		char, err := charRepo.LoadCharacter(matches[0].ID)
+		if err != nil {
+			return "", nil, fmt.Errorf("error loading character: %v", err)
+		}
+		return matches[0].ID, char, nil
+	}
+	
+	// Try prefix matching on name
+	if len(matches) == 0 {
+		for _, info := range charInfos {
+			if strings.HasPrefix(strings.ToLower(info.Name), searchLower) {
+				matches = append(matches, info)
+			}
+		}
+	}
+	
+	// If only one name prefix match, use it
+	if len(matches) == 1 {
+		char, err := charRepo.LoadCharacter(matches[0].ID)
+		if err != nil {
+			return "", nil, fmt.Errorf("error loading character: %v", err)
+		}
+		return matches[0].ID, char, nil
+	}
+	
+	// Try substring matching on ID or name
+	if len(matches) == 0 {
+		for _, info := range charInfos {
+			if strings.Contains(strings.ToLower(info.ID), searchLower) ||
+			   strings.Contains(strings.ToLower(info.Name), searchLower) {
+				matches = append(matches, info)
+			}
+		}
+	}
+	
+	// Handle results
+	if len(matches) == 0 {
+		return "", nil, fmt.Errorf("no character found matching '%s'. Use /list to see available characters", searchTerm)
+	}
+	
+	if len(matches) == 1 {
+		char, err := charRepo.LoadCharacter(matches[0].ID)
+		if err != nil {
+			return "", nil, fmt.Errorf("error loading character: %v", err)
+		}
+		return matches[0].ID, char, nil
+	}
+	
+	// Multiple matches found
+	var matchNames []string
+	for _, match := range matches {
+		matchNames = append(matchNames, fmt.Sprintf("%s (%s)", match.Name, match.ID))
+	}
+	return "", nil, fmt.Errorf("multiple characters match '%s':\n%s\nPlease be more specific", 
+		searchTerm, strings.Join(matchNames, "\n"))
+}
+
+// Helper function to calculate mood for a character
+func (m *Model) calculateMood(char *models.Character) string {
+	if char == nil {
+		return "Unknown"
 	}
 
-	var updatedProfile models.UserProfile
-	if err := json.Unmarshal([]byte(jsonContent), &updatedProfile); err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to parse LLM response for user profile. Raw content:\n%s\n", jsonContent)
-		return nil, fmt.Errorf("failed to parse LLM response as JSON for user profile: %w", err)
+	moods := map[string]float64{
+		"Joy":      char.CurrentMood.Joy,
+		"Surprise": char.CurrentMood.Surprise,
+		"Anger":    char.CurrentMood.Anger,
+		"Fear":     char.CurrentMood.Fear,
+		"Sadness":  char.CurrentMood.Sadness,
+		"Disgust":  char.CurrentMood.Disgust,
 	}
 
-	// Validate the response
-	if updatedProfile.UserID != userID || updatedProfile.CharacterID != character.ID {
-		return nil, fmt.Errorf("LLM returned profile for incorrect user/character. Expected %s/%s, got %s/%s",
-			userID, character.ID, updatedProfile.UserID, updatedProfile.CharacterID)
+	maxMood := "Neutral"
+	maxValue := 0.0
+
+	for mood, value := range moods {
+		if value > maxValue {
+			maxMood = mood
+			maxValue = value
+		}
 	}
 
-	// Save the updated profile
-	if err := upa.repo.SaveUserProfile(&updatedProfile); err != nil {
-		return nil, fmt.Errorf("failed to save updated user profile: %w", err)
+	if maxValue < 0.2 {
+		return "Neutral"
 	}
 
-	return &updatedProfile, nil
+	return maxMood
+}
+````
+
+## File: internal/tui/model.go
+````go
+package tui
+
+import (
+	"context"
+	"fmt"
+	"strings"
+	"time"
+
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
+
+	"github.com/dotcommander/roleplay/internal/cache"
+	"github.com/dotcommander/roleplay/internal/models"
+	"github.com/dotcommander/roleplay/internal/services"
+	"github.com/dotcommander/roleplay/internal/tui/components"
+)
+
+// Model represents the main TUI application state
+type Model struct {
+	// Components
+	header      *components.Header
+	messageList *components.MessageList
+	inputArea   *components.InputArea
+	statusBar   *components.StatusBar
+
+	// UI state
+	width        int
+	height       int
+	ready        bool
+	currentFocus string // "input", "messages"
+
+	// Business logic
+	characterID string
+	userID      string
+	sessionID   string
+	scenarioID  string
+	bot         *services.CharacterBot
+	character   *models.Character
+	context     models.ConversationContext
+
+	// Command history
+	commandHistory []string
+	historyIndex   int
+	historyBuffer  string
+
+	// Cache metrics
+	lastCacheHit    bool
+	lastTokensSaved int
+	totalRequests   int
+	cacheHits       int
+
+	// Model info
+	aiModel string
+}
+
+// NewModel creates a new TUI model
+func NewModel(cfg Config) *Model {
+	// Calculate initial sizes
+	headerHeight := 3
+	statusHeight := 1
+	helpHeight := 1
+	inputHeight := 3
+	messagesHeight := 20 // Default, will be adjusted
+
+	if cfg.Height > 0 {
+		messagesHeight = cfg.Height - headerHeight - statusHeight - helpHeight - inputHeight - 2
+	}
+
+	width := 80 // Default width
+	if cfg.Width > 0 {
+		width = cfg.Width
+	}
+
+	return &Model{
+		header:      components.NewHeader(width),
+		messageList: components.NewMessageList(width-4, messagesHeight),
+		inputArea:   components.NewInputArea(width),
+		statusBar:   components.NewStatusBar(width),
+
+		characterID: cfg.CharacterID,
+		userID:      cfg.UserID,
+		sessionID:   cfg.SessionID,
+		scenarioID:  cfg.ScenarioID,
+		bot:         cfg.Bot,
+		context:     cfg.Context,
+		aiModel:     cfg.Model,
+
+		currentFocus: "input",
+
+		commandHistory: []string{},
+		historyIndex:   0,
+
+		totalRequests: cfg.InitialMetrics.TotalRequests,
+		cacheHits:     cfg.InitialMetrics.CacheHits,
+	}
+}
+
+// Config holds configuration for creating a new Model
+type Config struct {
+	CharacterID    string
+	UserID         string
+	SessionID      string
+	ScenarioID     string
+	Bot            *services.CharacterBot
+	Context        models.ConversationContext
+	Model          string
+	Width          int
+	Height         int
+	InitialMetrics struct {
+		TotalRequests int
+		CacheHits     int
+		TokensSaved   int
+	}
+}
+
+// Init initializes the TUI model
+func (m *Model) Init() tea.Cmd {
+	return tea.Batch(
+		m.inputArea.Init(),
+		m.loadCharacterInfo(),
+	)
+}
+
+// Update handles all incoming messages
+func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	var cmds []tea.Cmd
+
+	// Handle global messages first
+	switch msg := msg.(type) {
+	case tea.WindowSizeMsg:
+		m.width = msg.Width
+		m.height = msg.Height
+
+		if !m.ready {
+			m.initializeLayout(msg.Width, msg.Height)
+			m.ready = true
+		} else {
+			m.resizeComponents(msg.Width, msg.Height)
+		}
+
+	case tea.KeyMsg:
+		switch msg.Type {
+		case tea.KeyCtrlC, tea.KeyEsc:
+			m.saveSession()
+			return m, tea.Quit
+
+		case tea.KeyTab:
+			// Switch focus between components
+			if m.currentFocus == "input" {
+				m.currentFocus = "messages"
+				m.inputArea.Blur()
+			} else {
+				m.currentFocus = "input"
+				m.inputArea.Focus()
+			}
+
+		case tea.KeyEnter:
+			if m.currentFocus == "input" && !m.inputArea.IsFocused() {
+				// Processing state, ignore enter
+				return m, nil
+			}
+
+			if m.inputArea.Value() != "" {
+				message := m.inputArea.Value()
+
+				// Add to command history
+				m.commandHistory = append(m.commandHistory, message)
+				m.historyIndex = len(m.commandHistory)
+				m.historyBuffer = ""
+
+				m.inputArea.Reset()
+
+				// Check for slash commands
+				if strings.HasPrefix(message, "/") {
+					return m, m.handleSlashCommand(message)
+				}
+
+				// Regular message
+				m.messageList.Update(components.MessageAppendMsg{
+					Role:    "user",
+					Content: message,
+					MsgType: "normal",
+				})
+
+				m.inputArea.Update(components.ProcessingStateMsg{IsProcessing: true})
+				m.totalRequests++
+
+				return m, m.sendMessage(message)
+			}
+
+		case tea.KeyUp:
+			// Navigate command history
+			if len(m.commandHistory) > 0 && m.historyIndex > 0 {
+				if m.historyIndex == len(m.commandHistory) {
+					m.historyBuffer = m.inputArea.Value()
+				}
+				m.historyIndex--
+				m.inputArea.SetValue(m.commandHistory[m.historyIndex])
+				m.inputArea.CursorEnd()
+			}
+
+		case tea.KeyDown:
+			// Navigate command history
+			if len(m.commandHistory) > 0 && m.historyIndex < len(m.commandHistory) {
+				m.historyIndex++
+
+				if m.historyIndex == len(m.commandHistory) {
+					m.inputArea.SetValue(m.historyBuffer)
+				} else {
+					m.inputArea.SetValue(m.commandHistory[m.historyIndex])
+				}
+				m.inputArea.CursorEnd()
+			}
+		}
+
+	case characterInfoMsg:
+		m.character = msg.character
+		m.updateCharacterDisplay()
+
+	case responseMsg:
+		m.inputArea.Update(components.ProcessingStateMsg{IsProcessing: false})
+
+		if msg.err != nil {
+			m.statusBar.Update(components.StatusUpdateMsg{Error: msg.err})
+		} else {
+			// Add character response
+			m.messageList.Update(components.MessageAppendMsg{
+				Role:    m.character.Name,
+				Content: msg.content,
+				MsgType: "normal",
+			})
+
+			// Update cache metrics
+			if msg.metrics != nil {
+				m.lastCacheHit = msg.metrics.Hit
+				m.lastTokensSaved = msg.metrics.SavedTokens
+				if msg.metrics.Hit {
+					m.cacheHits++
+				}
+			}
+
+			// Update context
+			m.updateContext()
+
+			// Update status bar
+			m.updateStatusBar()
+
+			// Save session
+			go m.saveSession()
+		}
+
+	case slashCommandResult:
+		// Handle slash command results
+		switch msg.cmdType {
+		case "quit":
+			m.saveSession()
+			return m, tea.Quit
+
+		case "clear":
+			m.messageList.ClearMessages()
+			m.messageList.Update(components.MessageAppendMsg{
+				Role:    "system",
+				Content: "Chat history cleared",
+				MsgType: "info",
+			})
+
+		case "switch":
+			if msg.err != nil {
+				m.messageList.Update(components.MessageAppendMsg{
+					Role:    "system",
+					Content: msg.err.Error(),
+					MsgType: "error",
+				})
+			} else {
+				// Save current session before switching
+				m.saveSession()
+
+				// Update character
+				m.characterID = msg.newCharacterID
+				m.character = msg.newCharacter
+				m.updateCharacterDisplay()
+
+				// Clear conversation and start new session
+				m.messageList.ClearMessages()
+				m.sessionID = fmt.Sprintf("session-%d", time.Now().Unix())
+				m.context = models.ConversationContext{
+					SessionID:      m.sessionID,
+					StartTime:      time.Now(),
+					RecentMessages: []models.Message{},
+				}
+
+				// Reset cache metrics
+				m.totalRequests = 0
+				m.cacheHits = 0
+				m.lastTokensSaved = 0
+				m.lastCacheHit = false
+
+				// Add switch notification
+				m.messageList.Update(components.MessageAppendMsg{
+					Role:    "system",
+					Content: fmt.Sprintf("Switched to %s (%s). Starting new session.", msg.newCharacter.Name, msg.newCharacterID),
+					MsgType: "info",
+				})
+
+				m.updateStatusBar()
+			}
+
+		default:
+			// Display command output
+			m.messageList.Update(components.MessageAppendMsg{
+				Role:    "system",
+				Content: msg.content,
+				MsgType: msg.msgType,
+			})
+		}
+	}
+
+	// Route updates to components
+	cmds = append(cmds, m.routeToComponents(msg)...)
+
+	return m, tea.Batch(cmds...)
+}
+
+// View renders the entire TUI
+func (m *Model) View() string {
+	if !m.ready {
+		return "\n  Initializing..."
+	}
+
+	// Render all components
+	header := m.header.View()
+
+	// Main chat viewport with border
+	chatView := lipgloss.NewStyle().
+		BorderStyle(lipgloss.RoundedBorder()).
+		BorderForeground(components.GruvboxGray).
+		Foreground(components.GruvboxFg).
+		Background(components.GruvboxBg).
+		Padding(1).
+		Render(m.messageList.View())
+
+	inputArea := m.inputArea.View()
+	statusBar := m.statusBar.View()
+
+	// Help text
+	help := lipgloss.NewStyle().
+		Foreground(components.GruvboxGray).
+		Italic(true).
+		Render("  ⌃C quit • ↵ send • ↑↓ history • /help commands • /exit quit")
+
+	return lipgloss.JoinVertical(
+		lipgloss.Left,
+		header,
+		chatView,
+		inputArea,
+		statusBar,
+		help,
+	)
+}
+
+// Helper methods
+
+func (m *Model) initializeLayout(width, height int) {
+	headerHeight := 3
+	statusHeight := 1
+	helpHeight := 1
+	inputHeight := 3  // This includes the newlines around the textarea
+	borderHeight := 2
+	chatPadding := 2  // The padding(1) adds 2 lines total
+	verticalMargins := headerHeight + statusHeight + helpHeight + inputHeight + borderHeight + chatPadding
+
+	messagesHeight := height - verticalMargins
+	if messagesHeight < 5 {
+		messagesHeight = 5
+	}
+
+	m.header.SetSize(width, headerHeight)
+	m.messageList.SetSize(width-4, messagesHeight)
+	m.inputArea.SetSize(width, inputHeight)
+	m.statusBar.SetSize(width, statusHeight)
+
+	m.inputArea.Focus()
+}
+
+func (m *Model) resizeComponents(width, height int) {
+	headerHeight := 3
+	statusHeight := 1
+	helpHeight := 1
+	inputHeight := 3  // This includes the newlines around the textarea
+	borderHeight := 2
+	chatPadding := 2  // The padding(1) adds 2 lines total
+	verticalMargins := headerHeight + statusHeight + helpHeight + inputHeight + borderHeight + chatPadding
+
+	messagesHeight := height - verticalMargins
+	if messagesHeight < 5 {
+		messagesHeight = 5
+	}
+
+	m.header.SetSize(width, headerHeight)
+	m.messageList.SetSize(width-4, messagesHeight)
+	m.inputArea.SetSize(width, inputHeight)
+	m.statusBar.SetSize(width, statusHeight)
+}
+
+func (m *Model) routeToComponents(msg tea.Msg) []tea.Cmd {
+	var cmds []tea.Cmd
+
+	// Update all components
+	if cmd := m.header.Update(msg); cmd != nil {
+		cmds = append(cmds, cmd)
+	}
+	if cmd := m.messageList.Update(msg); cmd != nil {
+		cmds = append(cmds, cmd)
+	}
+	if cmd := m.inputArea.Update(msg); cmd != nil {
+		cmds = append(cmds, cmd)
+	}
+	if cmd := m.statusBar.Update(msg); cmd != nil {
+		cmds = append(cmds, cmd)
+	}
+
+	return cmds
+}
+
+func (m *Model) updateCharacterDisplay() {
+	if m.character == nil {
+		return
+	}
+
+	mood := m.getDominantMood()
+	moodIcon := m.getMoodIcon(mood)
+
+	m.header.Update(components.CharacterUpdateMsg{
+		Name:     m.character.Name,
+		ID:       m.character.ID,
+		Mood:     mood,
+		MoodIcon: moodIcon,
+		Personality: components.PersonalityStats{
+			Openness:          m.character.Personality.Openness,
+			Conscientiousness: m.character.Personality.Conscientiousness,
+			Extraversion:      m.character.Personality.Extraversion,
+			Agreeableness:     m.character.Personality.Agreeableness,
+			Neuroticism:       m.character.Personality.Neuroticism,
+		},
+	})
+}
+
+func (m *Model) updateStatusBar() {
+	m.statusBar.Update(components.StatusUpdateMsg{
+		Connected:   true,
+		CacheHits:   m.cacheHits,
+		CacheMisses: m.totalRequests - m.cacheHits,
+		TokensSaved: m.lastTokensSaved,
+		SessionID:   m.sessionID,
+		Model:       m.aiModel,
+	})
+}
+
+func (m *Model) updateContext() {
+	// Implementation would update conversation context
+	// This is simplified for the example
+}
+
+func (m *Model) getDominantMood() string {
+	if m.character == nil {
+		return "Unknown"
+	}
+
+	moods := map[string]float64{
+		"Joy":      m.character.CurrentMood.Joy,
+		"Surprise": m.character.CurrentMood.Surprise,
+		"Anger":    m.character.CurrentMood.Anger,
+		"Fear":     m.character.CurrentMood.Fear,
+		"Sadness":  m.character.CurrentMood.Sadness,
+		"Disgust":  m.character.CurrentMood.Disgust,
+	}
+
+	maxMood := "Neutral"
+	maxValue := 0.0
+
+	for mood, value := range moods {
+		if value > maxValue {
+			maxMood = mood
+			maxValue = value
+		}
+	}
+
+	if maxValue < 0.2 {
+		return "Neutral"
+	}
+
+	return maxMood
+}
+
+func (m *Model) getMoodIcon(mood string) string {
+	switch mood {
+	case "Joy":
+		return "😊"
+	case "Surprise":
+		return "😲"
+	case "Anger":
+		return "😠"
+	case "Fear":
+		return "😨"
+	case "Sadness":
+		return "😢"
+	case "Disgust":
+		return "🤢"
+	case "Neutral":
+		return "😐"
+	default:
+		return "🤔"
+	}
+}
+
+// Message types for tea.Cmd results
+
+type characterInfoMsg struct {
+	character *models.Character
+}
+
+type responseMsg struct {
+	content string
+	metrics *cache.CacheMetrics
+	err     error
+}
+
+type slashCommandResult struct {
+	cmdType        string // "help", "list", "stats", etc.
+	content        string
+	msgType        string // for display formatting
+	err            error
+	newCharacterID string // for switch command
+	newCharacter   *models.Character
+}
+
+// Tea commands
+
+func (m *Model) loadCharacterInfo() tea.Cmd {
+	return func() tea.Msg {
+		char, err := m.bot.GetCharacter(m.characterID)
+		if err != nil {
+			return responseMsg{err: err}
+		}
+		return characterInfoMsg{character: char}
+	}
+}
+
+func (m *Model) sendMessage(message string) tea.Cmd {
+	return func() tea.Msg {
+		req := &models.ConversationRequest{
+			CharacterID: m.characterID,
+			UserID:      m.userID,
+			Message:     message,
+			ScenarioID:  m.scenarioID,
+			Context:     m.context,
+		}
+
+		ctx := context.Background()
+		resp, err := m.bot.ProcessRequest(ctx, req)
+		if err != nil {
+			return responseMsg{err: err}
+		}
+
+		// Get updated character state
+		char, _ := m.bot.GetCharacter(m.characterID)
+		if char != nil {
+			m.character = char
+		}
+
+		return responseMsg{
+			content: resp.Content,
+			metrics: &resp.CacheMetrics,
+		}
+	}
+}
+
+// Placeholder for session saving
+func (m *Model) saveSession() {
+	// Implementation would save the current session
+	// This is left as a placeholder for the refactored version
 }
 ````
 
@@ -6883,86 +6272,6 @@ import (
 
 func main() {
 	cmd.Execute()
-}
-````
-
-## File: cmd/apitest.go
-````go
-package cmd
-
-import (
-	"context"
-	"fmt"
-	"time"
-
-	"github.com/dotcommander/roleplay/internal/factory"
-	"github.com/dotcommander/roleplay/internal/providers"
-	"github.com/dotcommander/roleplay/internal/utils"
-	"github.com/spf13/cobra"
-)
-
-var apiTestCmd = &cobra.Command{
-	Use:   "api-test",
-	Short: "Test API connection with a simple completion request",
-	Long:  `Sends a simple test message to verify API connectivity and configuration.`,
-	RunE:  runAPITest,
-}
-
-func init() {
-	rootCmd.AddCommand(apiTestCmd)
-	apiTestCmd.Flags().String("message", "Hello! Please respond with a brief greeting.", "Test message to send")
-}
-
-func runAPITest(cmd *cobra.Command, args []string) error {
-	// Get configuration from global config (already resolved in initConfig)
-	cfg := GetConfig()
-	message, _ := cmd.Flags().GetString("message")
-
-	fmt.Printf("Testing %s endpoint...\n", cfg.DefaultProvider)
-	if cfg.BaseURL != "" {
-		fmt.Printf("Base URL: %s\n", cfg.BaseURL)
-	}
-	// Use factory to get default model if needed
-	if cfg.Model == "" {
-		cfg.Model = factory.GetDefaultModel(cfg.DefaultProvider)
-	}
-	fmt.Printf("Model: %s\n", cfg.Model)
-	fmt.Printf("Message: %s\n\n", message)
-
-	// Create provider using factory
-	p, err := factory.CreateProviderWithFallback(cfg.DefaultProvider, cfg.APIKey, cfg.Model, cfg.BaseURL)
-	if err != nil {
-		return fmt.Errorf("failed to create provider: %w", err)
-	}
-
-	// Create request
-	req := &providers.PromptRequest{
-		SystemPrompt: "You are a helpful assistant. Keep responses brief.",
-		Message:      message,
-	}
-
-	// Send request with timeout
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
-	start := time.Now()
-	resp, err := p.SendRequest(ctx, req)
-	if err != nil {
-		return fmt.Errorf("API request failed: %w", err)
-	}
-	elapsed := time.Since(start)
-
-	// Display results
-	fmt.Println("✓ API test successful!")
-	fmt.Printf("Response time: %v\n", elapsed)
-	fmt.Printf("Tokens used: %d (prompt: %d, completion: %d)\n", 
-		resp.TokensUsed.Total, resp.TokensUsed.Prompt, resp.TokensUsed.Completion)
-	if resp.TokensUsed.CachedPrompt > 0 {
-		fmt.Printf("Cached tokens: %d\n", resp.TokensUsed.CachedPrompt)
-	}
-	fmt.Printf("\nResponse:\n%s\n", utils.WrapText(resp.Content, 80))
-
-	return nil
 }
 ````
 
@@ -7065,6 +6374,502 @@ func runImport(cmd *cobra.Command, args []string) error {
 }
 ````
 
+## File: cmd/init.go
+````go
+package cmd
+
+import (
+	"bufio"
+	"fmt"
+	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
+	"time"
+
+	"github.com/spf13/cobra"
+	"gopkg.in/yaml.v3"
+)
+
+var initCmd = &cobra.Command{
+	Use:   "init",
+	Short: "Interactive setup wizard for roleplay",
+	Long: `Interactive setup wizard that guides you through configuring roleplay
+for your preferred LLM provider (OpenAI, Ollama, LM Studio, OpenRouter, etc.)`,
+	RunE: runInit,
+}
+
+func init() {
+	rootCmd.AddCommand(initCmd)
+}
+
+// Provider presets for common configurations
+type providerPreset struct {
+	Name         string
+	BaseURL      string
+	RequiresKey  bool
+	LocalModel   bool
+	DefaultModel string
+	Description  string
+}
+
+var providerPresets = []providerPreset{
+	{
+		Name:         "openai",
+		BaseURL:      "https://api.openai.com/v1",
+		RequiresKey:  true,
+		LocalModel:   false,
+		DefaultModel: "gpt-4o-mini",
+		Description:  "OpenAI (Official)",
+	},
+	{
+		Name:         "anthropic",
+		BaseURL:      "https://api.anthropic.com/v1",
+		RequiresKey:  true,
+		LocalModel:   false,
+		DefaultModel: "claude-3-haiku-20240307",
+		Description:  "Anthropic Claude (OpenAI-Compatible)",
+	},
+	{
+		Name:         "gemini",
+		BaseURL:      "https://generativelanguage.googleapis.com/v1beta/openai",
+		RequiresKey:  true,
+		LocalModel:   false,
+		DefaultModel: "models/gemini-1.5-flash",
+		Description:  "Google Gemini (OpenAI-Compatible)",
+	},
+	{
+		Name:         "ollama",
+		BaseURL:      "http://localhost:11434/v1",
+		RequiresKey:  false,
+		LocalModel:   true,
+		DefaultModel: "llama3",
+		Description:  "Ollama (Local LLMs)",
+	},
+	{
+		Name:         "lmstudio",
+		BaseURL:      "http://localhost:1234/v1",
+		RequiresKey:  false,
+		LocalModel:   true,
+		DefaultModel: "local-model",
+		Description:  "LM Studio (Local LLMs)",
+	},
+	{
+		Name:         "groq",
+		BaseURL:      "https://api.groq.com/openai/v1",
+		RequiresKey:  true,
+		LocalModel:   false,
+		DefaultModel: "llama-3.1-70b-versatile",
+		Description:  "Groq (Fast Inference)",
+	},
+	{
+		Name:         "openrouter",
+		BaseURL:      "https://openrouter.ai/api/v1",
+		RequiresKey:  true,
+		LocalModel:   false,
+		DefaultModel: "openai/gpt-4o-mini",
+		Description:  "OpenRouter (Multiple providers)",
+	},
+	{
+		Name:         "custom",
+		BaseURL:      "",
+		RequiresKey:  true,
+		LocalModel:   false,
+		DefaultModel: "",
+		Description:  "Custom OpenAI-Compatible Service",
+	},
+}
+
+func runInit(cmd *cobra.Command, args []string) error {
+	fmt.Println("🎭 Welcome to Roleplay Setup Wizard")
+	fmt.Println("==================================")
+	fmt.Println()
+	fmt.Println("This wizard will help you configure roleplay for your preferred LLM provider.")
+	fmt.Printf("Your configuration will be saved to: %s\n", filepath.Join(os.Getenv("HOME"), ".config", "roleplay", "config.yaml"))
+	fmt.Println()
+
+	reader := bufio.NewReader(os.Stdin)
+
+	// Check for existing config
+	configPath := filepath.Join(os.Getenv("HOME"), ".config", "roleplay", "config.yaml")
+	if _, err := os.Stat(configPath); err == nil {
+		fmt.Printf("⚠️  Existing configuration found at %s\n", configPath)
+		fmt.Print("Do you want to overwrite it? [y/N]: ")
+		response, _ := reader.ReadString('\n')
+		response = strings.TrimSpace(strings.ToLower(response))
+		if response != "y" && response != "yes" {
+			fmt.Println("Setup cancelled.")
+			return nil
+		}
+	}
+
+	// Step 1: Choose provider
+	fmt.Println("\n📡 Step 1: Choose your LLM provider")
+	fmt.Println("-----------------------------------")
+
+	// Auto-detect local services
+	detectedServices := detectLocalServices()
+	if len(detectedServices) > 0 {
+		fmt.Println("✨ Detected running services:")
+		for _, service := range detectedServices {
+			fmt.Printf("   - %s at %s\n", service.Description, service.BaseURL)
+		}
+		fmt.Println()
+	}
+
+	for i, preset := range providerPresets {
+		fmt.Printf("%d. %s - %s\n", i+1, preset.Name, preset.Description)
+	}
+
+	fmt.Printf("\nSelect provider [1-%d]: ", len(providerPresets))
+	providerChoice, _ := reader.ReadString('\n')
+	providerChoice = strings.TrimSpace(providerChoice)
+
+	var selectedPreset providerPreset
+	providerIndex := 0
+	if n, err := fmt.Sscanf(providerChoice, "%d", &providerIndex); err == nil && n == 1 && providerIndex >= 1 && providerIndex <= len(providerPresets) {
+		selectedPreset = providerPresets[providerIndex-1]
+	} else {
+		// Default to OpenAI if invalid choice
+		selectedPreset = providerPresets[0]
+		fmt.Println("Invalid choice, defaulting to OpenAI")
+	}
+
+	// Step 2: Configure base URL
+	fmt.Printf("\n🌐 Step 2: Configure endpoint\n")
+	fmt.Println("-----------------------------")
+
+	var baseURL string
+	if selectedPreset.Name == "custom" {
+		fmt.Print("Enter the base URL for your OpenAI-compatible API: ")
+		baseURL, _ = reader.ReadString('\n')
+		baseURL = strings.TrimSpace(baseURL)
+	} else {
+		fmt.Printf("Base URL [%s]: ", selectedPreset.BaseURL)
+		input, _ := reader.ReadString('\n')
+		input = strings.TrimSpace(input)
+		if input == "" {
+			baseURL = selectedPreset.BaseURL
+		} else {
+			baseURL = input
+		}
+	}
+
+	// Step 3: Configure API key
+	fmt.Printf("\n🔑 Step 3: Configure API key\n")
+	fmt.Println("----------------------------")
+
+	var apiKey string
+	if selectedPreset.RequiresKey {
+		// Check for existing environment variables
+		existingKey := ""
+		switch selectedPreset.Name {
+		case "openai":
+			existingKey = os.Getenv("OPENAI_API_KEY")
+		case "anthropic":
+			existingKey = os.Getenv("ANTHROPIC_API_KEY")
+		case "gemini":
+			existingKey = os.Getenv("GEMINI_API_KEY")
+		case "groq":
+			existingKey = os.Getenv("GROQ_API_KEY")
+		case "openrouter":
+			existingKey = os.Getenv("OPENROUTER_API_KEY")
+		}
+		if existingKey == "" {
+			existingKey = os.Getenv("ROLEPLAY_API_KEY")
+		}
+
+		if existingKey != "" {
+			fmt.Printf("Found existing API key in environment (length: %d)\n", len(existingKey))
+			fmt.Print("Use this key? [Y/n]: ")
+			useExisting, _ := reader.ReadString('\n')
+			useExisting = strings.TrimSpace(strings.ToLower(useExisting))
+			if useExisting == "" || useExisting == "y" || useExisting == "yes" {
+				apiKey = existingKey
+			}
+		}
+
+		if apiKey == "" {
+			fmt.Printf("Enter your %s API key: ", selectedPreset.Name)
+			apiKeyInput, _ := reader.ReadString('\n')
+			apiKey = strings.TrimSpace(apiKeyInput)
+		}
+	} else {
+		fmt.Println("No API key required for local models")
+		apiKey = "not-required"
+	}
+
+	// Step 4: Configure default model
+	fmt.Printf("\n🤖 Step 4: Configure default model\n")
+	fmt.Println("----------------------------------")
+
+	var model string
+	if selectedPreset.LocalModel && baseURL != "" {
+		// For local models, we could try to list available models
+		fmt.Println("For local models, make sure the model is already pulled/loaded")
+	}
+
+	fmt.Printf("Default model [%s]: ", selectedPreset.DefaultModel)
+	modelInput, _ := reader.ReadString('\n')
+	modelInput = strings.TrimSpace(modelInput)
+	if modelInput == "" {
+		model = selectedPreset.DefaultModel
+	} else {
+		model = modelInput
+	}
+
+	// Step 5: Create example content
+	fmt.Printf("\n📚 Step 5: Example content\n")
+	fmt.Println("-------------------------")
+	fmt.Print("Would you like to create example characters? [Y/n]: ")
+	createExamples, _ := reader.ReadString('\n')
+	createExamples = strings.TrimSpace(strings.ToLower(createExamples))
+	shouldCreateExamples := createExamples == "" || createExamples == "y" || createExamples == "yes"
+
+	// Create configuration
+	providerName := selectedPreset.Name
+	// For OpenAI-compatible endpoints, always use "openai" as the provider
+	if selectedPreset.Name == "gemini" || selectedPreset.Name == "anthropic" {
+		providerName = "openai"
+	}
+	
+	config := map[string]interface{}{
+		"base_url": baseURL,
+		"api_key":  apiKey,
+		"model":    model,
+		"provider": providerName,
+		"cache": map[string]interface{}{
+			"default_ttl":      "5m",
+			"cleanup_interval": "10m",
+		},
+		"personality": map[string]interface{}{
+			"evolution_enabled": true,
+			"learning_rate":     0.1,
+			"max_drift_rate":    0.2,
+		},
+		"memory": map[string]interface{}{
+			"max_short_term":         10,
+			"max_medium_term":        50,
+			"max_long_term":          200,
+			"consolidation_interval": "5m",
+			"short_term_window":      10,
+			"medium_term_duration":   "24h",
+			"long_term_duration":     "720h",
+		},
+		"user_profile": map[string]interface{}{
+			"enabled":              true,
+			"update_frequency":     5,
+			"turns_to_consider":    20,
+			"confidence_threshold": 0.5,
+			"prompt_cache_ttl":     "1h",
+		},
+	}
+
+	// Create config directory
+	configDir := filepath.Dir(configPath)
+	if err := os.MkdirAll(configDir, 0755); err != nil {
+		return fmt.Errorf("failed to create config directory: %w", err)
+	}
+
+	// Write config file
+	configData, err := yaml.Marshal(config)
+	if err != nil {
+		return fmt.Errorf("failed to marshal config: %w", err)
+	}
+
+	if err := os.WriteFile(configPath, configData, 0644); err != nil {
+		return fmt.Errorf("failed to write config file: %w", err)
+	}
+
+	fmt.Printf("\n✅ Configuration saved to %s\n", configPath)
+	fmt.Println("\n📝 Your configuration summary:")
+	fmt.Printf("   Provider: %s\n", providerName)
+	fmt.Printf("   Model: %s\n", model)
+	fmt.Printf("   Base URL: %s\n", baseURL)
+	if apiKey != "" && apiKey != "not-required" {
+		fmt.Printf("   API Key: %s...%s\n", apiKey[:4], apiKey[len(apiKey)-4:])
+	}
+
+	// Create example characters if requested
+	if shouldCreateExamples {
+		if err := createExampleCharacters(); err != nil {
+			fmt.Printf("⚠️  Warning: Failed to create example characters: %v\n", err)
+		} else {
+			fmt.Println("✅ Created example characters")
+		}
+	}
+
+	// Final instructions
+	fmt.Println("\n🎉 Setup complete!")
+	fmt.Println("==================")
+	fmt.Println("\nYou can now:")
+	fmt.Println("  • Start chatting: roleplay interactive")
+	fmt.Println("  • Create a character: roleplay character create <file.json>")
+	fmt.Println("  • View example: roleplay character example")
+	fmt.Println("  • Check config: roleplay config list")
+	fmt.Println("  • Update settings: roleplay config set <key> <value>")
+	fmt.Println("\n💡 Tip: Your config file is the primary place for persistent settings.")
+	fmt.Println("   Use 'roleplay config where' to see its location.")
+
+	if selectedPreset.LocalModel {
+		fmt.Printf("\n💡 Tip: Make sure %s is running at %s\n", selectedPreset.Description, baseURL)
+	}
+
+	return nil
+}
+
+// detectLocalServices checks for running local LLM services
+func detectLocalServices() []providerPreset {
+	var detected []providerPreset
+
+	// Check common local endpoints
+	endpoints := []struct {
+		url  string
+		name string
+		desc string
+	}{
+		{"http://localhost:11434/api/tags", "ollama", "Ollama"},
+		{"http://localhost:1234/v1/models", "lmstudio", "LM Studio"},
+		{"http://localhost:8080/v1/models", "localai", "LocalAI"},
+	}
+
+	client := &http.Client{Timeout: 2 * time.Second}
+
+	for _, endpoint := range endpoints {
+		resp, err := client.Get(endpoint.url)
+		if err == nil && resp.StatusCode == 200 {
+			resp.Body.Close()
+
+			// Find matching preset
+			for _, preset := range providerPresets {
+				if preset.Name == endpoint.name {
+					detected = append(detected, preset)
+					break
+				}
+			}
+		}
+	}
+
+	return detected
+}
+
+// createExampleCharacters creates a few example character files
+func createExampleCharacters() error {
+	charactersDir := filepath.Join(os.Getenv("HOME"), ".config", "roleplay", "characters")
+	if err := os.MkdirAll(charactersDir, 0755); err != nil {
+		return err
+	}
+
+	// Create example characters
+	examples := []struct {
+		filename string
+		content  string
+	}{
+		{
+			"assistant.json",
+			`{
+  "id": "helpful-assistant",
+  "name": "Alex Helper",
+  "backstory": "A knowledgeable and friendly AI assistant dedicated to helping users with various tasks. Always eager to learn and provide accurate, helpful information.",
+  "personality": {
+    "openness": 0.9,
+    "conscientiousness": 0.95,
+    "extraversion": 0.7,
+    "agreeableness": 0.9,
+    "neuroticism": 0.1
+  },
+  "currentMood": {
+    "joy": 0.7,
+    "surprise": 0.2,
+    "anger": 0.0,
+    "fear": 0.0,
+    "sadness": 0.0,
+    "disgust": 0.0
+  },
+  "quirks": [
+    "Uses analogies to explain complex concepts",
+    "Occasionally shares interesting facts",
+    "Asks clarifying questions when uncertain"
+  ],
+  "speechStyle": "Clear, friendly, and professional. Uses 'I'd be happy to help!' and similar positive phrases. Structures responses with bullet points or numbered lists when appropriate.",
+  "memories": []
+}`,
+		},
+		{
+			"philosopher.json",
+			`{
+  "id": "socratic-sage",
+  "name": "Sophia Thinkwell",
+  "backstory": "A contemplative philosopher who has spent decades studying the great thinkers. Loves to explore ideas through questions and dialogue. Believes that wisdom comes from acknowledging what we don't know.",
+  "personality": {
+    "openness": 1.0,
+    "conscientiousness": 0.7,
+    "extraversion": 0.4,
+    "agreeableness": 0.8,
+    "neuroticism": 0.3
+  },
+  "currentMood": {
+    "joy": 0.3,
+    "surprise": 0.5,
+    "anger": 0.0,
+    "fear": 0.1,
+    "sadness": 0.2,
+    "disgust": 0.0
+  },
+  "quirks": [
+    "Often responds to questions with deeper questions",
+    "Quotes ancient philosophers when relevant",
+    "Pauses thoughtfully before speaking (uses '...')",
+    "Finds profound meaning in everyday occurrences"
+  ],
+  "speechStyle": "Thoughtful and measured. Uses phrases like 'One might consider...' and 'Perhaps we should ask ourselves...'. Often references Socrates, Plato, and other philosophers.",
+  "memories": []
+}`,
+		},
+		{
+			"pirate.json",
+			`{
+  "id": "captain-redbeard",
+  "name": "Captain 'Red' Morgan",
+  "backstory": "A seasoned pirate captain who's sailed the seven seas for over twenty years. Lost a leg to a kraken but gained countless stories. Now spends time sharing tales of adventure and teaching landlubbers about the pirate's life.",
+  "personality": {
+    "openness": 0.8,
+    "conscientiousness": 0.3,
+    "extraversion": 0.9,
+    "agreeableness": 0.5,
+    "neuroticism": 0.4
+  },
+  "currentMood": {
+    "joy": 0.6,
+    "surprise": 0.1,
+    "anger": 0.3,
+    "fear": 0.0,
+    "sadness": 0.1,
+    "disgust": 0.2
+  },
+  "quirks": [
+    "Refers to everyone as 'matey' or 'landlubber'",
+    "Constantly mentions rum and treasure",
+    "Gets distracted by talk of the sea",
+    "Exaggerates stories with each telling"
+  ],
+  "speechStyle": "Arr! Speaks with heavy pirate accent. Uses 'ye' instead of 'you', 'be' instead of 'is/are'. Punctuates sentences with 'arr!' and 'ahoy!'. Colorful maritime metaphors.",
+  "memories": []
+}`,
+		},
+	}
+
+	for _, example := range examples {
+		path := filepath.Join(charactersDir, example.filename)
+		if err := os.WriteFile(path, []byte(example.content), 0644); err != nil {
+			return fmt.Errorf("failed to write %s: %w", example.filename, err)
+		}
+	}
+
+	return nil
+}
+````
+
 ## File: internal/cache/types.go
 ````go
 package cache
@@ -7122,6 +6927,632 @@ type CacheMetrics struct {
 }
 ````
 
+## File: internal/factory/provider_test.go
+````go
+package factory
+
+import (
+	"testing"
+	"time"
+
+	"github.com/dotcommander/roleplay/internal/config"
+	"github.com/dotcommander/roleplay/internal/services"
+	"github.com/stretchr/testify/assert"
+)
+
+func TestCreateProvider(t *testing.T) {
+	tests := []struct {
+		name        string
+		cfg         *config.Config
+		envSetup    func()
+		envCleanup  func()
+		wantErr     bool
+		errContains string
+	}{
+		{
+			name: "anthropic provider with API key in config",
+			cfg: &config.Config{
+				DefaultProvider: "anthropic",
+				APIKey:          "test-anthropic-key",
+			},
+			wantErr: false,
+		},
+		{
+			name: "openai provider with API key and model in config",
+			cfg: &config.Config{
+				DefaultProvider: "openai",
+				APIKey:          "test-openai-key",
+				Model:           "gpt-4",
+			},
+			wantErr: false,
+		},
+		{
+			name: "openai provider with default model",
+			cfg: &config.Config{
+				DefaultProvider: "openai",
+				APIKey:          "test-openai-key",
+			},
+			wantErr: false,
+		},
+		{
+			name: "missing API key",
+			cfg: &config.Config{
+				DefaultProvider: "openai",
+			},
+			wantErr:     true,
+			errContains: "API key required for openai",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.envSetup != nil {
+				tt.envSetup()
+			}
+			if tt.envCleanup != nil {
+				defer tt.envCleanup()
+			}
+
+			provider, err := CreateProvider(tt.cfg)
+
+			if tt.wantErr {
+				assert.Error(t, err)
+				if tt.errContains != "" {
+					assert.Contains(t, err.Error(), tt.errContains)
+				}
+				assert.Nil(t, provider)
+			} else {
+				assert.NoError(t, err)
+				assert.NotNil(t, provider)
+				// All providers now return "openai_compatible"
+				assert.Equal(t, "openai_compatible", provider.Name())
+			}
+		})
+	}
+}
+
+func TestInitializeAndRegisterProvider(t *testing.T) {
+	cfg := &config.Config{
+		DefaultProvider: "openai",
+		APIKey:          "test-key",
+		Model:           "gpt-4",
+		CacheConfig: config.CacheConfig{
+			DefaultTTL:      5 * time.Minute,
+			CleanupInterval: 1 * time.Minute,
+		},
+	}
+
+	bot := services.NewCharacterBot(cfg)
+
+	err := InitializeAndRegisterProvider(bot, cfg)
+	assert.NoError(t, err)
+
+	// Test with missing API key
+	cfg2 := &config.Config{
+		DefaultProvider: "anthropic",
+		CacheConfig: config.CacheConfig{
+			DefaultTTL:      5 * time.Minute,
+			CleanupInterval: 1 * time.Minute,
+		},
+	}
+
+	err = InitializeAndRegisterProvider(bot, cfg2)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "API key")
+}
+
+func TestCreateProviderWithFallback(t *testing.T) {
+	tests := []struct {
+		name        string
+		profileName string
+		apiKey      string
+		model       string
+		baseURL     string
+		wantErr     bool
+	}{
+		{
+			name:        "direct API key",
+			profileName: "openai",
+			apiKey:      "direct-key",
+			model:       "gpt-4",
+			wantErr:     false,
+		},
+		{
+			name:        "ollama without API key",
+			profileName: "ollama",
+			apiKey:      "",
+			baseURL:     "http://localhost:11434/v1",
+			wantErr:     false,
+		},
+		{
+			name:        "no API key for non-local provider",
+			profileName: "openai",
+			apiKey:      "",
+			wantErr:     true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			provider, err := CreateProviderWithFallback(tt.profileName, tt.apiKey, tt.model, tt.baseURL)
+
+			if tt.wantErr {
+				assert.Error(t, err)
+				assert.Nil(t, provider)
+			} else {
+				assert.NoError(t, err)
+				assert.NotNil(t, provider)
+			}
+		})
+	}
+}
+
+func TestGetDefaultModel(t *testing.T) {
+	tests := []struct {
+		provider string
+		expected string
+	}{
+		{"openai", "gpt-4o-mini"},
+		{"anthropic", "claude-3-haiku-20240307"},
+		{"unknown", "gpt-4o-mini"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.provider, func(t *testing.T) {
+			model := GetDefaultModel(tt.provider)
+			assert.Equal(t, tt.expected, model)
+		})
+	}
+}
+````
+
+## File: internal/models/conversation.go
+````go
+package models
+
+import "time"
+
+// Message represents a single message in a conversation
+type Message struct {
+	Role      string    `json:"role"`
+	Content   string    `json:"content"`
+	Timestamp time.Time `json:"timestamp"`
+}
+
+// ConversationContext holds the current conversation state
+type ConversationContext struct {
+	RecentMessages []Message
+	SessionID      string
+	StartTime      time.Time
+}
+
+// ConversationRequest represents a user request to the character bot
+type ConversationRequest struct {
+	CharacterID string
+	UserID      string
+	Message     string
+	Context     ConversationContext
+	ScenarioID  string // Optional scenario context
+}
+````
+
+## File: internal/providers/types.go
+````go
+package providers
+
+import (
+	"context"
+
+	"github.com/dotcommander/roleplay/internal/cache"
+	"github.com/dotcommander/roleplay/internal/models"
+)
+
+// AIProvider defines the interface for AI service providers
+type AIProvider interface {
+	SendRequest(ctx context.Context, req *PromptRequest) (*AIResponse, error)
+	SendStreamRequest(ctx context.Context, req *PromptRequest, out chan<- PartialAIResponse) error
+	Name() string
+}
+
+// PromptRequest represents a request to an AI provider
+type PromptRequest struct {
+	CharacterID      string
+	UserID           string
+	Message          string
+	Context          models.ConversationContext
+	SystemPrompt     string
+	CacheBreakpoints []cache.CacheBreakpoint
+}
+
+// AIResponse represents a response from an AI provider
+type AIResponse struct {
+	Content      string
+	TokensUsed   TokenUsage
+	CacheMetrics cache.CacheMetrics
+	Emotions     models.EmotionalState
+}
+
+// TokenUsage tracks token consumption
+type TokenUsage struct {
+	Prompt       int
+	Completion   int
+	CachedPrompt int
+	Total        int
+}
+
+// PartialAIResponse represents a chunk of streaming response
+type PartialAIResponse struct {
+	Content string
+	Done    bool
+}
+````
+
+## File: internal/services/user_profile_agent.go
+````go
+package services
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+	"text/template"
+	"time"
+
+	"github.com/dotcommander/roleplay/internal/models"
+	"github.com/dotcommander/roleplay/internal/providers"
+	"github.com/dotcommander/roleplay/internal/repository"
+)
+
+// UserProfileAgent handles AI-powered user profile extraction and updates
+type UserProfileAgent struct {
+	provider   providers.AIProvider
+	repo       *repository.UserProfileRepository
+	promptPath string
+}
+
+// NewUserProfileAgent creates a new user profile agent
+func NewUserProfileAgent(provider providers.AIProvider, repo *repository.UserProfileRepository) *UserProfileAgent {
+	// Find prompt file relative to executable
+	promptFile := "prompts/user-profile-extraction.md"
+
+	// Try multiple locations for the prompt file
+	possiblePaths := []string{
+		promptFile,
+		filepath.Join(".", promptFile),
+		filepath.Join("..", promptFile),
+		filepath.Join(os.Getenv("HOME"), "go", "src", "roleplay", promptFile),
+	}
+
+	var finalPath string
+	for _, path := range possiblePaths {
+		if _, err := os.Stat(path); err == nil {
+			finalPath = path
+			break
+		}
+	}
+
+	if finalPath == "" {
+		// Fallback to the first option
+		finalPath = promptFile
+	}
+
+	return &UserProfileAgent{
+		provider:   provider,
+		repo:       repo,
+		promptPath: finalPath,
+	}
+}
+
+type profilePromptData struct {
+	ExistingProfileJSON string
+	HistoryTurnCount    int
+	Messages            []profileMessageData
+	CharacterName       string
+	CharacterID         string
+	UserID              string
+	NextVersion         int
+	CurrentTimestamp    string
+}
+
+type profileMessageData struct {
+	Role       string
+	Content    string
+	TurnNumber int
+	Timestamp  string
+}
+
+// UpdateUserProfile analyzes conversation history and updates the user profile
+func (upa *UserProfileAgent) UpdateUserProfile(
+	ctx context.Context,
+	userID string,
+	character *models.Character,
+	sessionMessages []repository.SessionMessage,
+	turnsToConsider int,
+) (*models.UserProfile, error) {
+
+	if len(sessionMessages) == 0 {
+		return nil, fmt.Errorf("no conversation history provided to update user profile")
+	}
+
+	// Load existing profile or create new one
+	existingProfile, err := upa.repo.LoadUserProfile(userID, character.ID)
+	if err != nil {
+		if os.IsNotExist(err) {
+			existingProfile = &models.UserProfile{
+				UserID:      userID,
+				CharacterID: character.ID,
+				Facts:       []models.UserFact{},
+				Version:     0,
+			}
+		} else {
+			return nil, fmt.Errorf("failed to load existing user profile: %w", err)
+		}
+	}
+
+	existingProfileJSON, _ := json.MarshalIndent(existingProfile, "", "  ")
+
+	// Prepare recent conversation history
+	startIndex := 0
+	if len(sessionMessages) > turnsToConsider {
+		startIndex = len(sessionMessages) - turnsToConsider
+	}
+	recentHistory := sessionMessages[startIndex:]
+
+	var promptMessages []profileMessageData
+	for i, msg := range recentHistory {
+		promptMessages = append(promptMessages, profileMessageData{
+			Role:       msg.Role,
+			Content:    msg.Content,
+			TurnNumber: startIndex + i + 1,
+			Timestamp:  msg.Timestamp.Format(time.RFC3339),
+		})
+	}
+
+	// Load and parse prompt template
+	promptTemplateBytes, err := os.ReadFile(upa.promptPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read user profile prompt template '%s': %w", upa.promptPath, err)
+	}
+
+	tmpl, err := template.New("userProfile").Parse(string(promptTemplateBytes))
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse user profile prompt template: %w", err)
+	}
+
+	data := profilePromptData{
+		ExistingProfileJSON: string(existingProfileJSON),
+		Messages:            promptMessages,
+		HistoryTurnCount:    len(promptMessages),
+		CharacterName:       character.Name,
+		CharacterID:         character.ID,
+		UserID:              userID,
+		NextVersion:         existingProfile.Version + 1,
+		CurrentTimestamp:    time.Now().Format(time.RFC3339),
+	}
+
+	var promptBuilder strings.Builder
+	if err := tmpl.Execute(&promptBuilder, data); err != nil {
+		return nil, fmt.Errorf("failed to execute user profile prompt template: %w", err)
+	}
+
+	// Make LLM call
+	request := &providers.PromptRequest{
+		CharacterID:  "system-user-profiler",
+		UserID:       userID,
+		Message:      promptBuilder.String(),
+		SystemPrompt: "You are an analytical AI. Your task is to extract and update user profile information based on the provided conversation history and existing profile. Respond ONLY with the updated JSON profile.",
+	}
+
+	response, err := upa.provider.SendRequest(ctx, request)
+	if err != nil {
+		return nil, fmt.Errorf("LLM call for user profile extraction failed: %w", err)
+	}
+
+	// Clean and parse JSON response
+	jsonContent := strings.TrimSpace(response.Content)
+
+	// Remove markdown code blocks if present
+	if strings.HasPrefix(jsonContent, "```json") {
+		jsonContent = strings.TrimPrefix(jsonContent, "```json")
+		jsonContent = strings.TrimSuffix(jsonContent, "```")
+		jsonContent = strings.TrimSpace(jsonContent)
+	} else if strings.HasPrefix(jsonContent, "```") {
+		jsonContent = strings.TrimPrefix(jsonContent, "```")
+		jsonContent = strings.TrimSuffix(jsonContent, "```")
+		jsonContent = strings.TrimSpace(jsonContent)
+	}
+
+	var updatedProfile models.UserProfile
+	if err := json.Unmarshal([]byte(jsonContent), &updatedProfile); err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to parse LLM response for user profile. Raw content:\n%s\n", jsonContent)
+		return nil, fmt.Errorf("failed to parse LLM response as JSON for user profile: %w", err)
+	}
+
+	// Validate the response
+	if updatedProfile.UserID != userID || updatedProfile.CharacterID != character.ID {
+		return nil, fmt.Errorf("LLM returned profile for incorrect user/character. Expected %s/%s, got %s/%s",
+			userID, character.ID, updatedProfile.UserID, updatedProfile.CharacterID)
+	}
+
+	// Save the updated profile
+	if err := upa.repo.SaveUserProfile(&updatedProfile); err != nil {
+		return nil, fmt.Errorf("failed to save updated user profile: %w", err)
+	}
+
+	return &updatedProfile, nil
+}
+````
+
+## File: .gitignore
+````
+# Binaries for programs and plugins
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+roleplay
+
+# Test binary, built with `go test -c`
+*.test
+
+# Output of the go coverage tool, specifically when used with LiteIDE
+*.out
+
+# Dependency directories (remove the comment below to include it)
+# vendor/
+
+# Go workspace file
+go.work
+go.work.sum
+
+# IDE specific files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Claude settings
+.claude/
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# Config files with secrets
+config.yaml
+config.yml
+*.secret
+
+# Local data and cache
+data/
+/cache/
+/sessions/
+/characters/
+*.db
+*.sqlite
+
+# Logs
+*.log
+logs/
+
+# Build artifacts
+dist/
+build/
+release/
+
+# Coverage reports
+coverage.txt
+coverage.html
+*.cover
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+*.temp
+
+# OS generated files
+Thumbs.db
+.DS_Store
+desktop.ini
+
+# Backup files
+*.bak
+*.backup
+*~
+
+# Test data (but keep example files)
+test_data/
+!examples/
+````
+
+## File: cmd/apitest.go
+````go
+package cmd
+
+import (
+	"context"
+	"fmt"
+	"time"
+
+	"github.com/dotcommander/roleplay/internal/factory"
+	"github.com/dotcommander/roleplay/internal/providers"
+	"github.com/dotcommander/roleplay/internal/utils"
+	"github.com/spf13/cobra"
+)
+
+var apiTestCmd = &cobra.Command{
+	Use:   "api-test",
+	Short: "Test API connection with a simple completion request",
+	Long:  `Sends a simple test message to verify API connectivity and configuration.`,
+	RunE:  runAPITest,
+}
+
+func init() {
+	rootCmd.AddCommand(apiTestCmd)
+	apiTestCmd.Flags().String("message", "Hello! Please respond with a brief greeting.", "Test message to send")
+}
+
+func runAPITest(cmd *cobra.Command, args []string) error {
+	// Get configuration from global config (already resolved in initConfig)
+	cfg := GetConfig()
+	message, _ := cmd.Flags().GetString("message")
+
+	fmt.Printf("Testing %s endpoint...\n", cfg.DefaultProvider)
+	if cfg.BaseURL != "" {
+		fmt.Printf("Base URL: %s\n", cfg.BaseURL)
+	}
+	// Use factory to get default model if needed
+	if cfg.Model == "" {
+		cfg.Model = factory.GetDefaultModel(cfg.DefaultProvider)
+	}
+	fmt.Printf("Model: %s\n", cfg.Model)
+	fmt.Printf("Message: %s\n\n", message)
+
+	// Create provider using factory
+	p, err := factory.CreateProviderWithFallback(cfg.DefaultProvider, cfg.APIKey, cfg.Model, cfg.BaseURL)
+	if err != nil {
+		return fmt.Errorf("failed to create provider: %w", err)
+	}
+
+	// Create request
+	req := &providers.PromptRequest{
+		SystemPrompt: "You are a helpful assistant. Keep responses brief.",
+		Message:      message,
+	}
+
+	// Send request with timeout
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	start := time.Now()
+	resp, err := p.SendRequest(ctx, req)
+	if err != nil {
+		return fmt.Errorf("API request failed: %w", err)
+	}
+	elapsed := time.Since(start)
+
+	// Display results
+	fmt.Println("✓ API test successful!")
+	fmt.Printf("Response time: %v\n", elapsed)
+	fmt.Printf("Tokens used: %d (prompt: %d, completion: %d)\n",
+		resp.TokensUsed.Total, resp.TokensUsed.Prompt, resp.TokensUsed.Completion)
+	if resp.TokensUsed.CachedPrompt > 0 {
+		fmt.Printf("Cached tokens: %d\n", resp.TokensUsed.CachedPrompt)
+	}
+	fmt.Printf("\nResponse:\n%s\n", utils.WrapText(resp.Content, 80))
+
+	return nil
+}
+````
+
 ## File: internal/factory/provider.go
 ````go
 package factory
@@ -7144,7 +7575,7 @@ func CreateProvider(cfg *config.Config) (providers.AIProvider, error) {
 
 	// Apply sensible defaults based on the profile name (DefaultProvider)
 	profileName := strings.ToLower(cfg.DefaultProvider)
-	
+
 	// Model defaults based on profile
 	if model == "" {
 		switch profileName {
@@ -7177,10 +7608,10 @@ func InitializeAndRegisterProvider(bot *services.CharacterBot, cfg *config.Confi
 
 	// Register using the profile name as the key
 	bot.RegisterProvider(cfg.DefaultProvider, provider)
-	
+
 	// Initialize user profile agent after provider is registered
 	bot.InitializeUserProfileAgent()
-	
+
 	return nil
 }
 
@@ -7194,7 +7625,15 @@ func CreateProviderWithFallback(profileName, apiKey, model, baseURL string) (pro
 
 	// Validate API key for non-local endpoints
 	if apiKey == "" && !isLocalEndpoint(profileName, baseURL) {
-		return nil, fmt.Errorf("API key required for %s", profileName)
+		return nil, fmt.Errorf(`API key for provider '%s' is missing.
+
+To fix this:
+1. Run 'roleplay init' to configure it interactively
+2. Or, set the 'api_key' in ~/.config/roleplay/config.yaml
+3. Or, set the %s environment variable
+4. Or, use the --api-key flag
+
+For more info: roleplay config where`, profileName, getProviderEnvVar(profileName))
 	}
 
 	// Always create the unified OpenAI-compatible provider
@@ -7221,18 +7660,35 @@ func GetDefaultModel(profileName string) string {
 // isLocalEndpoint determines if an endpoint is local and doesn't require API key
 func isLocalEndpoint(profileName, baseURL string) bool {
 	profileName = strings.ToLower(profileName)
-	
+
 	// Known local profiles
 	if profileName == "ollama" || profileName == "lm_studio" || profileName == "local" {
 		return true
 	}
-	
+
 	// Check if baseURL indicates localhost
 	if baseURL != "" && (strings.Contains(baseURL, "localhost") || strings.Contains(baseURL, "127.0.0.1") || strings.Contains(baseURL, "0.0.0.0")) {
 		return true
 	}
-	
+
 	return false
+}
+
+// getProviderEnvVar returns the appropriate environment variable name for a provider
+func getProviderEnvVar(profileName string) string {
+	profileName = strings.ToLower(profileName)
+	switch profileName {
+	case "openai":
+		return "OPENAI_API_KEY or ROLEPLAY_API_KEY"
+	case "anthropic":
+		return "ANTHROPIC_API_KEY or ROLEPLAY_API_KEY"
+	case "gemini":
+		return "GEMINI_API_KEY or ROLEPLAY_API_KEY"
+	case "groq":
+		return "GROQ_API_KEY or ROLEPLAY_API_KEY"
+	default:
+		return "ROLEPLAY_API_KEY"
+	}
 }
 ````
 
@@ -7385,253 +7841,6 @@ func createProvider(cfg *config.Config) (providers.AIProvider, error) {
 	// Use the factory to create the provider
 	return factory.CreateProvider(cfg)
 }
-````
-
-## File: internal/models/conversation.go
-````go
-package models
-
-import "time"
-
-// Message represents a single message in a conversation
-type Message struct {
-	Role      string    `json:"role"`
-	Content   string    `json:"content"`
-	Timestamp time.Time `json:"timestamp"`
-}
-
-// ConversationContext holds the current conversation state
-type ConversationContext struct {
-	RecentMessages []Message
-	SessionID      string
-	StartTime      time.Time
-}
-
-// ConversationRequest represents a user request to the character bot
-type ConversationRequest struct {
-	CharacterID string
-	UserID      string
-	Message     string
-	Context     ConversationContext
-	ScenarioID  string // Optional scenario context
-}
-````
-
-## File: internal/providers/openai.go
-````go
-package providers
-
-import (
-	"context"
-	"fmt"
-	"io"
-	"strings"
-
-	"github.com/dotcommander/roleplay/internal/cache"
-	"github.com/sashabaranov/go-openai"
-)
-
-// OpenAIProvider implements the AIProvider interface for OpenAI-compatible models
-type OpenAIProvider struct {
-	client *openai.Client
-	model  string
-}
-
-// NewOpenAIProvider creates a new OpenAI provider instance
-func NewOpenAIProvider(apiKey, model string) *OpenAIProvider {
-	return NewOpenAIProviderWithBaseURL(apiKey, model, "")
-}
-
-// NewOpenAIProviderWithBaseURL creates a new OpenAI-compatible provider with custom base URL
-func NewOpenAIProviderWithBaseURL(apiKey, model, baseURL string) *OpenAIProvider {
-	// Log the model being used for debugging
-	if strings.HasPrefix(model, "o1-") || strings.HasPrefix(model, "o4-") {
-		fmt.Printf("⚠️  Using o1/o4 model: %s (limited parameter support)\n", model)
-	}
-	
-	config := openai.DefaultConfig(apiKey)
-	if baseURL != "" {
-		// Handle baseURL carefully - go-openai may expect base URL without /v1
-		baseURL = strings.TrimRight(baseURL, "/")
-		// If baseURL ends with /v1, use it as-is, otherwise let the SDK handle it
-		if !strings.HasSuffix(baseURL, "/v1") {
-			config.BaseURL = baseURL + "/v1"
-		} else {
-			config.BaseURL = baseURL
-		}
-	}
-
-	return &OpenAIProvider{
-		client: openai.NewClientWithConfig(config),
-		model:  model,
-	}
-}
-
-// SendRequest sends a request to the OpenAI-compatible API
-func (o *OpenAIProvider) SendRequest(ctx context.Context, req *PromptRequest) (*AIResponse, error) {
-	// Build messages from the request
-	messages := o.buildMessages(req)
-
-	// Create the API request
-	apiReq := openai.ChatCompletionRequest{
-		Model:    o.model,
-		Messages: messages,
-	}
-
-	// o1 models have restrictions on parameters
-	if !strings.HasPrefix(o.model, "o1-") && !strings.HasPrefix(o.model, "o4-") {
-		// Standard models support these parameters
-		apiReq.Temperature = 0.7
-		apiReq.MaxTokens = 2000
-	}
-
-	// Send the request
-	resp, err := o.client.CreateChatCompletion(ctx, apiReq)
-	if err != nil {
-		return nil, fmt.Errorf("API request failed: %w", err)
-	}
-
-	// Parse the response
-	return o.parseResponse(resp)
-}
-
-func (o *OpenAIProvider) buildMessages(req *PromptRequest) []openai.ChatCompletionMessage {
-	messages := []openai.ChatCompletionMessage{}
-
-	// Use SystemPrompt if provided (bot service assembles this from cache breakpoints)
-	if req.SystemPrompt != "" {
-		messages = append(messages, openai.ChatCompletionMessage{
-			Role:    openai.ChatMessageRoleSystem,
-			Content: req.SystemPrompt,
-		})
-	} else {
-		// Fallback: Combine all breakpoints into system message
-		systemContent := ""
-		for _, bp := range req.CacheBreakpoints {
-			systemContent += bp.Content + "\n\n"
-		}
-		if systemContent != "" {
-			messages = append(messages, openai.ChatCompletionMessage{
-				Role:    openai.ChatMessageRoleSystem,
-				Content: strings.TrimSpace(systemContent),
-			})
-		}
-	}
-
-	// Add conversation history
-	for _, msg := range req.Context.RecentMessages {
-		role := openai.ChatMessageRoleUser
-		if msg.Role == "assistant" || msg.Role == "character" {
-			role = openai.ChatMessageRoleAssistant
-		}
-		messages = append(messages, openai.ChatCompletionMessage{
-			Role:    role,
-			Content: msg.Content,
-		})
-	}
-
-	// Add current message
-	messages = append(messages, openai.ChatCompletionMessage{
-		Role:    openai.ChatMessageRoleUser,
-		Content: req.Message,
-	})
-
-	return messages
-}
-
-// SendStreamRequest sends a streaming request to the OpenAI-compatible API
-func (o *OpenAIProvider) SendStreamRequest(ctx context.Context, req *PromptRequest, out chan<- PartialAIResponse) error {
-	defer close(out)
-	
-	// Build messages from the request
-	messages := o.buildMessages(req)
-
-	// Create the API request
-	apiReq := openai.ChatCompletionRequest{
-		Model:    o.model,
-		Messages: messages,
-		Stream:   true,
-	}
-
-	// o1 models have restrictions on parameters
-	if !strings.HasPrefix(o.model, "o1-") && !strings.HasPrefix(o.model, "o4-") {
-		// Standard models support these parameters
-		apiReq.Temperature = 0.7
-		apiReq.MaxTokens = 2000
-	}
-
-	// Create the stream
-	stream, err := o.client.CreateChatCompletionStream(ctx, apiReq)
-	if err != nil {
-		return fmt.Errorf("failed to create stream: %w", err)
-	}
-	defer stream.Close()
-
-	// Process stream chunks
-	for {
-		response, err := stream.Recv()
-		if err == io.EOF {
-			// Stream finished
-			out <- PartialAIResponse{
-				Done: true,
-			}
-			return nil
-		}
-		if err != nil {
-			return fmt.Errorf("stream error: %w", err)
-		}
-
-		// Extract content from the chunk
-		if len(response.Choices) > 0 && response.Choices[0].Delta.Content != "" {
-			out <- PartialAIResponse{
-				Content: response.Choices[0].Delta.Content,
-				Done:    false,
-			}
-		}
-	}
-}
-
-func (o *OpenAIProvider) parseResponse(resp openai.ChatCompletionResponse) (*AIResponse, error) {
-	content := ""
-	if len(resp.Choices) > 0 {
-		content = resp.Choices[0].Message.Content
-	}
-
-	// Note: The SDK response may not include prompt_tokens_details for all providers
-	// We'll set conservative defaults for cache metrics
-	cachedTokens := 0
-	cachedLayers := []cache.CacheLayer{}
-	
-	// Some OpenAI-compatible APIs might not report cached tokens
-	// This is a best-effort approach
-	if cachedTokens > 0 {
-		cachedLayers = append(cachedLayers, cache.CorePersonalityLayer)
-	}
-
-	return &AIResponse{
-		Content: content,
-		TokensUsed: TokenUsage{
-			Prompt:       resp.Usage.PromptTokens,
-			Completion:   resp.Usage.CompletionTokens,
-			CachedPrompt: cachedTokens,
-			Total:        resp.Usage.TotalTokens,
-		},
-		CacheMetrics: cache.CacheMetrics{
-			Hit:         cachedTokens > 0,
-			Layers:      cachedLayers,
-			SavedTokens: cachedTokens / 2, // Assume 50% discount when cached
-		},
-	}, nil
-}
-
-// SupportsBreakpoints indicates that OpenAI-compatible APIs handle caching server-side
-func (o *OpenAIProvider) SupportsBreakpoints() bool { return false }
-
-// MaxBreakpoints returns 0 as caching is handled server-side
-func (o *OpenAIProvider) MaxBreakpoints() int { return 0 }
-
-// Name returns the provider name
-func (o *OpenAIProvider) Name() string { return "openai_compatible" }
 ````
 
 ## File: internal/services/bot_test.go
@@ -7934,93 +8143,6 @@ func TestPersonalityEvolution(t *testing.T) {
 }
 ````
 
-## File: .gitignore
-````
-# Binaries for programs and plugins
-*.exe
-*.exe~
-*.dll
-*.so
-*.dylib
-roleplay
-
-# Test binary, built with `go test -c`
-*.test
-
-# Output of the go coverage tool, specifically when used with LiteIDE
-*.out
-
-# Dependency directories (remove the comment below to include it)
-# vendor/
-
-# Go workspace file
-go.work
-go.work.sum
-
-# IDE specific files
-.idea/
-.vscode/
-*.swp
-*.swo
-*~
-.DS_Store
-
-# Claude settings
-.claude/
-
-# Environment files
-.env
-.env.local
-.env.*.local
-
-# Config files with secrets
-config.yaml
-config.yml
-*.secret
-
-# Local data and cache
-data/
-/cache/
-/sessions/
-/characters/
-*.db
-*.sqlite
-
-# Logs
-*.log
-logs/
-
-# Build artifacts
-dist/
-build/
-release/
-
-# Coverage reports
-coverage.txt
-coverage.html
-*.cover
-
-# Temporary files
-tmp/
-temp/
-*.tmp
-*.temp
-
-# OS generated files
-Thumbs.db
-.DS_Store
-desktop.ini
-
-# Backup files
-*.bak
-*.backup
-*~
-
-# Test data (but keep example files)
-test_data/
-!examples/
-````
-
 ## File: README.md
 ````markdown
 # Roleplay - Advanced AI Character Bot with Psychological Modeling
@@ -8078,20 +8200,42 @@ sudo mv roleplay /usr/local/bin/
 ### First Run
 
 ```bash
-# Run the setup wizard (recommended)
+# Run the setup wizard (creates ~/.config/roleplay/config.yaml)
 roleplay init
-
-# Or manually set your API key
-export OPENAI_API_KEY="your-api-key"  # For OpenAI
-export ANTHROPIC_API_KEY="your-key"   # For Anthropic
-export OLLAMA_HOST="http://localhost:11434"  # For Ollama
 
 # Quick start with built-in Rick Sanchez character
 roleplay demo
 
-# Or start interactive chat with any character
-roleplay interactive --character rick-c137 --user your-name
+# Or start interactive chat
+roleplay interactive
 ```
+
+### Configuration Made Simple
+
+**Primary Config Location:** `~/.config/roleplay/config.yaml`
+
+This is your single source of truth for persistent settings. Everything else provides temporary overrides.
+
+```bash
+# View current configuration and sources
+roleplay config list
+
+# Update a setting
+roleplay config set model gpt-4o
+roleplay config set api_key sk-...
+
+# Check a specific setting
+roleplay config get provider
+
+# Find config file location
+roleplay config where
+```
+
+**Configuration Precedence** (highest to lowest):
+1. Command-line flags (`--api-key`, `--model`)
+2. Environment variables (`ROLEPLAY_API_KEY`, `OPENAI_API_KEY`)
+3. Config file (`~/.config/roleplay/config.yaml`)
+4. Default values
 
 ## 📖 Usage
 
@@ -8364,479 +8508,6 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 ---
 
 Made with ❤️ by the Roleplay team
-````
-
-## File: internal/config/config.go
-````go
-package config
-
-import "time"
-
-// Config holds all application configuration
-type Config struct {
-	DefaultProvider   string
-	Model             string
-	APIKey            string
-	BaseURL           string            // OpenAI-compatible endpoint
-	ModelAliases      map[string]string // Aliases for models
-	CacheConfig       CacheConfig
-	MemoryConfig      MemoryConfig
-	PersonalityConfig PersonalityConfig
-	UserProfileConfig UserProfileConfig
-}
-
-// CacheConfig holds cache-related configuration
-type CacheConfig struct {
-	MaxEntries        int
-	CleanupInterval   time.Duration
-	DefaultTTL        time.Duration
-	EnableAdaptiveTTL bool
-}
-
-// MemoryConfig holds memory management configuration
-type MemoryConfig struct {
-	ShortTermWindow    int           // Number of messages
-	MediumTermDuration time.Duration // How long to keep
-	ConsolidationRate  float64       // Learning rate for personality evolution
-}
-
-// PersonalityConfig holds personality evolution configuration
-type PersonalityConfig struct {
-	EvolutionEnabled   bool
-	MaxDriftRate       float64 // Maximum personality change per interaction
-	StabilityThreshold float64 // Minimum interactions before evolution
-}
-
-// UserProfileConfig holds user profile agent configuration
-type UserProfileConfig struct {
-	Enabled              bool          `mapstructure:"enabled"`
-	UpdateFrequency      int           `mapstructure:"update_frequency_messages"` // Update every N messages
-	TurnsToConsider      int           `mapstructure:"turns_to_consider"`         // How many past turns to analyze
-	ConfidenceThreshold  float64       `mapstructure:"confidence_threshold"`      // Min confidence for facts
-	PromptCacheTTL       time.Duration `mapstructure:"prompt_cache_ttl"`
-}
-````
-
-## File: internal/providers/providers_test.go
-````go
-package providers
-
-import (
-	"context"
-	"encoding/json"
-	"net/http"
-	"net/http/httptest"
-	"testing"
-
-	"github.com/dotcommander/roleplay/internal/cache"
-	"github.com/dotcommander/roleplay/internal/models"
-)
-
-func TestOpenAIProvider(t *testing.T) {
-	provider := NewOpenAIProvider("test-api-key", "gpt-4")
-
-	if provider.Name() != "openai_compatible" {
-		t.Errorf("Expected name 'openai_compatible', got %s", provider.Name())
-	}
-
-	if provider.SupportsBreakpoints() {
-		t.Error("Expected OpenAI to not support explicit breakpoints")
-	}
-
-	if provider.MaxBreakpoints() != 0 {
-		t.Errorf("Expected 0 breakpoints, got %d", provider.MaxBreakpoints())
-	}
-
-	// Verify it uses the model passed in constructor
-	if provider.model != "gpt-4" {
-		t.Errorf("Expected model to be 'gpt-4', got %s", provider.model)
-	}
-}
-
-func TestOpenAIProviderRequest(t *testing.T) {
-	// Create test server
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Verify headers
-		if r.Header.Get("Authorization") != "Bearer test-key" {
-			t.Error("Missing or incorrect Authorization header")
-		}
-
-		// Verify request body
-		var reqBody map[string]interface{}
-		if err := json.NewDecoder(r.Body).Decode(&reqBody); err != nil {
-			t.Errorf("Failed to decode request body: %v", err)
-		}
-
-		if reqBody["model"] != "o4-mini" {
-			t.Errorf("Expected model o4-mini, got %v", reqBody["model"])
-		}
-
-		// Send mock response
-		response := map[string]interface{}{
-			"choices": []map[string]interface{}{
-				{
-					"message": map[string]string{
-						"content": "Test response",
-					},
-				},
-			},
-			"usage": map[string]interface{}{
-				"prompt_tokens":     100,
-				"completion_tokens": 50,
-				"total_tokens":      150,
-				"prompt_tokens_details": map[string]int{
-					"cached_tokens": 80,
-				},
-			},
-		}
-
-		w.Header().Set("Content-Type", "application/json")
-		if err := json.NewEncoder(w).Encode(response); err != nil {
-			t.Errorf("Failed to encode response: %v", err)
-		}
-	}))
-	defer server.Close()
-
-	// Create provider with test server
-	provider := NewOpenAIProviderWithBaseURL("test-key", "o4-mini", server.URL)
-
-	// Create test request
-	req := &PromptRequest{
-		CharacterID: "test-char",
-		UserID:      "test-user",
-		Message:     "Hello",
-		Context: models.ConversationContext{
-			RecentMessages: []models.Message{
-				{Role: "user", Content: "Previous message"},
-			},
-		},
-		CacheBreakpoints: []cache.CacheBreakpoint{
-			{Layer: cache.CorePersonalityLayer, Content: "Test personality"},
-		},
-	}
-
-	// Send request
-	ctx := context.Background()
-	resp, err := provider.SendRequest(ctx, req)
-	if err != nil {
-		t.Fatalf("Failed to send request: %v", err)
-	}
-
-	// Verify response
-	if resp.Content != "Test response" {
-		t.Errorf("Expected 'Test response', got %s", resp.Content)
-	}
-
-	if resp.TokensUsed.Total != 150 {
-		t.Errorf("Expected 150 total tokens, got %d", resp.TokensUsed.Total)
-	}
-
-	// Note: With the SDK-based implementation, cached tokens might not be reported
-	// depending on the provider. This is a limitation of the OpenAI-compatible approach
-}
-````
-
-## File: CLAUDE.md
-````markdown
-# CLAUDE.md
-
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
-
-## Project Overview
-
-This is a sophisticated Go-based character bot architecture that implements psychologically-realistic AI characters with personality evolution, emotional states, and multi-layered memory systems. The codebase demonstrates advanced caching strategies to achieve 90% cost reduction in LLM API usage.
-
-## Architecture
-
-### Core Components
-
-1. **Character System**
-   - OCEAN personality model (Openness, Conscientiousness, Extraversion, Agreeableness, Neuroticism)
-   - Emotional states with dynamic blending
-   - Three-tier memory system (short-term, medium-term, long-term)
-   - Personality evolution with bounded drift
-
-2. **4-Layer Prompt Caching Architecture**
-   Our sophisticated caching system implements 4 strategic layers for maximum token savings:
-   
-   **Layer 1: Admin/System Layer** - Global system prompts and admin instructions (longest TTL)
-   **Layer 2: Character Personality Layer** - Core character traits, backstory, personality (long TTL)
-   **Layer 3: User Memory Layer** - User-specific memories, relationships, context (medium TTL)
-   **Layer 4: Current Chat History** - Recent conversation context (short TTL/no cache)
-
-3. **Dual Caching System**
-   - **Response Cache**: Stores complete API responses to avoid duplicate requests
-   - **Prompt Cache**: Layers prompts with strategic breakpoints for provider caching
-   - Automatic cache hit detection and metrics tracking
-   - Adaptive TTL based on conversation activity and character complexity
-
-4. **Provider Abstraction**
-   - Interface-based design supporting multiple AI providers
-   - Anthropic implementation with prompt caching (4 breakpoints)
-   - OpenAI implementation with response caching and parameter optimization
-   - Smart routing based on features, cost, or latency
-
-5. **Performance Optimizations**
-   - Adaptive TTL: 50% extension for active conversations, 20% for complex characters
-   - Background workers for cache cleanup and memory consolidation
-   - Thread-safe operations with proper mutex usage
-   - Token tracking and optimization
-   - Response deduplication for identical requests
-
-## Development Commands
-
-```bash
-# Build the application
-go build -o roleplay
-
-# Run commands directly
-go run main.go character example
-go run main.go character create thorin.json
-go run main.go chat "Hello!" --character warrior-123 --user user-789
-
-# Install globally
-go install
-
-# Format code
-go fmt ./...
-
-# Download dependencies
-go mod download
-go mod tidy
-```
-
-## Key Design Patterns
-
-- **Clean Architecture**: Separation between domain models, business logic, and external providers
-- **Dependency Injection**: Providers registered at runtime
-- **Interface-First Design**: All major components defined as interfaces
-- **Concurrent Design**: Thread-safe operations throughout
-- **Factory Pattern**: Centralized provider initialization through `internal/factory`
-
-## Important Implementation Details
-
-### Provider Factory Pattern
-The codebase uses a centralized factory pattern for AI provider initialization:
-
-```go
-// Create provider using factory
-provider, err := factory.CreateProvider(config)
-
-// Or initialize and register with bot
-err := factory.InitializeAndRegisterProvider(bot, config)
-```
-
-This pattern eliminates code duplication and ensures consistent provider setup across all commands.
-
-### AI-Powered User Profile Agent
-The system includes an intelligent user profile agent that automatically:
-- Analyzes conversation history to extract key information about users
-- Builds character-specific profiles (how each character perceives the user)
-- Updates profiles dynamically as conversations evolve
-- Enriches future interactions with learned context
-
-**Key Features:**
-- **Automatic Extraction**: LLM analyzes conversations to identify user facts, preferences, goals
-- **Confidence Scoring**: Each extracted fact has a confidence score (0.0-1.0)
-- **Character-Specific**: Each character maintains their own perception of the user
-- **Privacy-Aware**: Users can view, manage, and delete their profiles
-
-**Configuration:**
-```yaml
-user_profile:
-  enabled: true                    # Enable AI-powered user profiling
-  update_frequency: 5              # Update profile every 5 messages
-  turns_to_consider: 20            # Analyze last 20 conversation turns
-  confidence_threshold: 0.5        # Include facts with >50% confidence
-  prompt_cache_ttl: 1h             # Cache user profiles for 1 hour
-```
-
-**Usage:**
-- Profiles are automatically created/updated during interactive and demo modes
-- View profiles: `roleplay profile show <user-id> <character-id>`
-- List all profiles: `roleplay profile list <user-id>`
-- Delete profile: `roleplay profile delete <user-id> <character-id>`
-
-### 4-Layer Cache Implementation
-The caching system uses strategic breakpoints aligned with our 4-layer architecture:
-
-**Layer 1: Admin/System Layer**
-- Global system instructions and safety guidelines
-- Administrative prompts and framework instructions
-- Longest TTL (24+ hours) - rarely changes
-
-**Layer 2: Character Personality Layer** 
-- Character backstory, personality traits (OCEAN model)
-- Core behavioral patterns and speech style
-- Character-specific quirks and mannerisms
-- Long TTL (6-12 hours) - stable character traits
-
-**Layer 3: User Memory Layer**
-- User-specific relationship dynamics
-- Conversation history and shared memories
-- User preferences and interaction patterns
-- Medium TTL (1-3 hours) - evolves with relationship
-
-**Layer 4: Current Chat History**
-- Recent conversation turns and immediate context
-- Current emotional state and active topics
-- Short TTL (5-15 minutes) or no caching for real-time responses
-
-### Memory Consolidation
-- Automatic consolidation when short-term memory exceeds 10 entries
-- Emotional weighting preserves important memories
-- Background process runs every 5 minutes
-
-### Personality Evolution
-- Bounded drift prevents radical personality changes
-- Learning rate of 0.1 for gradual adaptation
-- Trait changes capped at ±0.2 from baseline
-
-## Project Structure
-
-The codebase follows clean Go CLI architecture with global configuration:
-
-```
-roleplay/
-├── main.go                 # Entry point (<20 lines)
-├── cmd/                    # Command definitions
-│   ├── root.go            # Root command + shared config
-│   ├── chat.go            # Chat command handler
-│   ├── character.go       # Character management commands
-│   ├── demo.go            # Caching demonstration
-│   ├── interactive.go     # TUI chat interface
-│   ├── session.go         # Session management
-│   ├── status.go          # Configuration status
-│   └── apitest.go         # API connectivity testing
-├── internal/              # Private packages
-│   ├── cache/             # Dual caching system (prompt + response)
-│   ├── config/            # Configuration structures
-│   ├── factory/           # Provider factory for centralized initialization
-│   ├── importer/          # AI-powered character import from markdown
-│   ├── models/            # Domain models (Character, Memory, etc.)
-│   ├── providers/         # AI provider implementations
-│   ├── services/          # Core bot service and business logic
-│   ├── repository/        # Character and session persistence
-│   ├── manager/           # High-level character management
-│   └── utils/             # Shared utilities (text wrapping, etc.)
-├── examples/              # Example character files
-│   └── characters/        # Example character JSON files
-├── prompts/               # LLM prompt templates (externalized)
-├── scripts/               # Utility scripts
-├── migrate-config.sh      # Configuration migration script
-├── chat-with-rick.sh      # Quick Rick Sanchez demo script
-└── go.mod
-
-### Global Configuration
-- Config directory: `~/.config/roleplay/`
-- Character storage: `~/.config/roleplay/characters/`
-- Session storage: `~/.config/roleplay/sessions/`
-- Cache storage: `~/.config/roleplay/cache/`
-- User profiles: `~/.config/roleplay/user_profiles/`
-- Global binary: `~/go/bin/roleplay` (symlinked)
-```
-
-## Command Structure
-
-```bash
-roleplay
-├── character              # Character management
-│   ├── create            # Create from JSON file  
-│   ├── list              # List all available characters
-│   ├── show              # Display character details
-│   └── example           # Generate example JSON
-├── import                 # Import character from markdown using AI
-├── profile                # User profile management
-│   ├── show              # Display specific user profile
-│   ├── list              # List all profiles for a user
-│   └── delete            # Delete a user profile
-├── session                # Session management
-│   ├── list              # List sessions for character(s)
-│   └── stats             # Show caching performance metrics
-├── interactive            # TUI chat interface (auto-creates Rick)
-├── chat                   # Single message chat
-├── demo                   # Caching demonstration (uses Rick by default)
-├── api-test               # Test API connectivity
-└── status                 # Show current configuration
-```
-
-## Cache Performance Features
-
-### Demo Mode
-- `roleplay demo` - Interactive demonstration of 4-layer caching
-- Shows cache hits/misses in real-time with visual feedback
-- Demonstrates token savings and cost reduction
-- Uses Rick Sanchez character for engaging demo experience
-
-### Session Persistence
-- All conversations saved with cache metrics
-- `roleplay session stats` shows aggregate caching performance
-- Tracks hit rates, tokens saved, and cost savings across sessions
-- Session data persists between application runs
-
-### Cache Metrics Tracking
-- Real-time cache hit/miss tracking
-- Token usage optimization
-- Cost savings calculations
-- Performance latency measurements
-
-## Usage Example
-
-```go
-// Initialize bot
-config := Config{
-    MaxShortTermMemory: 10,
-    MaxMediumTermMemory: 50,
-    MaxLongTermMemory: 200,
-    CacheTTL: 5 * time.Minute,
-}
-bot := NewCharacterBot(config)
-
-// Register providers using factory
-err := factory.InitializeAndRegisterProvider(bot, config)
-
-// Create character
-character := Character{
-    ID: "warrior-maiden",
-    Name: "Lyra",
-    Personality: PersonalityTraits{
-        Openness: 0.7,
-        Conscientiousness: 0.8,
-        Extraversion: 0.6,
-        Agreeableness: 0.5,
-        Neuroticism: 0.3,
-    },
-    // ... other fields
-}
-bot.CreateCharacter(character)
-
-// Process conversation
-request := ConversationRequest{
-    CharacterID: "warrior-maiden",
-    UserID: "user123",
-    Message: "Tell me about your adventures",
-}
-response, err := bot.ProcessRequest(ctx, request)
-```
-
-## Prompt Caching Strategy
-
-Our goal is to implement prompt-caching in 4 layers:
-- Admin layer
-- System character prompt layer
-- User memory layer
-- Current chat history layer
-
-## Refactoring Best Practices
-
-When refactoring this codebase:
-
-1. **Use the Factory Pattern**: Always use `internal/factory` for provider initialization
-2. **Extract Helper Functions**: Break down long functions into smaller, focused helpers
-3. **Maintain Test Coverage**: Add tests for any new packages or major changes
-4. **Document TUI Changes**: The TUI is complex; document any architectural changes
-
-See `TUI_REFACTORING_PLAN.md` for detailed guidance on refactoring the interactive mode.
 ````
 
 ## File: cmd/demo.go
@@ -9219,6 +8890,968 @@ func displayDemoSummary(session *repository.Session, styles *demoStyles) {
 }
 ````
 
+## File: internal/config/config.go
+````go
+package config
+
+import "time"
+
+// Config holds all application configuration
+type Config struct {
+	DefaultProvider   string
+	Model             string
+	APIKey            string
+	BaseURL           string            // OpenAI-compatible endpoint
+	ModelAliases      map[string]string // Aliases for models
+	CacheConfig       CacheConfig
+	MemoryConfig      MemoryConfig
+	PersonalityConfig PersonalityConfig
+	UserProfileConfig UserProfileConfig
+}
+
+// CacheConfig holds cache-related configuration
+type CacheConfig struct {
+	MaxEntries        int
+	CleanupInterval   time.Duration
+	DefaultTTL        time.Duration
+	EnableAdaptiveTTL bool
+}
+
+// MemoryConfig holds memory management configuration
+type MemoryConfig struct {
+	ShortTermWindow    int           // Number of messages
+	MediumTermDuration time.Duration // How long to keep
+	ConsolidationRate  float64       // Learning rate for personality evolution
+}
+
+// PersonalityConfig holds personality evolution configuration
+type PersonalityConfig struct {
+	EvolutionEnabled   bool
+	MaxDriftRate       float64 // Maximum personality change per interaction
+	StabilityThreshold float64 // Minimum interactions before evolution
+}
+
+// UserProfileConfig holds user profile agent configuration
+type UserProfileConfig struct {
+	Enabled             bool          `mapstructure:"enabled"`
+	UpdateFrequency     int           `mapstructure:"update_frequency_messages"` // Update every N messages
+	TurnsToConsider     int           `mapstructure:"turns_to_consider"`         // How many past turns to analyze
+	ConfidenceThreshold float64       `mapstructure:"confidence_threshold"`      // Min confidence for facts
+	PromptCacheTTL      time.Duration `mapstructure:"prompt_cache_ttl"`
+}
+````
+
+## File: internal/providers/openai.go
+````go
+package providers
+
+import (
+	"context"
+	"fmt"
+	"io"
+	"net/http"
+	"os"
+	"strings"
+
+	"github.com/dotcommander/roleplay/internal/cache"
+	"github.com/sashabaranov/go-openai"
+)
+
+// OpenAIProvider implements the AIProvider interface for OpenAI-compatible models
+type OpenAIProvider struct {
+	client  *openai.Client
+	model   string
+	baseURL string // Store for debug logging
+}
+
+// NewOpenAIProvider creates a new OpenAI provider instance
+func NewOpenAIProvider(apiKey, model string) *OpenAIProvider {
+	return NewOpenAIProviderWithBaseURL(apiKey, model, "")
+}
+
+// NewOpenAIProviderWithBaseURL creates a new OpenAI-compatible provider with custom base URL
+func NewOpenAIProviderWithBaseURL(apiKey, model, baseURL string) *OpenAIProvider {
+	// Log the model being used for debugging
+	if strings.HasPrefix(model, "o1-") || strings.HasPrefix(model, "o4-") {
+		fmt.Printf("⚠️  Using o1/o4 model: %s (limited parameter support)\n", model)
+	}
+
+	config := openai.DefaultConfig(apiKey)
+	if baseURL != "" {
+		// Trust the user-provided base URL - don't modify it
+		// This allows for endpoints like /v1beta (Gemini) or other custom paths
+		config.BaseURL = strings.TrimRight(baseURL, "/")
+		
+		// Add debug transport if DEBUG_HTTP env var is set
+		if os.Getenv("DEBUG_HTTP") == "true" {
+			fmt.Printf("🔧 Debug: OpenAI provider configured with base URL: %s\n", config.BaseURL)
+			config.HTTPClient = &http.Client{
+				Transport: &debugTransport{RoundTripper: http.DefaultTransport},
+			}
+		}
+	}
+
+	return &OpenAIProvider{
+		client:  openai.NewClientWithConfig(config),
+		model:   model,
+		baseURL: config.BaseURL,
+	}
+}
+
+// SendRequest sends a request to the OpenAI-compatible API
+func (o *OpenAIProvider) SendRequest(ctx context.Context, req *PromptRequest) (*AIResponse, error) {
+	// Build messages from the request
+	messages := o.buildMessages(req)
+
+	// Create the API request
+	apiReq := openai.ChatCompletionRequest{
+		Model:    o.model,
+		Messages: messages,
+	}
+
+	// o1 models have restrictions on parameters
+	if !strings.HasPrefix(o.model, "o1-") && !strings.HasPrefix(o.model, "o4-") {
+		// Standard models support these parameters
+		apiReq.Temperature = 0.7
+		apiReq.MaxTokens = 2000
+	}
+
+	// Send the request
+	if os.Getenv("DEBUG_HTTP") == "true" {
+		fmt.Printf("🔧 Debug: Sending chat completion request with model: %s\n", o.model)
+	}
+	resp, err := o.client.CreateChatCompletion(ctx, apiReq)
+	if err != nil {
+		// Add debug info if enabled
+		if os.Getenv("DEBUG_HTTP") == "true" {
+			fmt.Printf("🔧 Debug: Request failed - Error: %v\n", err)
+			if o.baseURL != "" {
+				fmt.Printf("🔧 Debug: Expected URL: %s/chat/completions\n", o.baseURL)
+			}
+		}
+		return nil, fmt.Errorf("API request failed: %w", err)
+	}
+
+	// Parse the response
+	return o.parseResponse(resp)
+}
+
+func (o *OpenAIProvider) buildMessages(req *PromptRequest) []openai.ChatCompletionMessage {
+	messages := []openai.ChatCompletionMessage{}
+
+	// Use SystemPrompt if provided (bot service assembles this from cache breakpoints)
+	if req.SystemPrompt != "" {
+		messages = append(messages, openai.ChatCompletionMessage{
+			Role:    openai.ChatMessageRoleSystem,
+			Content: req.SystemPrompt,
+		})
+	} else {
+		// Fallback: Combine all breakpoints into system message
+		systemContent := ""
+		for _, bp := range req.CacheBreakpoints {
+			systemContent += bp.Content + "\n\n"
+		}
+		if systemContent != "" {
+			messages = append(messages, openai.ChatCompletionMessage{
+				Role:    openai.ChatMessageRoleSystem,
+				Content: strings.TrimSpace(systemContent),
+			})
+		}
+	}
+
+	// Add conversation history
+	for _, msg := range req.Context.RecentMessages {
+		role := openai.ChatMessageRoleUser
+		if msg.Role == "assistant" || msg.Role == "character" {
+			role = openai.ChatMessageRoleAssistant
+		}
+		messages = append(messages, openai.ChatCompletionMessage{
+			Role:    role,
+			Content: msg.Content,
+		})
+	}
+
+	// Add current message
+	messages = append(messages, openai.ChatCompletionMessage{
+		Role:    openai.ChatMessageRoleUser,
+		Content: req.Message,
+	})
+
+	return messages
+}
+
+// SendStreamRequest sends a streaming request to the OpenAI-compatible API
+func (o *OpenAIProvider) SendStreamRequest(ctx context.Context, req *PromptRequest, out chan<- PartialAIResponse) error {
+	defer close(out)
+
+	// Build messages from the request
+	messages := o.buildMessages(req)
+
+	// Create the API request
+	apiReq := openai.ChatCompletionRequest{
+		Model:    o.model,
+		Messages: messages,
+		Stream:   true,
+	}
+
+	// o1 models have restrictions on parameters
+	if !strings.HasPrefix(o.model, "o1-") && !strings.HasPrefix(o.model, "o4-") {
+		// Standard models support these parameters
+		apiReq.Temperature = 0.7
+		apiReq.MaxTokens = 2000
+	}
+
+	// Create the stream
+	stream, err := o.client.CreateChatCompletionStream(ctx, apiReq)
+	if err != nil {
+		return fmt.Errorf("failed to create stream: %w", err)
+	}
+	defer stream.Close()
+
+	// Process stream chunks
+	for {
+		response, err := stream.Recv()
+		if err == io.EOF {
+			// Stream finished
+			out <- PartialAIResponse{
+				Done: true,
+			}
+			return nil
+		}
+		if err != nil {
+			return fmt.Errorf("stream error: %w", err)
+		}
+
+		// Extract content from the chunk
+		if len(response.Choices) > 0 && response.Choices[0].Delta.Content != "" {
+			out <- PartialAIResponse{
+				Content: response.Choices[0].Delta.Content,
+				Done:    false,
+			}
+		}
+	}
+}
+
+func (o *OpenAIProvider) parseResponse(resp openai.ChatCompletionResponse) (*AIResponse, error) {
+	content := ""
+	if len(resp.Choices) > 0 {
+		content = resp.Choices[0].Message.Content
+	}
+
+	// Note: The SDK response may not include prompt_tokens_details for all providers
+	// We'll set conservative defaults for cache metrics
+	cachedTokens := 0
+	cachedLayers := []cache.CacheLayer{}
+
+	// Some OpenAI-compatible APIs might not report cached tokens
+	// This is a best-effort approach
+	if cachedTokens > 0 {
+		cachedLayers = append(cachedLayers, cache.CorePersonalityLayer)
+	}
+
+	return &AIResponse{
+		Content: content,
+		TokensUsed: TokenUsage{
+			Prompt:       resp.Usage.PromptTokens,
+			Completion:   resp.Usage.CompletionTokens,
+			CachedPrompt: cachedTokens,
+			Total:        resp.Usage.TotalTokens,
+		},
+		CacheMetrics: cache.CacheMetrics{
+			Hit:         cachedTokens > 0,
+			Layers:      cachedLayers,
+			SavedTokens: cachedTokens / 2, // Assume 50% discount when cached
+		},
+	}, nil
+}
+
+// SupportsBreakpoints indicates that OpenAI-compatible APIs handle caching server-side
+func (o *OpenAIProvider) SupportsBreakpoints() bool { return false }
+
+// MaxBreakpoints returns 0 as caching is handled server-side
+func (o *OpenAIProvider) MaxBreakpoints() int { return 0 }
+
+// Name returns the provider name
+func (o *OpenAIProvider) Name() string { return "openai_compatible" }
+
+// debugTransport is an HTTP transport that logs all requests
+type debugTransport struct {
+	http.RoundTripper
+}
+
+func (d *debugTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	// Log the request URL
+	fmt.Printf("🔧 Debug: HTTP %s %s\n", req.Method, req.URL.String())
+	
+	// Make the actual request
+	resp, err := d.RoundTripper.RoundTrip(req)
+	
+	// Log response status
+	if err != nil {
+		fmt.Printf("🔧 Debug: Request failed with error: %v\n", err)
+	} else {
+		fmt.Printf("🔧 Debug: Response status: %d %s\n", resp.StatusCode, resp.Status)
+	}
+	
+	return resp, err
+}
+````
+
+## File: internal/providers/providers_test.go
+````go
+package providers
+
+import (
+	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"testing"
+
+	"github.com/dotcommander/roleplay/internal/cache"
+	"github.com/dotcommander/roleplay/internal/models"
+)
+
+func TestOpenAIProvider(t *testing.T) {
+	provider := NewOpenAIProvider("test-api-key", "gpt-4")
+
+	if provider.Name() != "openai_compatible" {
+		t.Errorf("Expected name 'openai_compatible', got %s", provider.Name())
+	}
+
+	if provider.SupportsBreakpoints() {
+		t.Error("Expected OpenAI to not support explicit breakpoints")
+	}
+
+	if provider.MaxBreakpoints() != 0 {
+		t.Errorf("Expected 0 breakpoints, got %d", provider.MaxBreakpoints())
+	}
+
+	// Verify it uses the model passed in constructor
+	if provider.model != "gpt-4" {
+		t.Errorf("Expected model to be 'gpt-4', got %s", provider.model)
+	}
+}
+
+func TestOpenAIProviderRequest(t *testing.T) {
+	// Create test server
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Verify headers
+		if r.Header.Get("Authorization") != "Bearer test-key" {
+			t.Error("Missing or incorrect Authorization header")
+		}
+
+		// Verify request body
+		var reqBody map[string]interface{}
+		if err := json.NewDecoder(r.Body).Decode(&reqBody); err != nil {
+			t.Errorf("Failed to decode request body: %v", err)
+		}
+
+		if reqBody["model"] != "o4-mini" {
+			t.Errorf("Expected model o4-mini, got %v", reqBody["model"])
+		}
+
+		// Send mock response
+		response := map[string]interface{}{
+			"choices": []map[string]interface{}{
+				{
+					"message": map[string]string{
+						"content": "Test response",
+					},
+				},
+			},
+			"usage": map[string]interface{}{
+				"prompt_tokens":     100,
+				"completion_tokens": 50,
+				"total_tokens":      150,
+				"prompt_tokens_details": map[string]int{
+					"cached_tokens": 80,
+				},
+			},
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		if err := json.NewEncoder(w).Encode(response); err != nil {
+			t.Errorf("Failed to encode response: %v", err)
+		}
+	}))
+	defer server.Close()
+
+	// Create provider with test server
+	provider := NewOpenAIProviderWithBaseURL("test-key", "o4-mini", server.URL)
+
+	// Create test request
+	req := &PromptRequest{
+		CharacterID: "test-char",
+		UserID:      "test-user",
+		Message:     "Hello",
+		Context: models.ConversationContext{
+			RecentMessages: []models.Message{
+				{Role: "user", Content: "Previous message"},
+			},
+		},
+		CacheBreakpoints: []cache.CacheBreakpoint{
+			{Layer: cache.CorePersonalityLayer, Content: "Test personality"},
+		},
+	}
+
+	// Send request
+	ctx := context.Background()
+	resp, err := provider.SendRequest(ctx, req)
+	if err != nil {
+		t.Fatalf("Failed to send request: %v", err)
+	}
+
+	// Verify response
+	if resp.Content != "Test response" {
+		t.Errorf("Expected 'Test response', got %s", resp.Content)
+	}
+
+	if resp.TokensUsed.Total != 150 {
+		t.Errorf("Expected 150 total tokens, got %d", resp.TokensUsed.Total)
+	}
+
+	// Note: With the SDK-based implementation, cached tokens might not be reported
+	// depending on the provider. This is a limitation of the OpenAI-compatible approach
+}
+````
+
+## File: CLAUDE.md
+````markdown
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## Project Overview
+
+This is a sophisticated Go-based character bot architecture that implements psychologically-realistic AI characters with personality evolution, emotional states, and multi-layered memory systems. The codebase demonstrates advanced caching strategies to achieve 90% cost reduction in LLM API usage.
+
+## Architecture
+
+### Core Components
+
+1. **Character System**
+   - OCEAN personality model (Openness, Conscientiousness, Extraversion, Agreeableness, Neuroticism)
+   - Emotional states with dynamic blending
+   - Three-tier memory system (short-term, medium-term, long-term)
+   - Personality evolution with bounded drift
+
+2. **4-Layer Prompt Caching Architecture**
+   Our sophisticated caching system implements 4 strategic layers for maximum token savings:
+   
+   **Layer 1: Admin/System Layer** - Global system prompts and admin instructions (longest TTL)
+   **Layer 2: Character Personality Layer** - Core character traits, backstory, personality (long TTL)
+   **Layer 3: User Memory Layer** - User-specific memories, relationships, context (medium TTL)
+   **Layer 4: Current Chat History** - Recent conversation context (short TTL/no cache)
+
+3. **Dual Caching System**
+   - **Response Cache**: Stores complete API responses to avoid duplicate requests
+   - **Prompt Cache**: Layers prompts with strategic breakpoints for provider caching
+   - Automatic cache hit detection and metrics tracking
+   - Adaptive TTL based on conversation activity and character complexity
+
+4. **Provider Abstraction**
+   - Interface-based design supporting multiple AI providers
+   - Anthropic implementation with prompt caching (4 breakpoints)
+   - OpenAI implementation with response caching and parameter optimization
+   - Smart routing based on features, cost, or latency
+
+5. **Performance Optimizations**
+   - Adaptive TTL: 50% extension for active conversations, 20% for complex characters
+   - Background workers for cache cleanup and memory consolidation
+   - Thread-safe operations with proper mutex usage
+   - Token tracking and optimization
+   - Response deduplication for identical requests
+
+## Development Commands
+
+```bash
+# Build the application
+go build -o roleplay
+
+# Run commands directly
+go run main.go character example
+go run main.go character create thorin.json
+go run main.go chat "Hello!" --character warrior-123 --user user-789
+
+# Install globally
+go install
+
+# Format code
+go fmt ./...
+
+# Download dependencies
+go mod download
+go mod tidy
+```
+
+## Provider Configuration Examples
+
+### Gemini (via OpenAI-compatible endpoint)
+```yaml
+provider: openai
+base_url: https://generativelanguage.googleapis.com/v1beta/openai/
+model: models/gemini-1.5-flash-latest
+api_key: YOUR_GEMINI_API_KEY
+```
+
+### OpenAI
+```yaml
+provider: openai
+model: gpt-4o-mini
+api_key: YOUR_OPENAI_API_KEY
+```
+
+### Anthropic
+```yaml
+provider: anthropic
+model: claude-3-5-sonnet-20241022
+api_key: YOUR_ANTHROPIC_API_KEY
+```
+
+## Key Design Patterns
+
+- **Clean Architecture**: Separation between domain models, business logic, and external providers
+- **Dependency Injection**: Providers registered at runtime
+- **Interface-First Design**: All major components defined as interfaces
+- **Concurrent Design**: Thread-safe operations throughout
+- **Factory Pattern**: Centralized provider initialization through `internal/factory`
+
+## Important Implementation Details
+
+### Provider Factory Pattern
+The codebase uses a centralized factory pattern for AI provider initialization:
+
+```go
+// Create provider using factory
+provider, err := factory.CreateProvider(config)
+
+// Or initialize and register with bot
+err := factory.InitializeAndRegisterProvider(bot, config)
+```
+
+This pattern eliminates code duplication and ensures consistent provider setup across all commands.
+
+### AI-Powered User Profile Agent
+The system includes an intelligent user profile agent that automatically:
+- Analyzes conversation history to extract key information about users
+- Builds character-specific profiles (how each character perceives the user)
+- Updates profiles dynamically as conversations evolve
+- Enriches future interactions with learned context
+
+**Key Features:**
+- **Automatic Extraction**: LLM analyzes conversations to identify user facts, preferences, goals
+- **Confidence Scoring**: Each extracted fact has a confidence score (0.0-1.0)
+- **Character-Specific**: Each character maintains their own perception of the user
+- **Privacy-Aware**: Users can view, manage, and delete their profiles
+
+**Configuration:**
+```yaml
+user_profile:
+  enabled: true                    # Enable AI-powered user profiling
+  update_frequency: 5              # Update profile every 5 messages
+  turns_to_consider: 20            # Analyze last 20 conversation turns
+  confidence_threshold: 0.5        # Include facts with >50% confidence
+  prompt_cache_ttl: 1h             # Cache user profiles for 1 hour
+```
+
+**Usage:**
+- Profiles are automatically created/updated during interactive and demo modes
+- View profiles: `roleplay profile show <user-id> <character-id>`
+- List all profiles: `roleplay profile list <user-id>`
+- Delete profile: `roleplay profile delete <user-id> <character-id>`
+
+### 4-Layer Cache Implementation
+The caching system uses strategic breakpoints aligned with our 4-layer architecture:
+
+**Layer 1: Admin/System Layer**
+- Global system instructions and safety guidelines
+- Administrative prompts and framework instructions
+- Longest TTL (24+ hours) - rarely changes
+
+**Layer 2: Character Personality Layer** 
+- Character backstory, personality traits (OCEAN model)
+- Core behavioral patterns and speech style
+- Character-specific quirks and mannerisms
+- Long TTL (6-12 hours) - stable character traits
+
+**Layer 3: User Memory Layer**
+- User-specific relationship dynamics
+- Conversation history and shared memories
+- User preferences and interaction patterns
+- Medium TTL (1-3 hours) - evolves with relationship
+
+**Layer 4: Current Chat History**
+- Recent conversation turns and immediate context
+- Current emotional state and active topics
+- Short TTL (5-15 minutes) or no caching for real-time responses
+
+### Memory Consolidation
+- Automatic consolidation when short-term memory exceeds 10 entries
+- Emotional weighting preserves important memories
+- Background process runs every 5 minutes
+
+### Personality Evolution
+- Bounded drift prevents radical personality changes
+- Learning rate of 0.1 for gradual adaptation
+- Trait changes capped at ±0.2 from baseline
+
+## Project Structure
+
+The codebase follows clean Go CLI architecture with global configuration:
+
+```
+roleplay/
+├── main.go                 # Entry point (<20 lines)
+├── cmd/                    # Command definitions
+│   ├── root.go            # Root command + shared config
+│   ├── chat.go            # Chat command handler
+│   ├── character.go       # Character management commands
+│   ├── demo.go            # Caching demonstration
+│   ├── interactive.go     # TUI chat interface
+│   ├── session.go         # Session management
+│   ├── status.go          # Configuration status
+│   └── apitest.go         # API connectivity testing
+├── internal/              # Private packages
+│   ├── cache/             # Dual caching system (prompt + response)
+│   ├── config/            # Configuration structures
+│   ├── factory/           # Provider factory for centralized initialization
+│   ├── importer/          # AI-powered character import from markdown
+│   ├── models/            # Domain models (Character, Memory, etc.)
+│   ├── providers/         # AI provider implementations
+│   ├── services/          # Core bot service and business logic
+│   ├── repository/        # Character and session persistence
+│   ├── manager/           # High-level character management
+│   └── utils/             # Shared utilities (text wrapping, etc.)
+├── examples/              # Example character files
+│   └── characters/        # Example character JSON files
+├── prompts/               # LLM prompt templates (externalized)
+├── scripts/               # Utility scripts
+├── migrate-config.sh      # Configuration migration script
+├── chat-with-rick.sh      # Quick Rick Sanchez demo script
+└── go.mod
+
+### Global Configuration
+- Config directory: `~/.config/roleplay/`
+- Character storage: `~/.config/roleplay/characters/`
+- Session storage: `~/.config/roleplay/sessions/`
+- Cache storage: `~/.config/roleplay/cache/`
+- User profiles: `~/.config/roleplay/user_profiles/`
+- Global binary: `~/go/bin/roleplay` (symlinked)
+```
+
+## Command Structure
+
+```bash
+roleplay
+├── character              # Character management
+│   ├── create            # Create from JSON file  
+│   ├── list              # List all available characters
+│   ├── show              # Display character details
+│   └── example           # Generate example JSON
+├── import                 # Import character from markdown using AI
+├── profile                # User profile management
+│   ├── show              # Display specific user profile
+│   ├── list              # List all profiles for a user
+│   └── delete            # Delete a user profile
+├── session                # Session management
+│   ├── list              # List sessions for character(s)
+│   └── stats             # Show caching performance metrics
+├── interactive            # TUI chat interface (auto-creates Rick)
+├── chat                   # Single message chat
+├── demo                   # Caching demonstration (uses Rick by default)
+├── api-test               # Test API connectivity
+└── status                 # Show current configuration
+```
+
+## Cache Performance Features
+
+### Demo Mode
+- `roleplay demo` - Interactive demonstration of 4-layer caching
+- Shows cache hits/misses in real-time with visual feedback
+- Demonstrates token savings and cost reduction
+- Uses Rick Sanchez character for engaging demo experience
+
+### Session Persistence
+- All conversations saved with cache metrics
+- `roleplay session stats` shows aggregate caching performance
+- Tracks hit rates, tokens saved, and cost savings across sessions
+- Session data persists between application runs
+
+### Cache Metrics Tracking
+- Real-time cache hit/miss tracking
+- Token usage optimization
+- Cost savings calculations
+- Performance latency measurements
+
+## Usage Example
+
+```go
+// Initialize bot
+config := Config{
+    MaxShortTermMemory: 10,
+    MaxMediumTermMemory: 50,
+    MaxLongTermMemory: 200,
+    CacheTTL: 5 * time.Minute,
+}
+bot := NewCharacterBot(config)
+
+// Register providers using factory
+err := factory.InitializeAndRegisterProvider(bot, config)
+
+// Create character
+character := Character{
+    ID: "warrior-maiden",
+    Name: "Lyra",
+    Personality: PersonalityTraits{
+        Openness: 0.7,
+        Conscientiousness: 0.8,
+        Extraversion: 0.6,
+        Agreeableness: 0.5,
+        Neuroticism: 0.3,
+    },
+    // ... other fields
+}
+bot.CreateCharacter(character)
+
+// Process conversation
+request := ConversationRequest{
+    CharacterID: "warrior-maiden",
+    UserID: "user123",
+    Message: "Tell me about your adventures",
+}
+response, err := bot.ProcessRequest(ctx, request)
+```
+
+## Prompt Caching Strategy
+
+Our goal is to implement prompt-caching in 4 layers:
+- Admin layer
+- System character prompt layer
+- User memory layer
+- Current chat history layer
+
+## Refactoring Best Practices
+
+When refactoring this codebase:
+
+1. **Use the Factory Pattern**: Always use `internal/factory` for provider initialization
+2. **Extract Helper Functions**: Break down long functions into smaller, focused helpers
+3. **Maintain Test Coverage**: Add tests for any new packages or major changes
+4. **Document TUI Changes**: The TUI is complex; document any architectural changes
+
+See `TUI_REFACTORING_PLAN.md` for detailed guidance on refactoring the interactive mode.
+````
+
+## File: cmd/character.go
+````go
+package cmd
+
+import (
+	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
+	"text/tabwriter"
+
+	"github.com/dotcommander/roleplay/internal/manager"
+	"github.com/dotcommander/roleplay/internal/models"
+	"github.com/dotcommander/roleplay/internal/repository"
+	"github.com/spf13/cobra"
+)
+
+var characterCmd = &cobra.Command{
+	Use:   "character",
+	Short: "Manage characters",
+	Long:  `Create, list, and manage character profiles for the roleplay bot.`,
+}
+
+var listCharactersCmd = &cobra.Command{
+	Use:   "list",
+	Short: "List all available characters",
+	RunE:  runListCharacters,
+}
+
+var createCharacterCmd = &cobra.Command{
+	Use:   "create [character-file.json]",
+	Short: "Create a new character from a JSON file",
+	Long: `Create a new character by loading their profile from a JSON file.
+
+The JSON file should contain:
+{
+  "id": "warrior-123",
+  "name": "Thorin Ironforge",
+  "backstory": "A veteran dwarf warrior...",
+  "personality": {
+    "openness": 0.3,
+    "conscientiousness": 0.8,
+    "extraversion": 0.4,
+    "agreeableness": 0.6,
+    "neuroticism": 0.7
+  },
+  "current_mood": {
+    "joy": 0.2,
+    "anger": 0.4,
+    "sadness": 0.3
+  },
+  "quirks": ["Always checks exits", "Touches scars when nervous"],
+  "speech_style": "Formal, archaic. Uses 'ye' and 'aye'."
+}`,
+	Args: cobra.ExactArgs(1),
+	RunE: runCreateCharacter,
+}
+
+var showCharacterCmd = &cobra.Command{
+	Use:   "show [character-id]",
+	Short: "Show character details",
+	Args:  cobra.ExactArgs(1),
+	RunE:  runShowCharacter,
+}
+
+var exampleCharacterCmd = &cobra.Command{
+	Use:   "example",
+	Short: "Generate an example character JSON file",
+	RunE:  runExampleCharacter,
+}
+
+func init() {
+	rootCmd.AddCommand(characterCmd)
+	characterCmd.AddCommand(createCharacterCmd)
+	characterCmd.AddCommand(showCharacterCmd)
+	characterCmd.AddCommand(exampleCharacterCmd)
+	characterCmd.AddCommand(listCharactersCmd)
+}
+
+func runCreateCharacter(cmd *cobra.Command, args []string) error {
+	filename := args[0]
+	config := GetConfig()
+
+	// Read character file
+	data, err := os.ReadFile(filename)
+	if err != nil {
+		return fmt.Errorf("failed to read character file: %w", err)
+	}
+
+	// Parse character
+	var char models.Character
+	if err := json.Unmarshal(data, &char); err != nil {
+		return fmt.Errorf("failed to parse character JSON: %w", err)
+	}
+
+	// Initialize manager (bot is now fully initialized)
+	mgr, err := manager.NewCharacterManager(config)
+	if err != nil {
+		return fmt.Errorf("failed to initialize manager: %w", err)
+	}
+
+	// Create character using manager (handles both bot and persistence)
+	if err := mgr.CreateCharacter(&char); err != nil {
+		return fmt.Errorf("failed to create character: %w", err)
+	}
+
+	fmt.Printf("Character '%s' (ID: %s) created and saved successfully!\n", char.Name, char.ID)
+	return nil
+}
+
+func runShowCharacter(cmd *cobra.Command, args []string) error {
+	characterID := args[0]
+
+	// Initialize repository to load from disk
+	dataDir := filepath.Join(os.Getenv("HOME"), ".config", "roleplay")
+	repo, err := repository.NewCharacterRepository(dataDir)
+	if err != nil {
+		return fmt.Errorf("failed to initialize repository: %w", err)
+	}
+
+	// Load character from repository
+	char, err := repo.LoadCharacter(characterID)
+	if err != nil {
+		return fmt.Errorf("character %s not found", characterID)
+	}
+
+	// Display character
+	output, err := json.MarshalIndent(char, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to format character: %w", err)
+	}
+
+	fmt.Println(string(output))
+	return nil
+}
+
+func runExampleCharacter(cmd *cobra.Command, args []string) error {
+	example := models.Character{
+		ID:   "warrior-123",
+		Name: "Thorin Ironforge",
+		Backstory: `A veteran dwarf warrior from the Mountain Kingdoms. 
+Survived the Battle of Five Armies. Gruff exterior hiding a heart of gold.
+Lost his brother in battle, carries survivor's guilt.`,
+		Personality: models.PersonalityTraits{
+			Openness:          0.3,
+			Conscientiousness: 0.8,
+			Extraversion:      0.4,
+			Agreeableness:     0.6,
+			Neuroticism:       0.7,
+		},
+		CurrentMood: models.EmotionalState{
+			Joy:     0.2,
+			Anger:   0.4,
+			Sadness: 0.3,
+		},
+		Quirks: []string{
+			"Always checks exits when entering a room",
+			"Unconsciously touches battle scars when nervous",
+			"Refuses to sit with back to the door",
+		},
+		SpeechStyle: "Formal, archaic. Uses 'ye' and 'aye'. Short sentences. Military precision.",
+		Memories: []models.Memory{
+			{
+				Type:      models.LongTermMemory,
+				Content:   "Brother's last words: 'Protect the clan'",
+				Emotional: 0.95,
+			},
+		},
+	}
+
+	output, err := json.MarshalIndent(&example, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to format example: %w", err)
+	}
+
+	fmt.Println(string(output))
+	fmt.Fprintln(os.Stderr, "\nSave this to a file (e.g., thorin.json) and use 'roleplay character create thorin.json'")
+	return nil
+}
+
+func runListCharacters(cmd *cobra.Command, args []string) error {
+	dataDir := filepath.Join(os.Getenv("HOME"), ".config", "roleplay")
+	repo, err := repository.NewCharacterRepository(dataDir)
+	if err != nil {
+		return err
+	}
+
+	characters, err := repo.GetCharacterInfo()
+	if err != nil {
+		return err
+	}
+
+	if len(characters) == 0 {
+		fmt.Println("No characters found. Create one with 'roleplay character create <file.json>'")
+		return nil
+	}
+
+	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(w, "ID\tNAME\tDESCRIPTION")
+
+	for _, char := range characters {
+		fmt.Fprintf(w, "%s\t%s\t%s\n", char.ID, char.Name, char.Description)
+	}
+
+	w.Flush()
+	return nil
+}
+````
+
 ## File: cmd/root.go
 ````go
 package cmd
@@ -9306,14 +9939,14 @@ func initConfig() {
 
 	viper.SetEnvPrefix("ROLEPLAY")
 	viper.AutomaticEnv()
-	
+
 	if err := viper.ReadInConfig(); err == nil {
 		fmt.Fprintln(os.Stderr, "Using config file:", viper.ConfigFileUsed())
 	}
 
 	// Resolve configuration with proper priority: Flags > Config File > Environment Variables
 	profileName := viper.GetString("provider")
-	
+
 	// API Key Resolution
 	apiKey := viper.GetString("api_key")
 	if apiKey == "" {
@@ -9333,7 +9966,7 @@ func initConfig() {
 			}
 		}
 	}
-	
+
 	// Base URL Resolution
 	baseURL := viper.GetString("base_url")
 	if baseURL == "" {
@@ -9352,7 +9985,7 @@ func initConfig() {
 			}
 		}
 	}
-	
+
 	// Model Resolution
 	model := viper.GetString("model")
 	if model == "" {
@@ -9413,7 +10046,7 @@ func initConfig() {
 	if cfg.PersonalityConfig.StabilityThreshold == 0 {
 		cfg.PersonalityConfig.StabilityThreshold = 10
 	}
-	
+
 	// Set defaults for UserProfileConfig
 	if cfg.UserProfileConfig.UpdateFrequency == 0 {
 		cfg.UserProfileConfig.UpdateFrequency = 5 // Update every 5 messages
@@ -9486,7 +10119,7 @@ func NewCharacterBot(cfg *config.Config) *CharacterBot {
 	userProfileRepo := repository.NewUserProfileRepository(userProfileDataDir)
 
 	cb := &CharacterBot{
-		characters:      make(map[string]*models.Character),
+		characters: make(map[string]*models.Character),
 		cache: cache.NewPromptCache(
 			cfg.CacheConfig.DefaultTTL,
 			5*time.Minute,
@@ -9884,11 +10517,11 @@ Remember to address them by their name throughout the conversation.`, userID)
 func (cb *CharacterBot) buildUserProfileLayer(userID, characterID string, profile *models.UserProfile) string {
 	var sb strings.Builder
 	sb.WriteString(fmt.Sprintf("[USER PROFILE FOR %s (as perceived by character %s)]\n", userID, characterID))
-	
+
 	if profile.OverallSummary != "" {
 		sb.WriteString(fmt.Sprintf("Summary: %s\n", profile.OverallSummary))
 	}
-	
+
 	if profile.InteractionStyle != "" {
 		sb.WriteString(fmt.Sprintf("Interaction Style: %s\n", profile.InteractionStyle))
 	}
@@ -9902,7 +10535,7 @@ func (cb *CharacterBot) buildUserProfileLayer(userID, characterID string, profil
 			}
 		}
 	}
-	
+
 	return sb.String()
 }
 
@@ -10150,32 +10783,32 @@ func (cb *CharacterBot) updateUserProfileAsync(userID string, char *models.Chara
 // updateUserProfileSync performs the actual user profile update
 func (cb *CharacterBot) updateUserProfileSync(userID string, char *models.Character, sessionID string) {
 	// Update user profile based on conversation history
-	
+
 	// Only proceed if we have the minimum messages for an update
 	sessionRepo := repository.NewSessionRepository(filepath.Join(os.Getenv("HOME"), ".config", "roleplay"))
-	
+
 	currentSession, err := sessionRepo.LoadSession(char.ID, sessionID)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error loading session %s for user profile update: %v\n", sessionID, err)
 		return
 	}
-	
+
 	// Check if we should update based on frequency setting
 	messageCount := len(currentSession.Messages)
-	if messageCount == 0 || (messageCount % cb.config.UserProfileConfig.UpdateFrequency != 0) {
+	if messageCount == 0 || (messageCount%cb.config.UserProfileConfig.UpdateFrequency != 0) {
 		return
 	}
-	
+
 	// Update the profile
 	turnsToConsider := cb.config.UserProfileConfig.TurnsToConsider
 	if turnsToConsider <= 0 {
 		turnsToConsider = 20 // Default value
 	}
-	
+
 	if cb.userProfileAgent == nil {
 		return
 	}
-	
+
 	_, updateErr := cb.userProfileAgent.UpdateUserProfile(
 		context.Background(),
 		userID,
@@ -10183,7 +10816,7 @@ func (cb *CharacterBot) updateUserProfileSync(userID string, char *models.Charac
 		currentSession.Messages,
 		turnsToConsider,
 	)
-	
+
 	if updateErr != nil {
 		fmt.Fprintf(os.Stderr, "Error updating user profile for %s with %s: %v\n", userID, char.ID, updateErr)
 	}
@@ -10250,215 +10883,6 @@ require (
 	gopkg.in/ini.v1 v1.67.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
-````
-
-## File: cmd/character.go
-````go
-package cmd
-
-import (
-	"encoding/json"
-	"fmt"
-	"os"
-	"path/filepath"
-	"text/tabwriter"
-
-	"github.com/dotcommander/roleplay/internal/manager"
-	"github.com/dotcommander/roleplay/internal/models"
-	"github.com/dotcommander/roleplay/internal/repository"
-	"github.com/spf13/cobra"
-)
-
-var characterCmd = &cobra.Command{
-	Use:   "character",
-	Short: "Manage characters",
-	Long:  `Create, list, and manage character profiles for the roleplay bot.`,
-}
-
-var listCharactersCmd = &cobra.Command{
-	Use:   "list",
-	Short: "List all available characters",
-	RunE:  runListCharacters,
-}
-
-var createCharacterCmd = &cobra.Command{
-	Use:   "create [character-file.json]",
-	Short: "Create a new character from a JSON file",
-	Long: `Create a new character by loading their profile from a JSON file.
-
-The JSON file should contain:
-{
-  "id": "warrior-123",
-  "name": "Thorin Ironforge",
-  "backstory": "A veteran dwarf warrior...",
-  "personality": {
-    "openness": 0.3,
-    "conscientiousness": 0.8,
-    "extraversion": 0.4,
-    "agreeableness": 0.6,
-    "neuroticism": 0.7
-  },
-  "current_mood": {
-    "joy": 0.2,
-    "anger": 0.4,
-    "sadness": 0.3
-  },
-  "quirks": ["Always checks exits", "Touches scars when nervous"],
-  "speech_style": "Formal, archaic. Uses 'ye' and 'aye'."
-}`,
-	Args: cobra.ExactArgs(1),
-	RunE: runCreateCharacter,
-}
-
-var showCharacterCmd = &cobra.Command{
-	Use:   "show [character-id]",
-	Short: "Show character details",
-	Args:  cobra.ExactArgs(1),
-	RunE:  runShowCharacter,
-}
-
-var exampleCharacterCmd = &cobra.Command{
-	Use:   "example",
-	Short: "Generate an example character JSON file",
-	RunE:  runExampleCharacter,
-}
-
-func init() {
-	rootCmd.AddCommand(characterCmd)
-	characterCmd.AddCommand(createCharacterCmd)
-	characterCmd.AddCommand(showCharacterCmd)
-	characterCmd.AddCommand(exampleCharacterCmd)
-	characterCmd.AddCommand(listCharactersCmd)
-}
-
-func runCreateCharacter(cmd *cobra.Command, args []string) error {
-	filename := args[0]
-	config := GetConfig()
-
-	// Read character file
-	data, err := os.ReadFile(filename)
-	if err != nil {
-		return fmt.Errorf("failed to read character file: %w", err)
-	}
-
-	// Parse character
-	var char models.Character
-	if err := json.Unmarshal(data, &char); err != nil {
-		return fmt.Errorf("failed to parse character JSON: %w", err)
-	}
-
-	// Initialize manager (bot is now fully initialized)
-	mgr, err := manager.NewCharacterManager(config)
-	if err != nil {
-		return fmt.Errorf("failed to initialize manager: %w", err)
-	}
-
-	// Create character using manager (handles both bot and persistence)
-	if err := mgr.CreateCharacter(&char); err != nil {
-		return fmt.Errorf("failed to create character: %w", err)
-	}
-
-	fmt.Printf("Character '%s' (ID: %s) created and saved successfully!\n", char.Name, char.ID)
-	return nil
-}
-
-func runShowCharacter(cmd *cobra.Command, args []string) error {
-	characterID := args[0]
-
-	// Initialize repository to load from disk
-	dataDir := filepath.Join(os.Getenv("HOME"), ".config", "roleplay")
-	repo, err := repository.NewCharacterRepository(dataDir)
-	if err != nil {
-		return fmt.Errorf("failed to initialize repository: %w", err)
-	}
-
-	// Load character from repository
-	char, err := repo.LoadCharacter(characterID)
-	if err != nil {
-		return fmt.Errorf("character %s not found", characterID)
-	}
-
-	// Display character
-	output, err := json.MarshalIndent(char, "", "  ")
-	if err != nil {
-		return fmt.Errorf("failed to format character: %w", err)
-	}
-
-	fmt.Println(string(output))
-	return nil
-}
-
-func runExampleCharacter(cmd *cobra.Command, args []string) error {
-	example := models.Character{
-		ID:   "warrior-123",
-		Name: "Thorin Ironforge",
-		Backstory: `A veteran dwarf warrior from the Mountain Kingdoms. 
-Survived the Battle of Five Armies. Gruff exterior hiding a heart of gold.
-Lost his brother in battle, carries survivor's guilt.`,
-		Personality: models.PersonalityTraits{
-			Openness:          0.3,
-			Conscientiousness: 0.8,
-			Extraversion:      0.4,
-			Agreeableness:     0.6,
-			Neuroticism:       0.7,
-		},
-		CurrentMood: models.EmotionalState{
-			Joy:     0.2,
-			Anger:   0.4,
-			Sadness: 0.3,
-		},
-		Quirks: []string{
-			"Always checks exits when entering a room",
-			"Unconsciously touches battle scars when nervous",
-			"Refuses to sit with back to the door",
-		},
-		SpeechStyle: "Formal, archaic. Uses 'ye' and 'aye'. Short sentences. Military precision.",
-		Memories: []models.Memory{
-			{
-				Type:      models.LongTermMemory,
-				Content:   "Brother's last words: 'Protect the clan'",
-				Emotional: 0.95,
-			},
-		},
-	}
-
-	output, err := json.MarshalIndent(&example, "", "  ")
-	if err != nil {
-		return fmt.Errorf("failed to format example: %w", err)
-	}
-
-	fmt.Println(string(output))
-	fmt.Fprintln(os.Stderr, "\nSave this to a file (e.g., thorin.json) and use 'roleplay character create thorin.json'")
-	return nil
-}
-
-func runListCharacters(cmd *cobra.Command, args []string) error {
-	dataDir := filepath.Join(os.Getenv("HOME"), ".config", "roleplay")
-	repo, err := repository.NewCharacterRepository(dataDir)
-	if err != nil {
-		return err
-	}
-
-	characters, err := repo.GetCharacterInfo()
-	if err != nil {
-		return err
-	}
-
-	if len(characters) == 0 {
-		fmt.Println("No characters found. Create one with 'roleplay character create <file.json>'")
-		return nil
-	}
-
-	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, "ID\tNAME\tDESCRIPTION")
-
-	for _, char := range characters {
-		fmt.Fprintf(w, "%s\t%s\t%s\n", char.ID, char.Name, char.Description)
-	}
-
-	w.Flush()
-	return nil
-}
 ````
 
 ## File: cmd/chat.go
@@ -10647,14 +11071,14 @@ func runChat(cmd *cobra.Command, args []string) error {
 			fmt.Fprintf(os.Stderr, "Warning: Failed to save session: %v\n", err)
 		}
 	}
-	
+
 	// Check if we should update the user profile
 	// For the chat command, we do this synchronously to ensure it completes
-	if config.UserProfileConfig.Enabled && len(session.Messages) > 0 && (len(session.Messages) % config.UserProfileConfig.UpdateFrequency == 0) {
+	if config.UserProfileConfig.Enabled && len(session.Messages) > 0 && (len(session.Messages)%config.UserProfileConfig.UpdateFrequency == 0) {
 		if verbose, _ := cmd.Flags().GetBool("verbose"); verbose {
 			fmt.Fprintf(os.Stderr, "Updating user profile...\n")
 		}
-		
+
 		// Get character from manager
 		char, err := mgr.GetOrLoadCharacter(characterID)
 		if err == nil {
@@ -10667,7 +11091,7 @@ func runChat(cmd *cobra.Command, args []string) error {
 	if format == "json" {
 		output := map[string]interface{}{
 			"session_id": sessionID,
-			"response": resp.Content,
+			"response":   resp.Content,
 			"cache_metrics": map[string]interface{}{
 				"cache_hit":    resp.CacheMetrics.Hit,
 				"layers":       resp.CacheMetrics.Layers,
@@ -10702,138 +11126,6 @@ func runChat(cmd *cobra.Command, args []string) error {
 
 	return nil
 }
-````
-
-## File: CHANGELOG.md
-````markdown
-# Changelog
-
-All notable changes to this project will be documented in this file.
-
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
-and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
-
-## [0.3.0] - 2025-05-28
-
-### Added
-- **Major User Experience Improvements**
-  - `roleplay init` - Interactive setup wizard for first-time configuration
-    - Auto-detects local LLM services (Ollama, LM Studio, LocalAI)
-    - Guides through provider selection and API configuration
-    - Creates example characters automatically
-    - Generates proper config.yaml with sensible defaults
-  - `roleplay quickstart` - Zero-configuration quick start
-    - Automatically detects and uses local LLM services
-    - Falls back to environment variables (OPENAI_API_KEY, ANTHROPIC_API_KEY)
-    - Creates Rick Sanchez and starts chatting immediately
-  - `roleplay config` - Configuration management commands
-    - `config list` - Display all active configuration values
-    - `config get <key>` - Retrieve specific configuration value
-    - `config set <key> <value>` - Update configuration file
-    - `config where` - Show configuration file location
-    - Masks sensitive values (API keys) when displaying
-
-- **OpenAI-Compatible API Support**
-  - Added `base_url` configuration for custom endpoints
-  - `--base-url` flag for command-line override
-  - Environment variable support: `ROLEPLAY_BASE_URL`, `OPENAI_BASE_URL`, `OLLAMA_HOST`
-  - Enables use with Ollama, LM Studio, OpenRouter, and other compatible services
-  - Automatic endpoint detection for common local services
-
-- **Model Aliases**
-  - Configure friendly names for models in config.yaml
-  - Example: `model_aliases: { fast: "gpt-4o-mini", smart: "gpt-4o", local: "llama3" }`
-  - Use with `-m fast` instead of full model names
-
-- **Architecture Improvements**
-  - TUI componentization - Refactored interactive mode into reusable components
-    - Created `internal/tui/components/` with StatusBar, Header, InputArea, MessageList
-    - Improved testability with component-level unit tests
-    - Reduced cyclomatic complexity significantly
-  - Centralized CharacterBot initialization within CharacterManager
-    - Eliminated boilerplate provider initialization code
-    - Improved consistency across commands
-
-### Changed
-- CharacterManager now internally initializes AI providers and UserProfileAgent
-- OpenAI provider now supports custom base URLs for compatible services
-- Config structure expanded to support new features
-
-### Fixed
-- Character creation now properly uses CharacterManager for both bot and persistence
-
-## [0.2.0] - 2025-05-28
-
-### Added
-- AI-Powered User Profile Agent - Intelligent system that builds and maintains user profiles
-  - Automatic extraction of user information from conversations using LLM analysis
-  - Character-specific profiles (each character maintains their own perception of users)
-  - Confidence scoring for extracted facts (0.0-1.0)
-  - Dynamic profile updates as conversations evolve
-  - `profile` command for managing user profiles
-    - `show <user-id> <character-id>` - Display a specific user profile
-    - `list <user-id>` - List all profiles for a user
-    - `delete <user-id> <character-id>` - Delete a user profile
-  - Configurable update frequency and analysis depth
-  - Privacy-aware design with user control over their data
-  - Enriches conversations with learned context about users
-- Enhanced `chat` command with session persistence and user profile support
-  - Now saves conversation sessions for continuity across chats
-  - Loads previous conversation context for more coherent interactions
-  - Automatically triggers user profile updates based on configured frequency
-  - Includes session ID in output for easy session management
-  - Maps character roles correctly for API compatibility
-- Scenario Context Cache - New highest-level cache layer for meta-prompts and operational contexts
-  - 5-layer cache hierarchy with scenarios at the top (7-day TTL)
-  - `scenario` command for managing high-level interaction contexts
-    - `create` - Create new scenarios with custom prompts
-    - `list` - List all available scenarios
-    - `show` - Display scenario details
-    - `update` - Update existing scenarios
-    - `delete` - Remove scenarios
-    - `example` - Show example scenario definitions
-  - `--scenario` flag added to `chat` and `interactive` commands
-  - Example scenarios included: starship bridge, therapy session, tech support, creative writing
-- Command history navigation in interactive mode - use up/down arrows to navigate through previous commands
-- `/memories` command to view character's memories about the user (planned)
-
-### Fixed
-- Fixed `character show` command to load characters from repository instead of expecting them in memory
-- Fixed interactive mode to load all available characters on startup for proper `/list` and `/switch` functionality
-
-### Features
-- Initial release of Roleplay character bot system
-- OCEAN personality model implementation
-- Multi-tier memory system (short, medium, long-term)
-- 4-layer caching architecture for 90% cost reduction
-- Support for OpenAI and Anthropic providers
-- Interactive TUI chat interface
-- Character import from markdown files using AI
-- Session management and statistics
-- Personality evolution with bounded drift
-- Emotional state tracking and blending
-- Example character files
-- Comprehensive documentation
-
-### Features
-- `character` command for managing characters
-  - `create` - Create character from JSON
-  - `list` - List all characters
-  - `show` - Show character details
-  - `example` - Generate example JSON
-- `import` command for AI-powered markdown import
-- `chat` command for single message interactions
-- `interactive` command for TUI chat interface
-- `demo` command for caching demonstration
-- `session` command for session management
-  - `list` - List all sessions
-  - `stats` - Show caching statistics
-- `api-test` command for testing API connectivity
-- `status` command for configuration status
-
-## [0.1.0] - TBD
-
-Initial public release.
 ````
 
 ## File: cmd/interactive.go
@@ -12131,4 +12423,229 @@ func createRickSanchezCharacter() *models.Character {
 		},
 	}
 }
+````
+
+## File: CHANGELOG.md
+````markdown
+# Changelog
+
+All notable changes to this project will be documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [0.5.0] - 2025-05-29
+
+### Added
+- **Enhanced Configuration Management**
+  - New `roleplay config list` shows configuration values with their sources (config file, env var, flag, or default)
+  - New `roleplay config get <key>` retrieves specific configuration values
+  - New `roleplay config set <key> <value>` updates config.yaml directly from CLI
+  - New `roleplay config where` shows the configuration file location
+  - Configuration sources are now transparent and debuggable
+
+### Improved
+- **Configuration User Experience**
+  - `roleplay init` now shows where config will be saved and provides a summary after completion
+  - Actionable error messages for missing API keys with 4 clear fix options
+  - Updated documentation emphasizes `~/.config/roleplay/config.yaml` as the primary config location
+  - Clear configuration precedence: flags > env vars > config file > defaults
+  - Better guidance in init wizard pointing to config management commands
+
+- **Documentation**
+  - README now includes "Configuration Made Simple" section
+  - Clear explanation of configuration precedence
+  - Emphasized the "golden path" of using `roleplay init` and config file
+
+## [0.4.2] - 2025-05-29
+
+### Fixed
+- **Configuration Generation**
+  - Fixed `roleplay init` to correctly set `provider: openai` for Gemini and Anthropic
+  - Fixed Gemini default model to include required `models/` prefix
+  - Fixed Gemini base URL to point to correct OpenAI-compatible endpoint
+  - Ensured all OpenAI-compatible providers use `provider: openai` in config
+
+### Improved
+- **Configuration Clarity**
+  - Simplified provider configuration for OpenAI-compatible endpoints
+  - Made it clear that Gemini, Anthropic, and others use `provider: openai`
+  - Better alignment between init wizard choices and actual configuration
+
+## [0.4.1] - 2025-05-29
+
+### Fixed
+- **Gemini API Support**
+  - Fixed URL construction bug that automatically appended `/v1` to all base URLs
+  - Provider now respects the exact base URL provided by users
+  - Gemini's `/v1beta/openai/` endpoint now works correctly
+  
+### Added
+- **HTTP Debug Logging**
+  - Added `DEBUG_HTTP=true` environment variable for troubleshooting API requests
+  - Shows exact URLs, HTTP methods, and response status codes
+  - Helpful for debugging OpenAI-compatible endpoint issues
+
+### Improved
+- **Documentation**
+  - Added Gemini configuration example to CLAUDE.md
+  - Documented correct endpoint URLs for various providers
+  - Added troubleshooting guidance for OpenAI-compatible endpoints
+
+## [0.4.0] - 2025-05-28
+
+### Changed
+- **BREAKING: Unified OpenAI-Compatible Provider**
+  - Replaced multiple provider implementations with a single OpenAI-compatible provider
+  - All LLM interactions now use the `sashabaranov/go-openai` SDK
+  - The `provider` setting is now a profile name for configuration resolution
+  - Removed provider-specific code in favor of universal implementation
+
+### Added
+- **Expanded Provider Support**
+  - Support for any OpenAI-compatible API endpoint
+  - Pre-configured profiles for Anthropic, Google Gemini, Groq, and more
+  - Better support for local models (Ollama, LM Studio) without API keys
+  - Custom endpoint configuration via `base_url`
+
+### Improved
+- **Configuration Resolution**
+  - Enhanced priority system: Flags > Config File > Environment Variables
+  - Automatic API key detection from provider-specific environment variables
+  - Smarter base URL resolution (including OLLAMA_HOST auto-detection)
+  - Model defaults based on provider profile
+
+- **Setup Wizard Enhancement**
+  - Added more provider presets (8 total)
+  - Auto-detection of running local services
+  - Better guidance for OpenAI-compatible services
+
+### Removed
+- `SupportsBreakpoints()` and `MaxBreakpoints()` methods from provider interface
+- Provider-specific implementations (AnthropicProvider)
+- Complex provider type switching logic
+
+### Technical
+- Simplified provider interface to just `SendRequest()`, `SendStreamRequest()`, and `Name()`
+- Consistent "openai_compatible" provider name for all endpoints
+- Cleaner factory pattern implementation
+- Updated all tests for the unified provider approach
+
+## [0.3.0] - 2025-05-28
+
+### Added
+- **Major User Experience Improvements**
+  - `roleplay init` - Interactive setup wizard for first-time configuration
+    - Auto-detects local LLM services (Ollama, LM Studio, LocalAI)
+    - Guides through provider selection and API configuration
+    - Creates example characters automatically
+    - Generates proper config.yaml with sensible defaults
+  - `roleplay quickstart` - Zero-configuration quick start
+    - Automatically detects and uses local LLM services
+    - Falls back to environment variables (OPENAI_API_KEY, ANTHROPIC_API_KEY)
+    - Creates Rick Sanchez and starts chatting immediately
+  - `roleplay config` - Configuration management commands
+    - `config list` - Display all active configuration values
+    - `config get <key>` - Retrieve specific configuration value
+    - `config set <key> <value>` - Update configuration file
+    - `config where` - Show configuration file location
+    - Masks sensitive values (API keys) when displaying
+
+- **OpenAI-Compatible API Support**
+  - Added `base_url` configuration for custom endpoints
+  - `--base-url` flag for command-line override
+  - Environment variable support: `ROLEPLAY_BASE_URL`, `OPENAI_BASE_URL`, `OLLAMA_HOST`
+  - Enables use with Ollama, LM Studio, OpenRouter, and other compatible services
+  - Automatic endpoint detection for common local services
+
+- **Model Aliases**
+  - Configure friendly names for models in config.yaml
+  - Example: `model_aliases: { fast: "gpt-4o-mini", smart: "gpt-4o", local: "llama3" }`
+  - Use with `-m fast` instead of full model names
+
+- **Architecture Improvements**
+  - TUI componentization - Refactored interactive mode into reusable components
+    - Created `internal/tui/components/` with StatusBar, Header, InputArea, MessageList
+    - Improved testability with component-level unit tests
+    - Reduced cyclomatic complexity significantly
+  - Centralized CharacterBot initialization within CharacterManager
+    - Eliminated boilerplate provider initialization code
+    - Improved consistency across commands
+
+### Changed
+- CharacterManager now internally initializes AI providers and UserProfileAgent
+- OpenAI provider now supports custom base URLs for compatible services
+- Config structure expanded to support new features
+
+### Fixed
+- Character creation now properly uses CharacterManager for both bot and persistence
+
+## [0.2.0] - 2025-05-28
+
+### Added
+- AI-Powered User Profile Agent - Intelligent system that builds and maintains user profiles
+  - Automatic extraction of user information from conversations using LLM analysis
+  - Character-specific profiles (each character maintains their own perception of users)
+  - Confidence scoring for extracted facts (0.0-1.0)
+  - Dynamic profile updates as conversations evolve
+  - `profile` command for managing user profiles
+    - `show <user-id> <character-id>` - Display a specific user profile
+    - `list <user-id>` - List all profiles for a user
+    - `delete <user-id> <character-id>` - Delete a user profile
+  - Configurable update frequency and analysis depth
+  - Privacy-aware design with user control over their data
+  - Enriches conversations with learned context about users
+- Enhanced `chat` command with session persistence and user profile support
+  - Now saves conversation sessions for continuity across chats
+  - Loads previous conversation context for more coherent interactions
+  - Automatically triggers user profile updates based on configured frequency
+  - Includes session ID in output for easy session management
+  - Maps character roles correctly for API compatibility
+- Scenario Context Cache - New highest-level cache layer for meta-prompts and operational contexts
+  - 5-layer cache hierarchy with scenarios at the top (7-day TTL)
+  - `scenario` command for managing high-level interaction contexts
+    - `create` - Create new scenarios with custom prompts
+    - `list` - List all available scenarios
+    - `show` - Display scenario details
+    - `update` - Update existing scenarios
+    - `delete` - Remove scenarios
+    - `example` - Show example scenario definitions
+  - `--scenario` flag added to `chat` and `interactive` commands
+  - Example scenarios included: starship bridge, therapy session, tech support, creative writing
+- Command history navigation in interactive mode - use up/down arrows to navigate through previous commands
+- `/memories` command to view character's memories about the user (planned)
+
+### Fixed
+- Fixed `character show` command to load characters from repository instead of expecting them in memory
+- Fixed interactive mode to load all available characters on startup for proper `/list` and `/switch` functionality
+
+### Features
+- Initial release of Roleplay character bot system
+- OCEAN personality model implementation
+- Multi-tier memory system (short, medium, long-term)
+- 4-layer caching architecture for 90% cost reduction
+- Support for OpenAI and Anthropic providers
+- Interactive TUI chat interface
+- Character import from markdown files using AI
+- Session management and statistics
+- Personality evolution with bounded drift
+- Emotional state tracking and blending
+- Example character files
+- Comprehensive documentation
+
+### Features
+- `character` command for managing characters
+  - `create` - Create character from JSON
+  - `list` - List all characters
+  - `show` - Show character details
+  - `example` - Generate example JSON
+- `import` command for AI-powered markdown import
+- `chat` command for single message interactions
+- `interactive` command for TUI chat interface
+- `demo` command for caching demonstration
+- `session` command for session management
+  - `list` - List all sessions
+  - `stats` - Show caching statistics
+- `api-test` command for testing API connectivity
+- `status` command for configuration status
 ````

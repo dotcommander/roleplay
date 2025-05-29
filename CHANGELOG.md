@@ -5,6 +5,39 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.0] - 2025-05-29
+
+### Changed
+- **Major Command Structure Improvements**
+  - Renamed `init` command to `setup` for better clarity
+  - Moved `status` command under `config` (now `config status`)
+  - Moved `api-test` command under `config` (now `config test`)
+  - Moved `import` command under `character` (now `character import`)
+  - Hidden advanced commands (`demo`, `scenario`) from main help
+  - Disabled shell completion command to reduce clutter
+
+### Added
+- **Command Aliases for Common Operations**
+  - `i` → `interactive` (start interactive chat)
+  - `c` → `chat` (send single message)
+  - `ls` → `character list` (list characters)
+  
+- **Organized Help Display**
+  - Custom help template groups commands by category
+  - Quick Start section highlights `quickstart` and `setup`
+  - Chat Commands section for primary user interactions
+  - Character Management section for character operations
+  - Configuration section for system management
+  - Cleaner, more intuitive command discovery
+
+### Improved
+- **User Experience**
+  - Commands organized by frequency of use
+  - Most common operations are immediately visible
+  - Advanced/debug features hidden but still accessible
+  - Consistent command naming conventions
+  - Better command descriptions
+
 ## [0.6.0] - 2025-05-29
 
 ### Added

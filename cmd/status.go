@@ -10,7 +10,7 @@ import (
 	"github.com/spf13/viper"
 )
 
-var statusCmd = &cobra.Command{
+var configStatusCmd = &cobra.Command{
 	Use:   "status",
 	Short: "Show current configuration and status",
 	Long:  `Display the current provider, model, and other configuration settings.`,
@@ -18,7 +18,7 @@ var statusCmd = &cobra.Command{
 }
 
 func init() {
-	rootCmd.AddCommand(statusCmd)
+	configCmd.AddCommand(configStatusCmd)
 }
 
 func runStatus(cmd *cobra.Command, args []string) error {

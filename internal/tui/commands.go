@@ -278,9 +278,9 @@ func (m *Model) showSession() slashCommandResult {
 	}
 }
 
-func (m *Model) switchCharacter(newCharID string) slashCommandResult {
-	// Check if it's the same character
-	if newCharID == m.characterID {
+func (m *Model) switchCharacter(searchTerm string) slashCommandResult {
+	// First try exact match (for backward compatibility)
+	if searchTerm == m.characterID {
 		return slashCommandResult{
 			cmdType: "info",
 			content: fmt.Sprintf("Already chatting with %s", m.characterID),
@@ -288,44 +288,159 @@ func (m *Model) switchCharacter(newCharID string) slashCommandResult {
 		}
 	}
 
-	// Try to load the character
-	char, err := m.bot.GetCharacter(newCharID)
+	// Try to find character using fuzzy search
+	dataDir := filepath.Join(os.Getenv("HOME"), ".config", "roleplay")
+	charRepo, repoErr := repository.NewCharacterRepository(dataDir)
+	if repoErr != nil {
+		return slashCommandResult{
+			cmdType: "error",
+			content: fmt.Sprintf("Error accessing characters: %v", repoErr),
+			msgType: "error",
+		}
+	}
+
+	// Find matching character
+	matchedCharID, matchedChar, err := m.findCharacterFuzzy(charRepo, searchTerm)
 	if err != nil {
-		// If not loaded in bot, try loading from repository
-		dataDir := filepath.Join(os.Getenv("HOME"), ".config", "roleplay")
-		charRepo, repoErr := repository.NewCharacterRepository(dataDir)
-		if repoErr != nil {
-			return slashCommandResult{
-				cmdType: "error",
-				content: fmt.Sprintf("Error accessing characters: %v", repoErr),
-				msgType: "error",
-			}
+		return slashCommandResult{
+			cmdType: "error",
+			content: err.Error(),
+			msgType: "error",
 		}
+	}
 
-		char, err = charRepo.LoadCharacter(newCharID)
-		if err != nil {
-			return slashCommandResult{
-				cmdType: "error",
-				content: fmt.Sprintf("Character '%s' not found. Use /list to see available characters", newCharID),
-				msgType: "error",
-			}
+	// Check if it's the same character
+	if matchedCharID == m.characterID {
+		return slashCommandResult{
+			cmdType: "info",
+			content: fmt.Sprintf("Already chatting with %s", matchedChar.Name),
+			msgType: "info",
 		}
+	}
 
+	// Check if character is already loaded in bot
+	char, err := m.bot.GetCharacter(matchedCharID)
+	if err != nil {
 		// Load character into bot
-		if err := m.bot.CreateCharacter(char); err != nil {
+		if err := m.bot.CreateCharacter(matchedChar); err != nil {
 			return slashCommandResult{
 				cmdType: "error",
 				content: fmt.Sprintf("Error loading character: %v", err),
 				msgType: "error",
 			}
 		}
+		char = matchedChar
 	}
 
 	return slashCommandResult{
 		cmdType:        "switch",
-		newCharacterID: newCharID,
+		newCharacterID: matchedCharID,
 		newCharacter:   char,
 	}
+}
+
+// findCharacterFuzzy searches for a character using fuzzy matching
+func (m *Model) findCharacterFuzzy(charRepo *repository.CharacterRepository, searchTerm string) (string, *models.Character, error) {
+	// Normalize search term
+	searchLower := strings.ToLower(strings.TrimSpace(searchTerm))
+	
+	// Get all character info
+	charInfos, err := charRepo.GetCharacterInfo()
+	if err != nil {
+		return "", nil, fmt.Errorf("error listing characters: %v", err)
+	}
+	
+	if len(charInfos) == 0 {
+		return "", nil, fmt.Errorf("no characters available")
+	}
+	
+	// Try exact ID match first
+	for _, info := range charInfos {
+		if strings.ToLower(info.ID) == searchLower {
+			char, err := charRepo.LoadCharacter(info.ID)
+			if err != nil {
+				continue
+			}
+			return info.ID, char, nil
+		}
+	}
+	
+	// Try exact name match
+	for _, info := range charInfos {
+		if strings.ToLower(info.Name) == searchLower {
+			char, err := charRepo.LoadCharacter(info.ID)
+			if err != nil {
+				continue
+			}
+			return info.ID, char, nil
+		}
+	}
+	
+	// Try prefix matching on ID
+	var matches []repository.CharacterInfo
+	for _, info := range charInfos {
+		if strings.HasPrefix(strings.ToLower(info.ID), searchLower) {
+			matches = append(matches, info)
+		}
+	}
+	
+	// If only one prefix match, use it
+	if len(matches) == 1 {
+		char, err := charRepo.LoadCharacter(matches[0].ID)
+		if err != nil {
+			return "", nil, fmt.Errorf("error loading character: %v", err)
+		}
+		return matches[0].ID, char, nil
+	}
+	
+	// Try prefix matching on name
+	if len(matches) == 0 {
+		for _, info := range charInfos {
+			if strings.HasPrefix(strings.ToLower(info.Name), searchLower) {
+				matches = append(matches, info)
+			}
+		}
+	}
+	
+	// If only one name prefix match, use it
+	if len(matches) == 1 {
+		char, err := charRepo.LoadCharacter(matches[0].ID)
+		if err != nil {
+			return "", nil, fmt.Errorf("error loading character: %v", err)
+		}
+		return matches[0].ID, char, nil
+	}
+	
+	// Try substring matching on ID or name
+	if len(matches) == 0 {
+		for _, info := range charInfos {
+			if strings.Contains(strings.ToLower(info.ID), searchLower) ||
+			   strings.Contains(strings.ToLower(info.Name), searchLower) {
+				matches = append(matches, info)
+			}
+		}
+	}
+	
+	// Handle results
+	if len(matches) == 0 {
+		return "", nil, fmt.Errorf("no character found matching '%s'. Use /list to see available characters", searchTerm)
+	}
+	
+	if len(matches) == 1 {
+		char, err := charRepo.LoadCharacter(matches[0].ID)
+		if err != nil {
+			return "", nil, fmt.Errorf("error loading character: %v", err)
+		}
+		return matches[0].ID, char, nil
+	}
+	
+	// Multiple matches found
+	var matchNames []string
+	for _, match := range matches {
+		matchNames = append(matchNames, fmt.Sprintf("%s (%s)", match.Name, match.ID))
+	}
+	return "", nil, fmt.Errorf("multiple characters match '%s':\n%s\nPlease be more specific", 
+		searchTerm, strings.Join(matchNames, "\n"))
 }
 
 // Helper function to calculate mood for a character

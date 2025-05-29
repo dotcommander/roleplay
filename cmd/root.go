@@ -19,15 +19,9 @@ var (
 var rootCmd = &cobra.Command{
 	Use:   "roleplay",
 	Short: "A sophisticated character bot with psychological modeling",
-	Long: `Roleplay is a character bot system that implements psychologically-realistic 
-AI characters with personality evolution, emotional states, and multi-layered memory systems.
-
-Features:
-- OCEAN personality model with dynamic evolution
-- Multi-tier memory system (short, medium, long-term)
-- Sophisticated 4-layer caching for 90% cost reduction
-- Universal OpenAI-compatible API support (OpenAI, Anthropic, Ollama, etc.)
-- Adaptive TTL based on conversation patterns`,
+	CompletionOptions: cobra.CompletionOptions{
+		DisableDefaultCmd: true,
+	},
 }
 
 func Execute() {
@@ -39,6 +33,42 @@ func Execute() {
 
 func init() {
 	cobra.OnInitialize(initConfig)
+
+	// Set custom usage function for root command only
+	defaultUsageFunc := rootCmd.UsageFunc()
+	rootCmd.SetUsageFunc(func(cmd *cobra.Command) error {
+		if cmd == rootCmd {
+			// Custom help for root command
+			fmt.Println(`🎭 Roleplay - AI Character Chat System
+
+Roleplay is a character bot system that implements psychologically-realistic 
+AI characters with personality evolution, emotional states, and multi-layered memory systems.
+
+Quick Start:
+  roleplay quickstart              Start chatting immediately (no setup required)
+  roleplay setup                   Interactive setup wizard for configuration
+
+Chat Commands:
+  roleplay chat <message>          Send a single message to a character (alias: c)
+  roleplay interactive             Start interactive chat session (alias: i)
+
+Character Management:
+  roleplay character list          List available characters (alias: ls)
+  roleplay character create        Create from JSON file
+  roleplay character import        Import from markdown file
+
+Configuration:
+  roleplay config status           Show current settings
+  roleplay config test             Test API connection
+  roleplay session list            View chat history
+  roleplay profile show            Manage user profiles
+
+Use "roleplay [command] --help" for more information about a command.`)
+			return nil
+		}
+		// Use default for other commands
+		return defaultUsageFunc(cmd)
+	})
 
 	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is $HOME/.roleplay.yaml)")
 	rootCmd.PersistentFlags().String("provider", "openai", "AI provider to use (anthropic, openai)")
