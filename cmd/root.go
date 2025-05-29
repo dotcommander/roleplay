@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"time"
 
 	"github.com/dotcommander/roleplay/internal/config"
@@ -21,6 +22,21 @@ var rootCmd = &cobra.Command{
 	Short: "A sophisticated character bot with psychological modeling",
 	CompletionOptions: cobra.CompletionOptions{
 		DisableDefaultCmd: true,
+	},
+	RunE: func(cmd *cobra.Command, args []string) error {
+		// Handle version flag
+		versionFlag, _ := cmd.Flags().GetBool("version")
+		if versionFlag {
+			fmt.Printf("Roleplay - AI Character Chat System\n")
+			fmt.Printf("Version:    %s\n", Version)
+			fmt.Printf("Git Commit: %s\n", GitCommit)
+			fmt.Printf("Build Date: %s\n", BuildDate)
+			fmt.Printf("Go Version: %s\n", runtime.Version())
+			fmt.Printf("OS/Arch:    %s/%s\n", runtime.GOOS, runtime.GOARCH)
+			return nil
+		}
+		// Show help if no command specified
+		return cmd.Help()
 	},
 }
 
@@ -64,6 +80,9 @@ Configuration:
   roleplay session list            View chat history
   roleplay profile show            Manage user profiles
 
+Other Commands:
+  roleplay version                 Show version information
+
 Use "roleplay [command] --help" for more information about a command.`)
 			return nil
 		}
@@ -79,6 +98,9 @@ Use "roleplay [command] --help" for more information about a command.`)
 	rootCmd.PersistentFlags().Duration("cache-ttl", 10*time.Minute, "Default cache TTL")
 	rootCmd.PersistentFlags().Bool("adaptive-ttl", true, "Enable adaptive TTL for cache")
 	rootCmd.PersistentFlags().BoolP("verbose", "v", false, "Enable verbose output")
+	
+	// Add version flag
+	rootCmd.Flags().BoolP("version", "V", false, "Print version information")
 
 	if err := viper.BindPFlag("provider", rootCmd.PersistentFlags().Lookup("provider")); err != nil {
 		fmt.Fprintf(os.Stderr, "Error binding provider flag: %v\n", err)

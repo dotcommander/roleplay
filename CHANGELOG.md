@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.1] - 2025-05-29
+
+### Added
+- **Version Command and Information**
+  - New `roleplay version` command shows version details
+  - Version flag `--version` or `-V` for quick version check
+  - Build information includes Git commit hash and build date
+  - Go version and OS/architecture information
+
+### Changed
+- **Improved Build System**
+  - Makefile now injects version information at build time
+  - Automatic version detection from git tags
+  - Build date and commit hash embedded in binary
+
 ## [0.8.0] - 2025-05-29
 
 ### Added

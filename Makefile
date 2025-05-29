@@ -4,7 +4,17 @@
 BINARY_NAME=roleplay
 GO=go
 GOFLAGS=-v
-LDFLAGS=-s -w
+
+# Version information
+VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
+GIT_COMMIT ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
+BUILD_DATE ?= $(shell date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+# Build flags
+LDFLAGS=-s -w \
+	-X 'github.com/dotcommander/roleplay/cmd.Version=$(VERSION)' \
+	-X 'github.com/dotcommander/roleplay/cmd.GitCommit=$(GIT_COMMIT)' \
+	-X 'github.com/dotcommander/roleplay/cmd.BuildDate=$(BUILD_DATE)'
 
 # Default target
 all: test build
@@ -66,7 +76,7 @@ mocks:
 
 # Build for multiple platforms
 build-all:
-	@echo "Building for multiple platforms..."
+	@echo "Building for multiple platforms with version $(VERSION)..."
 	@mkdir -p dist
 	GOOS=linux GOARCH=amd64 $(GO) build -ldflags "$(LDFLAGS)" -o dist/$(BINARY_NAME)-linux-amd64 .
 	GOOS=linux GOARCH=arm64 $(GO) build -ldflags "$(LDFLAGS)" -o dist/$(BINARY_NAME)-linux-arm64 .
