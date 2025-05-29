@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/dotcommander/roleplay/internal/cache"
 	"github.com/dotcommander/roleplay/internal/manager"
 	"github.com/dotcommander/roleplay/internal/models"
 	"github.com/dotcommander/roleplay/internal/providers"
@@ -252,28 +253,33 @@ func getDemoMessages() []demoMessage {
 	return []demoMessage{
 		{
 			"Tell me about yourself",
-			"Initial request - establishes cache layers",
+			"Initial request - builds and caches character system prompt",
 			0,
 		},
 		{
-			"Tell me about yourself",
-			"Exact repeat - should hit response cache",
-			1 * time.Second,
+			"What do you think about science?",
+			"New question - reuses cached character system prompt",
+			300 * time.Millisecond,
 		},
 		{
 			"What are your core values?",
-			"New question - cache miss",
-			1 * time.Second,
+			"Another new question - reuses cached character system prompt",
+			300 * time.Millisecond,
 		},
 		{
-			"What are your core values?",
-			"Repeat question - should hit cache",
-			1 * time.Second,
+			"How do you see the universe?",
+			"Different question - still uses cached character system prompt",
+			300 * time.Millisecond,
 		},
 		{
-			"Tell me about yourself",
-			"Third repeat - should hit cache with high savings",
-			1 * time.Second,
+			"What makes you angry?",
+			"Emotional question - uses cached character system prompt",
+			300 * time.Millisecond,
+		},
+		{
+			"Tell me a joke",
+			"Final question - demonstrates consistent prompt caching",
+			300 * time.Millisecond,
 		},
 	}
 }
@@ -308,17 +314,42 @@ func processDemoMessage(
 	// Display cache metrics
 	cacheStatus := "MISS"
 	style := styles.cacheMiss
+	cacheDetail := ""
+	
 	if resp.CacheMetrics.Hit {
-		cacheStatus = fmt.Sprintf("HIT (%d layers)", len(resp.CacheMetrics.Layers))
 		style = styles.cacheHit
+		if len(resp.CacheMetrics.Layers) > 0 {
+			// Check what type of cache hit
+			hasResponseCache := false
+			hasPromptCache := false
+			for _, layer := range resp.CacheMetrics.Layers {
+				if layer == cache.ConversationLayer {
+					hasResponseCache = true
+				} else if layer == cache.CorePersonalityLayer {
+					hasPromptCache = true
+				}
+			}
+			
+			if hasResponseCache {
+				cacheStatus = "RESPONSE HIT"
+			} else if hasPromptCache {
+				cacheStatus = "PROMPT HIT"
+			} else {
+				cacheStatus = fmt.Sprintf("HIT (%d layers)", len(resp.CacheMetrics.Layers))
+			}
+		} else {
+			// Legacy format
+			cacheStatus = "HIT"
+		}
+		cacheDetail = fmt.Sprintf(" (saved %d tokens)", resp.CacheMetrics.SavedTokens)
 	}
 
 	fmt.Printf("\n%s\n", styles.metrics.Render(fmt.Sprintf(
-		"  ⚡ Response Time: %v | Cache: %s | Tokens: %d (saved: %d)",
+		"  ⚡ Response Time: %v | Cache: %s%s | Total Tokens: %d",
 		elapsed,
 		style.Render(cacheStatus),
+		cacheDetail,
 		resp.TokensUsed.Total,
-		resp.CacheMetrics.SavedTokens,
 	)))
 
 	return resp, elapsed, nil

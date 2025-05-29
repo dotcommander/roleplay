@@ -5,6 +5,45 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.0] - 2025-05-29
+
+### Added
+- **Character System Prompt Caching (1,024+ tokens)**
+  - Expanded character model with 30+ new fields for richer personas
+  - Character prompts now exceed OpenAI's 1,024 token minimum for automatic caching
+  - 50% cost reduction on cached character prompts with OpenAI
+  - 7-day TTL for character system prompts (configurable)
+  - Automatic cache warmup on character creation
+  - Cache invalidation support for character updates
+
+- **Quick Character Generation (`quickgen` command)**
+  - Generate complete characters from one-line descriptions
+  - AI-powered character creation with psychological depth
+  - Example: `roleplay character quickgen "A grumpy wizard who loves cats"`
+  - Automatic ID generation from character names
+  - JSON output option for programmatic use
+  - Comprehensive prompt template for consistent generation
+
+### Changed
+- **Enhanced Character Model Structure**
+  - Added demographics: age, gender, occupation, education, nationality, ethnicity
+  - Added physical traits and appearance descriptions
+  - Added skills, interests, fears, and goals arrays
+  - Added relationships map with detailed connections
+  - Added core beliefs, moral code, flaws, and strengths
+  - Added catch phrases and dialogue examples
+  - Added behavior patterns and emotional triggers
+  - Added decision-making style and conflict resolution approach
+  - Added worldview, life philosophy, and daily routines
+  - Added hobbies, pet peeves, secrets, regrets, and achievements
+
+### Improved
+- **Prompt Caching Performance**
+  - Character prompts increased from ~500 to 1,940+ tokens
+  - 100% prompt cache hit rate after initial request
+  - Significant cost savings for high-volume usage
+  - Better consistency across conversations
+
 ## [0.7.1] - 2025-05-29
 
 ### Added

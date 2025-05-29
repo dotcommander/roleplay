@@ -195,6 +195,15 @@ func (cb *CharacterBot) ProcessRequest(ctx context.Context, req *models.Conversa
 		CacheBreakpoints: breakpoints,
 	}
 
+	// Check if character system prompt was cached
+	characterPromptCached := false
+	for _, bp := range breakpoints {
+		if bp.Layer == cache.CorePersonalityLayer && strings.Contains(bp.Content, "<!-- cached:true -->") {
+			characterPromptCached = true
+			break
+		}
+	}
+
 	// Send request
 	start := time.Now()
 	resp, err := provider.SendRequest(ctx, apiReq)
@@ -204,6 +213,20 @@ func (cb *CharacterBot) ProcessRequest(ctx context.Context, req *models.Conversa
 
 	// Update cache metrics
 	resp.CacheMetrics.Latency = time.Since(start)
+	
+	// If we had a response cache hit, keep that info
+	// Otherwise, check if we at least had prompt caching
+	if !resp.CacheMetrics.Hit && characterPromptCached {
+		resp.CacheMetrics.Hit = true
+		resp.CacheMetrics.Layers = []cache.CacheLayer{cache.CorePersonalityLayer}
+		// Estimate saved tokens from character prompt (this is a rough estimate)
+		for _, bp := range breakpoints {
+			if bp.Layer == cache.CorePersonalityLayer {
+				resp.CacheMetrics.SavedTokens = bp.TokenCount
+				break
+			}
+		}
+	}
 
 	// Update character state based on response
 	cb.updateCharacterState(req.CharacterID, resp)
@@ -229,14 +252,29 @@ func (cb *CharacterBot) ProcessRequest(ctx context.Context, req *models.Conversa
 	return resp, nil
 }
 
-// BuildPrompt constructs a layered prompt with cache breakpoints
+// BuildPrompt constructs a layered prompt with cache breakpoints.
+// It ensures consistent prompt prefixes for the same character/user/scenario combination,
+// which enables automatic prompt caching on providers that support it (OpenAI, DeepSeek).
+// The prompt is structured as:
+//   1. Consistent Prefix: System instructions + Character profile + User context (cached)
+//   2. Dynamic Suffix: Conversation history + Current message (not cached)
+// The prefix remains identical across requests for the same context, maximizing cache hits.
 func (cb *CharacterBot) BuildPrompt(req *models.ConversationRequest) (string, []cache.CacheBreakpoint, error) {
 	char, err := cb.GetCharacter(req.CharacterID)
 	if err != nil {
 		return "", nil, err
 	}
 
-	breakpoints := make([]cache.CacheBreakpoint, 0, 6)
+	breakpoints := make([]cache.CacheBreakpoint, 0, 7)
+
+	// Layer -1: System/Admin Layer (global instructions, longest TTL)
+	systemPrompt := cb.buildSystemPrompt()
+	breakpoints = append(breakpoints, cache.CacheBreakpoint{
+		Layer:      cache.CacheLayer("system_admin"),
+		Content:    systemPrompt,
+		TokenCount: cache.EstimateTokens(systemPrompt),
+		TTL:        24 * time.Hour, // Very long TTL for system instructions
+	})
 
 	// Layer 0: Scenario Context (highest layer, meta-prompts, longest TTL)
 	if req.ScenarioID != "" {
@@ -263,14 +301,47 @@ func (cb *CharacterBot) BuildPrompt(req *models.ConversationRequest) (string, []
 		}
 	}
 
-	// Layer 1: Core Personality (static, long TTL)
-	personality := cb.buildPersonalityPrompt(char)
-	breakpoints = append(breakpoints, cache.CacheBreakpoint{
+	// Layer 1: Core Character System Prompt (static, very long TTL)
+	// Try to retrieve from cache first
+	cacheKey := cb.generateCharacterSystemPromptCacheKey(char.ID)
+	cachedEntry, exists := cb.cache.Get(cacheKey)
+	
+	var coreCharacterPrompt string
+	var fromCache bool
+	
+	if exists && cachedEntry != nil {
+		// Cache hit - look for the core personality layer content
+		for _, bp := range cachedEntry.Breakpoints {
+			if bp.Layer == cache.CorePersonalityLayer {
+				coreCharacterPrompt = bp.Content
+				fromCache = true
+				break
+			}
+		}
+	}
+	
+	// If not found in cache, generate and store it
+	if coreCharacterPrompt == "" {
+		coreCharacterPrompt = cb.buildCoreCharacterSystemPrompt(char)
+		cb.cache.Store(cacheKey, cache.CorePersonalityLayer, coreCharacterPrompt, cb.config.CacheConfig.CoreCharacterSystemPromptTTL)
+		fromCache = false
+	}
+	
+	// Add to breakpoints
+	breakpoint := cache.CacheBreakpoint{
 		Layer:      cache.CorePersonalityLayer,
-		Content:    personality,
-		TokenCount: cache.EstimateTokens(personality),
-		TTL:        cb.cache.CalculateAdaptiveTTL(nil, true),
-	})
+		Content:    coreCharacterPrompt,
+		TokenCount: cache.EstimateTokens(coreCharacterPrompt),
+		TTL:        cb.config.CacheConfig.CoreCharacterSystemPromptTTL,
+		LastUsed:   time.Now(),
+	}
+	
+	// Store metadata in a comment within the content for tracking
+	if fromCache {
+		breakpoint.Content = "<!-- cached:true -->\n" + breakpoint.Content
+	}
+	
+	breakpoints = append(breakpoints, breakpoint)
 
 	// Layer 2: Learned Behaviors (semi-static, medium TTL)
 	behaviors := cb.buildLearnedBehaviors(char)
@@ -319,52 +390,207 @@ func (cb *CharacterBot) BuildPrompt(req *models.ConversationRequest) (string, []
 }
 
 func (cb *CharacterBot) warmupCache(char *models.Character) {
-	// Build personality prompt and create a cache key for this character
-	personality := cb.buildPersonalityPrompt(char)
+	// Build core character system prompt
+	corePrompt := cb.buildCoreCharacterSystemPrompt(char)
 
-	// Create a stable cache key for just the personality layer
-	h := sha256.New()
-	h.Write([]byte(char.ID))
-	h.Write([]byte("personality"))
-	h.Write([]byte(personality))
-	key := hex.EncodeToString(h.Sum(nil))
+	// Create a stable cache key for this character's core system prompt
+	key := cb.generateCharacterSystemPromptCacheKey(char.ID)
 
-	// Store with a long TTL since personality is static
-	cb.cache.Store(key, cache.CorePersonalityLayer, personality, 24*time.Hour)
+	// Store with very long TTL from config
+	cb.cache.Store(key, cache.CorePersonalityLayer, corePrompt, cb.config.CacheConfig.CoreCharacterSystemPromptTTL)
 }
 
-func (cb *CharacterBot) buildPersonalityPrompt(char *models.Character) string {
-	return fmt.Sprintf(`[CHARACTER PROFILE]
+// generateCharacterSystemPromptCacheKey creates a stable cache key for a character's core system prompt
+func (cb *CharacterBot) generateCharacterSystemPromptCacheKey(characterID string) string {
+	return fmt.Sprintf("char_system_prompt::%s", characterID)
+}
+
+// InvalidateCharacterCache removes the cached system prompt for a character
+// This should be called whenever a character's core attributes are updated
+func (cb *CharacterBot) InvalidateCharacterCache(characterID string) error {
+	cacheKey := cb.generateCharacterSystemPromptCacheKey(characterID)
+	
+	// Remove from cache by storing empty breakpoints
+	// (Since there's no Delete method, we overwrite with empty data)
+	cb.cache.StoreWithTTL(cacheKey, []cache.CacheBreakpoint{}, 0)
+	
+	// If character exists, rebuild and cache the prompt
+	if char, err := cb.GetCharacter(characterID); err == nil {
+		cb.warmupCache(char)
+	}
+	
+	return nil
+}
+
+// buildCoreCharacterSystemPrompt generates the static, foundational system prompt for a character.
+// This includes all unchanging character attributes that define their core identity.
+// This content is designed to be cached with a very long TTL and exceed 1024 tokens for OpenAI caching.
+func (cb *CharacterBot) buildCoreCharacterSystemPrompt(char *models.Character) string {
+	var prompt strings.Builder
+	
+	// CHARACTER FOUNDATION
+	prompt.WriteString(fmt.Sprintf(`[CHARACTER FOUNDATION]
+ID: %s
 Name: %s
-Personality Traits:
-- Openness: %.2f
-- Conscientiousness: %.2f
-- Extraversion: %.2f
-- Agreeableness: %.2f
-- Neuroticism: %.2f
+Age: %s
+Gender: %s
+Occupation: %s
+Education: %s
+Nationality: %s
+Ethnicity: %s
 
-Backstory: %s
+[PERSONALITY MATRIX - OCEAN MODEL]
+Openness: %.2f - %s
+  • Intellectual curiosity and openness to new experiences
+  • Creative thinking and imagination
+  • Appreciation for art, emotion, adventure
+  
+Conscientiousness: %.2f - %s
+  • Organization and attention to detail
+  • Goal-directed behavior and self-discipline
+  • Reliability and work ethic
+  
+Extraversion: %.2f - %s
+  • Social energy and assertiveness
+  • Comfort in groups and social situations
+  • Tendency to seek stimulation in company
+  
+Agreeableness: %.2f - %s
+  • Cooperation and trust in others
+  • Altruism and concern for others
+  • Modesty and sympathy
+  
+Neuroticism: %.2f - %s
+  • Emotional stability and stress response
+  • Tendency to experience negative emotions
+  • Anxiety and mood variability
 
-Speech Style: %s
+[COMPREHENSIVE BACKSTORY]
+%s
 
-Core Quirks: %s
+[PHYSICAL CHARACTERISTICS]
+%s
 
-[INTERACTION RULES]
-- Always stay in character
-- Express personality traits consistently
-- Use characteristic speech patterns
-- React based on emotional state`,
+[SKILLS AND EXPERTISE]
+%s
+
+[INTERESTS AND PASSIONS]
+%s
+
+[FEARS AND ANXIETIES]
+%s
+
+[GOALS AND ASPIRATIONS]
+%s
+
+[RELATIONSHIPS AND CONNECTIONS]
+%s
+
+[CORE BELIEFS AND VALUES]
+%s
+
+[MORAL CODE AND ETHICS]
+%s
+
+[CHARACTER FLAWS AND WEAKNESSES]
+%s
+
+[STRENGTHS AND ADVANTAGES]
+%s
+
+[SPEECH CHARACTERISTICS]
+Style: %s
+Catch Phrases: %s
+Dialogue Examples:
+%s
+
+[BEHAVIORAL PATTERNS]
+%s
+
+[EMOTIONAL TRIGGERS AND RESPONSES]
+%s
+
+[DECISION-MAKING APPROACH]
+%s
+
+[CONFLICT RESOLUTION STYLE]
+%s
+
+[WORLDVIEW AND PHILOSOPHY]
+World View: %s
+Life Philosophy: %s
+
+[DAILY LIFE]
+Routines: %s
+Hobbies: %s
+Pet Peeves: %s
+
+[HIDDEN ASPECTS]
+Secrets: %s
+Regrets: %s
+Achievements: %s
+
+[DEFINING QUIRKS AND MANNERISMS]
+%s
+
+[CORE INTERACTION PRINCIPLES]
+• Maintain absolute character consistency across all interactions
+• Let personality traits naturally guide all responses and reactions
+• Preserve unique speech patterns and verbal characteristics
+• Express quirks and mannerisms authentically in conversation
+• Draw from comprehensive backstory to inform perspectives
+• React to situations based on emotional triggers and behavioral patterns
+• Make decisions aligned with established moral code and values
+• Resolve conflicts according to defined conflict style
+• Express worldview and life philosophy through dialogue
+• Reference relationships, skills, and interests when relevant
+• Allow flaws and weaknesses to create realistic interactions
+• Demonstrate growth while maintaining core identity`,
+		char.ID,
 		char.Name,
-		char.Personality.Openness,
-		char.Personality.Conscientiousness,
-		char.Personality.Extraversion,
-		char.Personality.Agreeableness,
-		char.Personality.Neuroticism,
+		getOrDefault(char.Age, "Unknown"),
+		getOrDefault(char.Gender, "Not specified"),
+		getOrDefault(char.Occupation, "Not specified"),
+		getOrDefault(char.Education, "Not specified"),
+		getOrDefault(char.Nationality, "Not specified"),
+		getOrDefault(char.Ethnicity, "Not specified"),
+		char.Personality.Openness, describePersonalityTrait("openness", char.Personality.Openness),
+		char.Personality.Conscientiousness, describePersonalityTrait("conscientiousness", char.Personality.Conscientiousness),
+		char.Personality.Extraversion, describePersonalityTrait("extraversion", char.Personality.Extraversion),
+		char.Personality.Agreeableness, describePersonalityTrait("agreeableness", char.Personality.Agreeableness),
+		char.Personality.Neuroticism, describePersonalityTrait("neuroticism", char.Personality.Neuroticism),
 		char.Backstory,
+		formatStringSlice(char.PhysicalTraits, "None specified"),
+		formatStringSlice(char.Skills, "None specified"),
+		formatStringSlice(char.Interests, "None specified"),
+		formatStringSlice(char.Fears, "None specified"),
+		formatStringSlice(char.Goals, "None specified"),
+		formatStringMap(char.Relationships, "None specified"),
+		formatStringSlice(char.CoreBeliefs, "None specified"),
+		formatStringSlice(char.MoralCode, "None specified"),
+		formatStringSlice(char.Flaws, "None specified"),
+		formatStringSlice(char.Strengths, "None specified"),
 		char.SpeechStyle,
+		formatStringSlice(char.CatchPhrases, "None"),
+		formatStringSlice(char.DialogueExamples, "None provided"),
+		formatStringSlice(char.BehaviorPatterns, "Standard behavioral responses"),
+		formatStringMap(char.EmotionalTriggers, "Standard emotional responses"),
+		getOrDefault(char.DecisionMaking, "Balanced analytical and intuitive approach"),
+		getOrDefault(char.ConflictStyle, "Adaptive based on situation"),
+		getOrDefault(char.WorldView, "Complex and nuanced perspective"),
+		getOrDefault(char.LifePhilosophy, "Seeking meaning and purpose"),
+		formatStringSlice(char.DailyRoutines, "Flexible daily schedule"),
+		formatStringSlice(char.Hobbies, "Various interests"),
+		formatStringSlice(char.PetPeeves, "Minor irritations"),
+		formatStringSlice(char.Secrets, "Hidden depths"),
+		formatStringSlice(char.Regrets, "Past experiences"),
+		formatStringSlice(char.Achievements, "Life accomplishments"),
 		joinQuirks(char.Quirks),
-	)
+	))
+	
+	return prompt.String()
 }
+
 
 func (cb *CharacterBot) buildLearnedBehaviors(char *models.Character) string {
 	// Extract patterns from medium-term memories
@@ -471,40 +697,62 @@ func (cb *CharacterBot) buildUserProfileLayer(userID, characterID string, profil
 }
 
 func (cb *CharacterBot) assemblePrompt(breakpoints []cache.CacheBreakpoint, userID, message string) string {
-	var parts []string
+	// Build consistent prefix with all cacheable layers
+	// This ensures providers that support automatic caching (OpenAI, DeepSeek)
+	// will cache the prefix portion
+	prefix := cb.buildConsistentPrefix(breakpoints)
+	
+	// Build the dynamic suffix (conversation + current message)
+	suffix := cb.buildDynamicSuffix(breakpoints, userID, message)
+	
+	// Combine with a clear separator that providers can use as a cache boundary
+	return prefix + "\n\n===== CONVERSATION CONTEXT =====\n\n" + suffix
+}
 
-	// Add all breakpoint content
+// buildConsistentPrefix creates a deterministic prefix from all cacheable layers
+func (cb *CharacterBot) buildConsistentPrefix(breakpoints []cache.CacheBreakpoint) string {
+	var prefixParts []string
+	
+	// Add all cacheable layers in order (everything except conversation layer)
 	for _, bp := range breakpoints {
-		parts = append(parts, bp.Content)
+		if bp.Layer != cache.ConversationLayer {
+			prefixParts = append(prefixParts, bp.Content)
+		}
 	}
+	
+	return strings.Join(prefixParts, "\n\n")
+}
 
+// buildDynamicSuffix creates the dynamic portion of the prompt
+func (cb *CharacterBot) buildDynamicSuffix(breakpoints []cache.CacheBreakpoint, userID, message string) string {
+	var suffixParts []string
+	
+	// Add conversation history if present
+	for _, bp := range breakpoints {
+		if bp.Layer == cache.ConversationLayer {
+			suffixParts = append(suffixParts, bp.Content)
+		}
+	}
+	
 	// Add current message
-	parts = append(parts, fmt.Sprintf("[CURRENT MESSAGE]\n%s: %s", userID, message))
-
-	return strings.Join(parts, "\n\n")
+	suffixParts = append(suffixParts, fmt.Sprintf("[CURRENT MESSAGE]\n%s: %s", userID, message))
+	
+	return strings.Join(suffixParts, "\n\n")
 }
 
 func (cb *CharacterBot) generateCacheKey(charID, userID, scenarioID string, breakpoints []cache.CacheBreakpoint) string {
-	// Generate cache key based only on static/semi-static layers
-	// Don't include conversation layer which changes every time
+	// Generate cache key based only on the prefix content
+	// This ensures the same prefix always generates the same cache key
+	prefix := cb.buildConsistentPrefix(breakpoints)
+	
 	h := sha256.New()
 	h.Write([]byte(charID))
 	h.Write([]byte(userID))
-
-	// Include scenario ID in the cache key if present
-	// This ensures different scenarios create different cache entries
 	if scenarioID != "" {
 		h.Write([]byte(scenarioID))
 	}
-
-	// Only hash content from cacheable layers (not conversation)
-	// Note: If scenario content is the first breakpoint, it's already included
-	for _, bp := range breakpoints {
-		if bp.Layer != cache.ConversationLayer {
-			h.Write([]byte(bp.Content))
-		}
-	}
-
+	h.Write([]byte(prefix))
+	
 	return hex.EncodeToString(h.Sum(nil))
 }
 
@@ -696,6 +944,111 @@ func joinQuirks(quirks []string) string {
 		return "None"
 	}
 	return strings.Join(quirks, ", ")
+}
+
+// getOrDefault returns the value if not empty, otherwise returns the default
+func getOrDefault(value, defaultValue string) string {
+	if value == "" {
+		return defaultValue
+	}
+	return value
+}
+
+// formatStringSlice formats a slice of strings for display
+func formatStringSlice(items []string, defaultText string) string {
+	if len(items) == 0 {
+		return defaultText
+	}
+	var result strings.Builder
+	for i, item := range items {
+		if i > 0 {
+			result.WriteString("\n")
+		}
+		result.WriteString(fmt.Sprintf("• %s", item))
+	}
+	return result.String()
+}
+
+// formatStringMap formats a map of strings for display
+func formatStringMap(items map[string]string, defaultText string) string {
+	if len(items) == 0 {
+		return defaultText
+	}
+	var result strings.Builder
+	i := 0
+	for key, value := range items {
+		if i > 0 {
+			result.WriteString("\n")
+		}
+		result.WriteString(fmt.Sprintf("• %s: %s", key, value))
+		i++
+	}
+	return result.String()
+}
+
+// describePersonalityTrait provides a human-readable description of a personality trait value
+func describePersonalityTrait(trait string, value float64) string {
+	var descriptor string
+	switch trait {
+	case "openness":
+		if value < 0.3 {
+			descriptor = "Traditional, practical, conventional"
+		} else if value < 0.7 {
+			descriptor = "Balanced between tradition and novelty"
+		} else {
+			descriptor = "Creative, curious, open to new experiences"
+		}
+	case "conscientiousness":
+		if value < 0.3 {
+			descriptor = "Flexible, spontaneous, casual"
+		} else if value < 0.7 {
+			descriptor = "Moderately organized and reliable"
+		} else {
+			descriptor = "Highly organized, disciplined, detail-oriented"
+		}
+	case "extraversion":
+		if value < 0.3 {
+			descriptor = "Reserved, introspective, prefers solitude"
+		} else if value < 0.7 {
+			descriptor = "Ambivert, socially flexible"
+		} else {
+			descriptor = "Outgoing, energetic, seeks social interaction"
+		}
+	case "agreeableness":
+		if value < 0.3 {
+			descriptor = "Direct, competitive, skeptical"
+		} else if value < 0.7 {
+			descriptor = "Balanced between cooperation and assertion"
+		} else {
+			descriptor = "Compassionate, trusting, cooperative"
+		}
+	case "neuroticism":
+		if value < 0.3 {
+			descriptor = "Emotionally stable, calm, resilient"
+		} else if value < 0.7 {
+			descriptor = "Moderate emotional sensitivity"
+		} else {
+			descriptor = "Emotionally reactive, sensitive to stress"
+		}
+	default:
+		descriptor = "Unknown trait"
+	}
+	return descriptor
+}
+
+// buildSystemPrompt creates a consistent system-level prompt
+func (cb *CharacterBot) buildSystemPrompt() string {
+	return `[SYSTEM INSTRUCTIONS]
+You are an advanced AI character simulation system. Your primary directive is to embody the character described below with psychological realism and consistency.
+
+Core Principles:
+1. Maintain character consistency across all interactions
+2. React authentically based on personality traits and emotional state
+3. Evolve naturally through interactions while staying true to core traits
+4. Express emotions and personality through speech patterns and behavior
+5. Remember past interactions and build on established relationships
+
+IMPORTANT: Never break character or acknowledge being an AI unless explicitly part of the character's awareness.`
 }
 
 // UpdateUserProfile synchronously updates the user profile

@@ -17,10 +17,11 @@ type Config struct {
 
 // CacheConfig holds cache-related configuration
 type CacheConfig struct {
-	MaxEntries        int
-	CleanupInterval   time.Duration
-	DefaultTTL        time.Duration
-	EnableAdaptiveTTL bool
+	MaxEntries                    int
+	CleanupInterval               time.Duration
+	DefaultTTL                    time.Duration
+	EnableAdaptiveTTL             bool
+	CoreCharacterSystemPromptTTL  time.Duration // TTL for static character definitions
 }
 
 // MemoryConfig holds memory management configuration

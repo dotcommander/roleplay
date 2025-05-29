@@ -52,6 +52,39 @@ type Character struct {
 	SpeechStyle  string            `json:"speech_style"`
 	Memories     []Memory          `json:"memories"`
 	LastModified time.Time         `json:"last_modified"`
+	
+	// Extended fields for richer character definition (OpenAI 1024+ token caching)
+	Age              string                 `json:"age,omitempty"`
+	Gender           string                 `json:"gender,omitempty"`
+	Occupation       string                 `json:"occupation,omitempty"`
+	Education        string                 `json:"education,omitempty"`
+	Nationality      string                 `json:"nationality,omitempty"`
+	Ethnicity        string                 `json:"ethnicity,omitempty"`
+	PhysicalTraits   []string               `json:"physical_traits,omitempty"`
+	Skills           []string               `json:"skills,omitempty"`
+	Interests        []string               `json:"interests,omitempty"`
+	Fears            []string               `json:"fears,omitempty"`
+	Goals            []string               `json:"goals,omitempty"`
+	Relationships    map[string]string      `json:"relationships,omitempty"`
+	CoreBeliefs      []string               `json:"core_beliefs,omitempty"`
+	MoralCode        []string               `json:"moral_code,omitempty"`
+	Flaws            []string               `json:"flaws,omitempty"`
+	Strengths        []string               `json:"strengths,omitempty"`
+	CatchPhrases     []string               `json:"catch_phrases,omitempty"`
+	DialogueExamples []string               `json:"dialogue_examples,omitempty"`
+	BehaviorPatterns []string               `json:"behavior_patterns,omitempty"`
+	EmotionalTriggers map[string]string     `json:"emotional_triggers,omitempty"`
+	DecisionMaking   string                 `json:"decision_making,omitempty"`
+	ConflictStyle    string                 `json:"conflict_style,omitempty"`
+	WorldView        string                 `json:"world_view,omitempty"`
+	LifePhilosophy   string                 `json:"life_philosophy,omitempty"`
+	DailyRoutines    []string               `json:"daily_routines,omitempty"`
+	Hobbies          []string               `json:"hobbies,omitempty"`
+	PetPeeves        []string               `json:"pet_peeves,omitempty"`
+	Secrets          []string               `json:"secrets,omitempty"`
+	Regrets          []string               `json:"regrets,omitempty"`
+	Achievements     []string               `json:"achievements,omitempty"`
+	
 	mu           sync.RWMutex
 }
 

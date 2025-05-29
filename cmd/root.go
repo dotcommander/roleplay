@@ -56,6 +56,7 @@ Character Management:
   roleplay character list          List available characters (alias: ls)
   roleplay character create        Create from JSON file
   roleplay character import        Import from markdown file
+  roleplay character quickgen      Generate from one-line description
 
 Configuration:
   roleplay config status           Show current settings
@@ -174,10 +175,11 @@ func initConfig() {
 		BaseURL:         baseURL,
 		ModelAliases:    viper.GetStringMapString("model_aliases"),
 		CacheConfig: config.CacheConfig{
-			MaxEntries:        viper.GetInt("cache.max_entries"),
-			CleanupInterval:   viper.GetDuration("cache.cleanup_interval"),
-			DefaultTTL:        viper.GetDuration("cache.default_ttl"),
-			EnableAdaptiveTTL: viper.GetBool("cache.adaptive_ttl"),
+			MaxEntries:                   viper.GetInt("cache.max_entries"),
+			CleanupInterval:              viper.GetDuration("cache.cleanup_interval"),
+			DefaultTTL:                   viper.GetDuration("cache.default_ttl"),
+			EnableAdaptiveTTL:            viper.GetBool("cache.adaptive_ttl"),
+			CoreCharacterSystemPromptTTL: viper.GetDuration("cache.core_character_system_prompt_ttl"),
 		},
 		MemoryConfig: config.MemoryConfig{
 			ShortTermWindow:    viper.GetInt("memory.short_term_window"),
@@ -233,6 +235,11 @@ func initConfig() {
 	}
 	if cfg.UserProfileConfig.PromptCacheTTL == 0 {
 		cfg.UserProfileConfig.PromptCacheTTL = 1 * time.Hour // Cache user profiles for 1 hour
+	}
+	
+	// Set default for core character system prompt TTL (very long)
+	if cfg.CacheConfig.CoreCharacterSystemPromptTTL == 0 {
+		cfg.CacheConfig.CoreCharacterSystemPromptTTL = 7 * 24 * time.Hour // 7 days
 	}
 }
 
