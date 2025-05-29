@@ -5,6 +5,28 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.1] - 2025-05-29
+
+### Added
+- **Comprehensive Test Suite**
+  - Added tests for configuration package
+  - Added tests for user profile agent service
+  - Added tests for character manager
+  - Added tests for all repository implementations
+  - Added tests for CLI commands
+  - Added tests for TUI model
+  - Added integration tests
+
+### Fixed
+- Fixed panic in cache cleanup when cleanup interval is zero
+- Fixed test compilation errors and import issues
+- Updated tests to match current model structures and APIs
+
+### Improved
+- Test coverage across all major components
+- Error handling validation in tests
+- Concurrent access testing for thread safety
+
 ## [0.7.0] - 2025-05-29
 
 ### Changed
