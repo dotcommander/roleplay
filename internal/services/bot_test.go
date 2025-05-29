@@ -200,6 +200,7 @@ func TestMemoryConsolidation(t *testing.T) {
 		CacheConfig: config.CacheConfig{
 			CleanupInterval: 5 * time.Minute,
 			DefaultTTL:      10 * time.Minute,
+			MaxEntries:      100,
 		},
 		MemoryConfig: config.MemoryConfig{
 			ShortTermWindow:    3,
@@ -244,6 +245,7 @@ func TestPersonalityEvolution(t *testing.T) {
 		CacheConfig: config.CacheConfig{
 			CleanupInterval: 5 * time.Minute,
 			DefaultTTL:      10 * time.Minute,
+			MaxEntries:      100,
 		},
 		PersonalityConfig: config.PersonalityConfig{
 			EvolutionEnabled:   true,

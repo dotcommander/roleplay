@@ -64,7 +64,9 @@ func NewCharacterBot(cfg *config.Config) *CharacterBot {
 	}
 
 	// Start background workers
-	go cb.cache.CleanupWorker(cfg.CacheConfig.CleanupInterval)
+	if cfg.CacheConfig.CleanupInterval > 0 {
+		go cb.cache.CleanupWorker(cfg.CacheConfig.CleanupInterval)
+	}
 	go cb.memoryConsolidationWorker()
 
 	return cb
