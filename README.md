@@ -53,20 +53,42 @@ sudo mv roleplay /usr/local/bin/
 ### First Run
 
 ```bash
-# Run the setup wizard (recommended)
+# Run the setup wizard (creates ~/.config/roleplay/config.yaml)
 roleplay init
-
-# Or manually set your API key
-export OPENAI_API_KEY="your-api-key"  # For OpenAI
-export ANTHROPIC_API_KEY="your-key"   # For Anthropic
-export OLLAMA_HOST="http://localhost:11434"  # For Ollama
 
 # Quick start with built-in Rick Sanchez character
 roleplay demo
 
-# Or start interactive chat with any character
-roleplay interactive --character rick-c137 --user your-name
+# Or start interactive chat
+roleplay interactive
 ```
+
+### Configuration Made Simple
+
+**Primary Config Location:** `~/.config/roleplay/config.yaml`
+
+This is your single source of truth for persistent settings. Everything else provides temporary overrides.
+
+```bash
+# View current configuration and sources
+roleplay config list
+
+# Update a setting
+roleplay config set model gpt-4o
+roleplay config set api_key sk-...
+
+# Check a specific setting
+roleplay config get provider
+
+# Find config file location
+roleplay config where
+```
+
+**Configuration Precedence** (highest to lowest):
+1. Command-line flags (`--api-key`, `--model`)
+2. Environment variables (`ROLEPLAY_API_KEY`, `OPENAI_API_KEY`)
+3. Config file (`~/.config/roleplay/config.yaml`)
+4. Default values
 
 ## 📖 Usage
 

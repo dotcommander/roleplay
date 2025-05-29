@@ -56,28 +56,63 @@ func init() {
 }
 
 func runConfigList(cmd *cobra.Command, args []string) error {
-	// Get all settings
-	settings := viper.AllSettings()
-
 	// Show where config is loaded from
 	configFile := viper.ConfigFileUsed()
 	if configFile != "" {
-		fmt.Printf("Configuration file: %s\n", configFile)
+		fmt.Printf("Configuration file: %s\n\n", configFile)
 	} else {
 		fmt.Println("No configuration file found, using defaults and environment variables")
+		fmt.Println()
 	}
-	fmt.Println()
 
-	// Display settings in a readable format
-	displaySettings(settings, "")
+	// Key settings to display with their sources
+	keySettings := []string{
+		"provider",
+		"model",
+		"api_key",
+		"base_url",
+	}
+
+	fmt.Println("Active Configuration:")
+	fmt.Println("--------------------")
+
+	// Display key settings with sources
+	for _, key := range keySettings {
+		displaySettingWithSource(key)
+	}
+
+	// Display cache settings
+	fmt.Println("\nCache Settings:")
+	cacheSettings := []string{
+		"cache.default_ttl",
+		"cache.cleanup_interval",
+		"cache.adaptive_ttl",
+		"cache.max_entries",
+	}
+	for _, key := range cacheSettings {
+		displaySettingWithSource(key)
+	}
+
+	// Display user profile settings
+	fmt.Println("\nUser Profile Settings:")
+	profileSettings := []string{
+		"user_profile.enabled",
+		"user_profile.update_frequency",
+		"user_profile.turns_to_consider",
+		"user_profile.confidence_threshold",
+	}
+	for _, key := range profileSettings {
+		displaySettingWithSource(key)
+	}
 
 	// Show which environment variables are set
-	fmt.Println("\nEnvironment variables:")
+	fmt.Println("\nEnvironment Variables Detected:")
+	fmt.Println("-------------------------------")
 	envVars := []string{
 		"ROLEPLAY_API_KEY",
 		"ROLEPLAY_BASE_URL",
 		"ROLEPLAY_MODEL",
-		"ROLEPLAY_DEFAULT_PROVIDER",
+		"ROLEPLAY_PROVIDER",
 		"OPENAI_API_KEY",
 		"OPENAI_BASE_URL",
 		"ANTHROPIC_API_KEY",
@@ -93,13 +128,13 @@ func runConfigList(cmd *cobra.Command, args []string) error {
 			if strings.Contains(env, "KEY") && len(val) > 8 {
 				val = val[:4] + "****" + val[len(val)-4:]
 			}
-			fmt.Printf("  %s = %s\n", env, val)
+			fmt.Printf("%s = %s\n", env, val)
 			anySet = true
 		}
 	}
 
 	if !anySet {
-		fmt.Println("  (none set)")
+		fmt.Println("(none set)")
 	}
 
 	return nil
@@ -183,30 +218,6 @@ func runConfigWhere(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// displaySettings recursively displays configuration settings
-func displaySettings(settings map[string]interface{}, prefix string) {
-	for key, value := range settings {
-		fullKey := key
-		if prefix != "" {
-			fullKey = prefix + "." + key
-		}
-
-		switch v := value.(type) {
-		case map[string]interface{}:
-			fmt.Printf("%s:\n", fullKey)
-			displaySettings(v, fullKey)
-		case string:
-			// Mask sensitive values
-			if strings.Contains(strings.ToLower(key), "key") && len(v) > 8 {
-				v = v[:4] + "****" + v[len(v)-4:]
-			}
-			fmt.Printf("  %s = %s\n", fullKey, v)
-		default:
-			fmt.Printf("  %s = %v\n", fullKey, v)
-		}
-	}
-}
-
 // setNestedValue sets a value in a nested map using dot notation
 func setNestedValue(m map[string]interface{}, key string, value interface{}) {
 	parts := strings.Split(key, ".")
@@ -254,4 +265,98 @@ func isNumeric(s string) bool {
 		}
 	}
 	return true
+}
+
+// displaySettingWithSource shows a setting value and where it came from
+func displaySettingWithSource(key string) {
+	if !viper.IsSet(key) {
+		return
+	}
+
+	value := viper.Get(key)
+	source := getConfigSource(key)
+
+	// Format the value
+	valStr := fmt.Sprintf("%v", value)
+	if strings.Contains(strings.ToLower(key), "key") && len(valStr) > 8 {
+		valStr = valStr[:4] + "****" + valStr[len(valStr)-4:]
+	}
+
+	// Print with aligned formatting
+	fmt.Printf("%-30s = %-25s (from %s)\n", key, valStr, source)
+}
+
+// getConfigSource determines where a configuration value came from
+func getConfigSource(key string) string {
+	// Check if it was set by a command-line flag
+	if flag := rootCmd.PersistentFlags().Lookup(key); flag != nil && flag.Changed {
+		return "command-line flag"
+	}
+
+	// Map of keys to their environment variable names
+	envMapping := map[string][]string{
+		"api_key": {"ROLEPLAY_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "GEMINI_API_KEY", "GROQ_API_KEY"},
+		"base_url": {"ROLEPLAY_BASE_URL", "OPENAI_BASE_URL", "OLLAMA_HOST"},
+		"model": {"ROLEPLAY_MODEL"},
+		"provider": {"ROLEPLAY_PROVIDER"},
+	}
+
+	// Check environment variables
+	if envVars, exists := envMapping[key]; exists {
+		for _, env := range envVars {
+			if os.Getenv(env) != "" {
+				return fmt.Sprintf("environment variable %s", env)
+			}
+		}
+	}
+
+	// For nested keys, check the root key env vars
+	rootKey := strings.Split(key, ".")[0]
+	if envVars, exists := envMapping[rootKey]; exists {
+		for _, env := range envVars {
+			if os.Getenv(env) != "" {
+				return fmt.Sprintf("environment variable %s", env)
+			}
+		}
+	}
+
+	// Check if it's in the config file
+	configFile := viper.ConfigFileUsed()
+	if configFile != "" {
+		// Read the config file to check if key exists
+		if data, err := os.ReadFile(configFile); err == nil {
+			var config map[string]interface{}
+			if err := yaml.Unmarshal(data, &config); err == nil {
+				if keyExistsInMap(config, key) {
+					return "config file"
+				}
+			}
+		}
+	}
+
+	// Otherwise it's a default value
+	return "default value"
+}
+
+// keyExistsInMap checks if a dot-separated key exists in a nested map
+func keyExistsInMap(m map[string]interface{}, key string) bool {
+	parts := strings.Split(key, ".")
+	current := m
+
+	for i, part := range parts {
+		if val, exists := current[part]; exists {
+			if i == len(parts)-1 {
+				return true
+			}
+			if next, ok := val.(map[string]interface{}); ok {
+				current = next
+			} else {
+				return false
+			}
+		} else {
+			return false
+		}
+	}
+
+	return false
 }

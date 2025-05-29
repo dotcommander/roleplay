@@ -106,6 +106,9 @@ func runInit(cmd *cobra.Command, args []string) error {
 	fmt.Println("🎭 Welcome to Roleplay Setup Wizard")
 	fmt.Println("==================================")
 	fmt.Println()
+	fmt.Println("This wizard will help you configure roleplay for your preferred LLM provider.")
+	fmt.Printf("Your configuration will be saved to: %s\n", filepath.Join(os.Getenv("HOME"), ".config", "roleplay", "config.yaml"))
+	fmt.Println()
 
 	reader := bufio.NewReader(os.Stdin)
 
@@ -301,6 +304,13 @@ func runInit(cmd *cobra.Command, args []string) error {
 	}
 
 	fmt.Printf("\n✅ Configuration saved to %s\n", configPath)
+	fmt.Println("\n📝 Your configuration summary:")
+	fmt.Printf("   Provider: %s\n", providerName)
+	fmt.Printf("   Model: %s\n", model)
+	fmt.Printf("   Base URL: %s\n", baseURL)
+	if apiKey != "" && apiKey != "not-required" {
+		fmt.Printf("   API Key: %s...%s\n", apiKey[:4], apiKey[len(apiKey)-4:])
+	}
 
 	// Create example characters if requested
 	if shouldCreateExamples {
@@ -318,7 +328,10 @@ func runInit(cmd *cobra.Command, args []string) error {
 	fmt.Println("  • Start chatting: roleplay interactive")
 	fmt.Println("  • Create a character: roleplay character create <file.json>")
 	fmt.Println("  • View example: roleplay character example")
-	fmt.Println("  • Check config: roleplay status")
+	fmt.Println("  • Check config: roleplay config list")
+	fmt.Println("  • Update settings: roleplay config set <key> <value>")
+	fmt.Println("\n💡 Tip: Your config file is the primary place for persistent settings.")
+	fmt.Println("   Use 'roleplay config where' to see its location.")
 
 	if selectedPreset.LocalModel {
 		fmt.Printf("\n💡 Tip: Make sure %s is running at %s\n", selectedPreset.Description, baseURL)

@@ -5,6 +5,29 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] - 2025-05-29
+
+### Added
+- **Enhanced Configuration Management**
+  - New `roleplay config list` shows configuration values with their sources (config file, env var, flag, or default)
+  - New `roleplay config get <key>` retrieves specific configuration values
+  - New `roleplay config set <key> <value>` updates config.yaml directly from CLI
+  - New `roleplay config where` shows the configuration file location
+  - Configuration sources are now transparent and debuggable
+
+### Improved
+- **Configuration User Experience**
+  - `roleplay init` now shows where config will be saved and provides a summary after completion
+  - Actionable error messages for missing API keys with 4 clear fix options
+  - Updated documentation emphasizes `~/.config/roleplay/config.yaml` as the primary config location
+  - Clear configuration precedence: flags > env vars > config file > defaults
+  - Better guidance in init wizard pointing to config management commands
+
+- **Documentation**
+  - README now includes "Configuration Made Simple" section
+  - Clear explanation of configuration precedence
+  - Emphasized the "golden path" of using `roleplay init` and config file
+
 ## [0.4.2] - 2025-05-29
 
 ### Fixed

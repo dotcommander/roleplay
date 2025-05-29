@@ -68,7 +68,15 @@ func CreateProviderWithFallback(profileName, apiKey, model, baseURL string) (pro
 
 	// Validate API key for non-local endpoints
 	if apiKey == "" && !isLocalEndpoint(profileName, baseURL) {
-		return nil, fmt.Errorf("API key required for %s", profileName)
+		return nil, fmt.Errorf(`API key for provider '%s' is missing.
+
+To fix this:
+1. Run 'roleplay init' to configure it interactively
+2. Or, set the 'api_key' in ~/.config/roleplay/config.yaml
+3. Or, set the %s environment variable
+4. Or, use the --api-key flag
+
+For more info: roleplay config where`, profileName, getProviderEnvVar(profileName))
 	}
 
 	// Always create the unified OpenAI-compatible provider
@@ -107,4 +115,21 @@ func isLocalEndpoint(profileName, baseURL string) bool {
 	}
 
 	return false
+}
+
+// getProviderEnvVar returns the appropriate environment variable name for a provider
+func getProviderEnvVar(profileName string) string {
+	profileName = strings.ToLower(profileName)
+	switch profileName {
+	case "openai":
+		return "OPENAI_API_KEY or ROLEPLAY_API_KEY"
+	case "anthropic":
+		return "ANTHROPIC_API_KEY or ROLEPLAY_API_KEY"
+	case "gemini":
+		return "GEMINI_API_KEY or ROLEPLAY_API_KEY"
+	case "groq":
+		return "GROQ_API_KEY or ROLEPLAY_API_KEY"
+	default:
+		return "ROLEPLAY_API_KEY"
+	}
 }
