@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net/http"
+	"os"
 	"strings"
 
 	"github.com/dotcommander/roleplay/internal/cache"
@@ -12,8 +14,9 @@ import (
 
 // OpenAIProvider implements the AIProvider interface for OpenAI-compatible models
 type OpenAIProvider struct {
-	client *openai.Client
-	model  string
+	client  *openai.Client
+	model   string
+	baseURL string // Store for debug logging
 }
 
 // NewOpenAIProvider creates a new OpenAI provider instance
@@ -30,19 +33,23 @@ func NewOpenAIProviderWithBaseURL(apiKey, model, baseURL string) *OpenAIProvider
 
 	config := openai.DefaultConfig(apiKey)
 	if baseURL != "" {
-		// Handle baseURL carefully - go-openai may expect base URL without /v1
-		baseURL = strings.TrimRight(baseURL, "/")
-		// If baseURL ends with /v1, use it as-is, otherwise let the SDK handle it
-		if !strings.HasSuffix(baseURL, "/v1") {
-			config.BaseURL = baseURL + "/v1"
-		} else {
-			config.BaseURL = baseURL
+		// Trust the user-provided base URL - don't modify it
+		// This allows for endpoints like /v1beta (Gemini) or other custom paths
+		config.BaseURL = strings.TrimRight(baseURL, "/")
+		
+		// Add debug transport if DEBUG_HTTP env var is set
+		if os.Getenv("DEBUG_HTTP") == "true" {
+			fmt.Printf("🔧 Debug: OpenAI provider configured with base URL: %s\n", config.BaseURL)
+			config.HTTPClient = &http.Client{
+				Transport: &debugTransport{RoundTripper: http.DefaultTransport},
+			}
 		}
 	}
 
 	return &OpenAIProvider{
-		client: openai.NewClientWithConfig(config),
-		model:  model,
+		client:  openai.NewClientWithConfig(config),
+		model:   model,
+		baseURL: config.BaseURL,
 	}
 }
 
@@ -65,8 +72,18 @@ func (o *OpenAIProvider) SendRequest(ctx context.Context, req *PromptRequest) (*
 	}
 
 	// Send the request
+	if os.Getenv("DEBUG_HTTP") == "true" {
+		fmt.Printf("🔧 Debug: Sending chat completion request with model: %s\n", o.model)
+	}
 	resp, err := o.client.CreateChatCompletion(ctx, apiReq)
 	if err != nil {
+		// Add debug info if enabled
+		if os.Getenv("DEBUG_HTTP") == "true" {
+			fmt.Printf("🔧 Debug: Request failed - Error: %v\n", err)
+			if o.baseURL != "" {
+				fmt.Printf("🔧 Debug: Expected URL: %s/chat/completions\n", o.baseURL)
+			}
+		}
 		return nil, fmt.Errorf("API request failed: %w", err)
 	}
 
@@ -211,3 +228,25 @@ func (o *OpenAIProvider) MaxBreakpoints() int { return 0 }
 
 // Name returns the provider name
 func (o *OpenAIProvider) Name() string { return "openai_compatible" }
+
+// debugTransport is an HTTP transport that logs all requests
+type debugTransport struct {
+	http.RoundTripper
+}
+
+func (d *debugTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	// Log the request URL
+	fmt.Printf("🔧 Debug: HTTP %s %s\n", req.Method, req.URL.String())
+	
+	// Make the actual request
+	resp, err := d.RoundTripper.RoundTrip(req)
+	
+	// Log response status
+	if err != nil {
+		fmt.Printf("🔧 Debug: Request failed with error: %v\n", err)
+	} else {
+		fmt.Printf("🔧 Debug: Response status: %d %s\n", resp.StatusCode, resp.Status)
+	}
+	
+	return resp, err
+}

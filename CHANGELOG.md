@@ -5,6 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.1] - 2025-05-29
+
+### Fixed
+- **Gemini API Support**
+  - Fixed URL construction bug that automatically appended `/v1` to all base URLs
+  - Provider now respects the exact base URL provided by users
+  - Gemini's `/v1beta/openai/` endpoint now works correctly
+  
+### Added
+- **HTTP Debug Logging**
+  - Added `DEBUG_HTTP=true` environment variable for troubleshooting API requests
+  - Shows exact URLs, HTTP methods, and response status codes
+  - Helpful for debugging OpenAI-compatible endpoint issues
+
+### Improved
+- **Documentation**
+  - Added Gemini configuration example to CLAUDE.md
+  - Documented correct endpoint URLs for various providers
+  - Added troubleshooting guidance for OpenAI-compatible endpoints
+
 ## [0.4.0] - 2025-05-28
 
 ### Changed

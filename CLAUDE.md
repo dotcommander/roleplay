@@ -65,6 +65,30 @@ go mod download
 go mod tidy
 ```
 
+## Provider Configuration Examples
+
+### Gemini (via OpenAI-compatible endpoint)
+```yaml
+provider: openai
+base_url: https://generativelanguage.googleapis.com/v1beta/openai/
+model: models/gemini-1.5-flash-latest
+api_key: YOUR_GEMINI_API_KEY
+```
+
+### OpenAI
+```yaml
+provider: openai
+model: gpt-4o-mini
+api_key: YOUR_OPENAI_API_KEY
+```
+
+### Anthropic
+```yaml
+provider: anthropic
+model: claude-3-5-sonnet-20241022
+api_key: YOUR_ANTHROPIC_API_KEY
+```
+
 ## Key Design Patterns
 
 - **Clean Architecture**: Separation between domain models, business logic, and external providers
