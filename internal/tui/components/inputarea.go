@@ -28,21 +28,22 @@ type inputAreaStyles struct {
 // NewInputArea creates a new input area component
 func NewInputArea(width int) *InputArea {
 	ta := textarea.New()
-	ta.Placeholder = "Type your message..."
-	ta.Prompt = "│ "
+	ta.Placeholder = ""
+	ta.Prompt = "> "  // Simple clean prompt like aider-go
 	ta.CharLimit = 500
-	// Adjust width to account for prompt and proper padding
-	// Using width - 6 to prevent horizontal scrolling issues
-	ta.SetWidth(width - 6)
-	ta.SetHeight(1)  // Set to 1 line to prevent multi-line expansion
+	// Minimal width adjustment for clean single-line footer
+	ta.SetWidth(width - 3)
+	ta.SetHeight(1)
 	ta.ShowLineNumbers = false
 	ta.KeyMap.InsertNewline.SetEnabled(false)
 
-	// Style the textarea with Gruvbox theme
-	ta.FocusedStyle.CursorLine = lipgloss.NewStyle().Background(GruvboxBg1)
-	ta.FocusedStyle.Prompt = lipgloss.NewStyle().Foreground(GruvboxAqua)
+	// Minimal styling for clean look
+	ta.FocusedStyle.CursorLine = lipgloss.NewStyle()
+	ta.FocusedStyle.Prompt = lipgloss.NewStyle().Foreground(GruvboxFg)
 	ta.FocusedStyle.Text = lipgloss.NewStyle().Foreground(GruvboxFg)
 	ta.FocusedStyle.Placeholder = lipgloss.NewStyle().Foreground(GruvboxGray)
+	ta.BlurredStyle.Prompt = lipgloss.NewStyle().Foreground(GruvboxGray)
+	ta.BlurredStyle.Text = lipgloss.NewStyle().Foreground(GruvboxGray)
 
 	s := spinner.New()
 	s.Spinner = spinner.Dot
@@ -69,8 +70,8 @@ func (i *InputArea) Update(msg tea.Msg) tea.Cmd {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		i.width = msg.Width
-		// Consistent width adjustment to prevent scrolling issues
-		i.textarea.SetWidth(msg.Width - 6)
+		// Minimal width adjustment for clean single-line footer
+		i.textarea.SetWidth(msg.Width - 3)
 
 	case ProcessingStateMsg:
 		i.isProcessing = msg.IsProcessing
@@ -98,20 +99,19 @@ func (i *InputArea) Update(msg tea.Msg) tea.Cmd {
 	return tea.Batch(cmds...)
 }
 
-// View renders the input area
+// View renders the input area as a clean sticky footer
 func (i *InputArea) View() string {
 	if i.error != nil {
-		return i.styles.error.Render(fmt.Sprintf("   Error: %v", i.error))
+		return i.styles.error.Render(fmt.Sprintf("Error: %v", i.error))
 	}
 
 	if i.isProcessing {
-		spinnerText := i.styles.processing.Render("Thinking...")
-		// Maintain consistent height by adding an extra newline
-		return fmt.Sprintf("\n  %s %s\n\n", i.spinner.View(), spinnerText)
+		spinnerText := i.styles.processing.Render("thinking...")
+		return fmt.Sprintf("%s %s", i.spinner.View(), spinnerText)
 	}
 
-	// Add consistent padding to prevent layout shifts
-	return fmt.Sprintf("\n%s\n", i.textarea.View())
+	// Clean single line footer, no extra padding
+	return i.textarea.View()
 }
 
 // Focus sets the input area as focused
@@ -136,8 +136,8 @@ func (i *InputArea) IsFocused() bool {
 // SetSize updates the size of the input area
 func (i *InputArea) SetSize(width, _ int) {
 	i.width = width
-	// Consistent width adjustment to prevent scrolling issues
-	i.textarea.SetWidth(width - 6)
+	// Minimal width adjustment for clean single-line footer
+	i.textarea.SetWidth(width - 3)
 }
 
 // Value returns the current input value

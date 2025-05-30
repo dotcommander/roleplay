@@ -234,13 +234,16 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	)
 
 	m.textarea, tiCmd = m.textarea.Update(msg)
-	m.viewport, vpCmd = m.viewport.Update(msg)
-	cmds = append(cmds, tiCmd, vpCmd)
+	cmds = append(cmds, tiCmd)
 
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
+		
+		// Update viewport for window resize
+		m.viewport, vpCmd = m.viewport.Update(msg)
+		cmds = append(cmds, vpCmd)
 
 		if !m.ready {
 			// Initialize viewport
@@ -248,31 +251,34 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			footerHeight := 6 // Input area + status
 			verticalMargins := headerHeight + footerHeight
 
-			m.viewport = viewport.New(msg.Width-4, msg.Height-verticalMargins)
+			m.viewport = viewport.New(msg.Width-6, msg.Height-verticalMargins)
 			m.viewport.SetContent(m.renderMessages())
+			m.viewport.GotoBottom()
 
-			// Initialize textarea with Gruvbox styling
+			// Initialize textarea with clean aider-go style
 			m.textarea = textarea.New()
-			m.textarea.Placeholder = "Type your message..."
+			m.textarea.Placeholder = ""
 			m.textarea.Focus()
-			m.textarea.Prompt = "│ "
+			m.textarea.Prompt = "> "
 			m.textarea.CharLimit = 500
-			m.textarea.SetWidth(msg.Width - 4)
-			m.textarea.SetHeight(2)
+			m.textarea.SetWidth(msg.Width - 3)
+			m.textarea.SetHeight(1)
 			m.textarea.ShowLineNumbers = false
 			m.textarea.KeyMap.InsertNewline.SetEnabled(false)
 
-			// Style the textarea
-			m.textarea.FocusedStyle.CursorLine = lipgloss.NewStyle().Background(gruvboxBg1)
-			m.textarea.FocusedStyle.Prompt = lipgloss.NewStyle().Foreground(gruvboxAqua)
+			// Minimal clean styling
+			m.textarea.FocusedStyle.CursorLine = lipgloss.NewStyle()
+			m.textarea.FocusedStyle.Prompt = lipgloss.NewStyle().Foreground(gruvboxFg)
 			m.textarea.FocusedStyle.Text = lipgloss.NewStyle().Foreground(gruvboxFg)
 			m.textarea.FocusedStyle.Placeholder = lipgloss.NewStyle().Foreground(gruvboxGray)
+			m.textarea.BlurredStyle.Prompt = lipgloss.NewStyle().Foreground(gruvboxGray)
+			m.textarea.BlurredStyle.Text = lipgloss.NewStyle().Foreground(gruvboxGray)
 
 			m.ready = true
 		} else {
-			m.viewport.Width = msg.Width - 4
+			m.viewport.Width = msg.Width - 6
 			m.viewport.Height = msg.Height - 14
-			m.textarea.SetWidth(msg.Width - 4)
+			m.textarea.SetWidth(msg.Width - 3)
 		}
 
 	case tea.KeyMsg:
@@ -459,6 +465,7 @@ func (m model) View() string {
 		header,
 		chatView,
 		inputArea,
+		"", // Add padding under input
 		statusBar,
 		help,
 	)
@@ -471,9 +478,9 @@ func (m model) renderHeader() string {
 
 	title := titleStyle.Render(fmt.Sprintf("󰊕 Chat with %s", m.character.Name))
 
-	// Personality traits with icons
+	// Personality traits with full names
 	personality := fmt.Sprintf(
-		" O:%.1f  C:%.1f  E:%.1f  A:%.1f  N:%.1f",
+		" Openness:%.1f  Conscientiousness:%.1f  Extraversion:%.1f  Agreeableness:%.1f  Neuroticism:%.1f",
 		m.character.Personality.Openness,
 		m.character.Personality.Conscientiousness,
 		m.character.Personality.Extraversion,
@@ -591,11 +598,11 @@ func (m model) renderInputArea() string {
 	}
 
 	if m.loading {
-		spinnerText := mutedStyle.Render("Thinking...")
-		return fmt.Sprintf("\n  %s %s\n", m.spinner.View(), spinnerText)
+		spinnerText := mutedStyle.Render("thinking...")
+		return fmt.Sprintf("%s %s", m.spinner.View(), spinnerText)
 	}
 
-	return fmt.Sprintf("\n%s\n", m.textarea.View())
+	return m.textarea.View()
 }
 
 func (m model) renderStatusBar() string {

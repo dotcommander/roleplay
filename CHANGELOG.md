@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.5] - 2025-05-30
+
+### Added
+- **Clean Sticky Footer Input Design**
+  - Implemented aider-go style minimal input with simple `"> "` prompt
+  - Single-line input with no placeholder text for cleaner appearance
+  - Consistent edge-to-edge styling
+
+### Improved
+- **TUI Layout and Visual Design**
+  - Full OCEAN personality trait names displayed instead of abbreviations
+  - Added proper padding under input area for better visual separation
+  - Auto-scroll to bottom on page load to show most recent messages
+  - Fixed viewport width calculations to prevent borders going off-screen
+
+### Fixed
+- **Critical Viewport Jumping Bug**
+  - Resolved viewport jumping when typing spaces or reaching character thresholds
+  - Removed unnecessary viewport updates on every keystroke
+  - Viewport now maintains position during text input
+- **Layout Consistency Issues**
+  - Fixed width calculations between viewport and textarea components
+  - Consistent spacing and border rendering across all screen sizes
+
 ## [0.8.4] - 2025-05-29
 
 ### Added
