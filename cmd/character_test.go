@@ -203,6 +203,14 @@ func TestCharacterCommands(t *testing.T) {
 			args: []string{"character", "import"},
 			setup: func(t *testing.T) string {
 				tempDir := t.TempDir()
+				// Check if prompts directory exists
+				if _, err := os.Stat("prompts/character-import.md"); os.IsNotExist(err) {
+					// Try from parent directory (when running from cmd/)
+					if _, err := os.Stat("../prompts/character-import.md"); os.IsNotExist(err) {
+						t.Skip("Skipping import test: prompts directory not found")
+						return "" // This return is needed after t.Skip
+					}
+				}
 				
 				// Create markdown file
 				mdFile := filepath.Join(tempDir, "character.md")
@@ -246,11 +254,16 @@ Often says "Morty" as punctuation.
 			
 			// Setup test environment
 			tempDir := ""
+			oldHome := os.Getenv("HOME")
 			if tt.setup != nil {
 				tempDir = tt.setup(t)
 				// Set HOME to temp dir for config
 				os.Setenv("HOME", tempDir)
-				defer os.Unsetenv("HOME")
+				defer func() {
+					if oldHome != "" {
+						os.Setenv("HOME", oldHome)
+					}
+				}()
 			}
 
 			// Capture output
@@ -289,8 +302,13 @@ Often says "Morty" as punctuation.
 
 func TestCharacterListFormatting(t *testing.T) {
 	tempDir := t.TempDir()
+	oldHome := os.Getenv("HOME")
 	os.Setenv("HOME", tempDir)
-	defer os.Unsetenv("HOME")
+	defer func() {
+		if oldHome != "" {
+			os.Setenv("HOME", oldHome)
+		}
+	}()
 
 	// Create character directory
 	charDir := filepath.Join(tempDir, ".config", "roleplay", "characters")
@@ -357,35 +375,43 @@ func TestCharacterCommandValidation(t *testing.T) {
 			name:    "create without file",
 			args:    []string{"character", "create"},
 			wantErr: true,
-			errMsg:  "requires exactly 1 arg",
+			errMsg:  "accepts 1 arg(s), received 0",
 		},
 		{
 			name:    "show without ID",
 			args:    []string{"character", "show"},
 			wantErr: true,
-			errMsg:  "requires exactly 1 arg",
+			errMsg:  "accepts 1 arg(s), received 0",
 		},
 		{
 			name:    "import without file",
 			args:    []string{"character", "import"},
 			wantErr: true,
-			errMsg:  "requires exactly 1 arg",
+			errMsg:  "accepts 1 arg(s), received 0",
 		},
 		{
 			name:    "invalid subcommand",
 			args:    []string{"character", "invalid"},
-			wantErr: true,
-			errMsg:  "unknown command",
+			wantErr: false, // Cobra doesn't return error for unknown subcommand, just shows help
+			errMsg:  "",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			// Reset commands before each test
+			rootCmd = &cobra.Command{
+				Use:   "roleplay",
+				Short: "A sophisticated character bot with psychological modeling",
+			}
+			initCommands()
+			
 			os.Args = []string{"roleplay"}
 			os.Args = append(os.Args, tt.args...)
 
 			var buf bytes.Buffer
 			rootCmd.SetErr(&buf)
+			rootCmd.SetOut(&buf)
 
 			err := rootCmd.Execute()
 
@@ -395,6 +421,10 @@ func TestCharacterCommandValidation(t *testing.T) {
 
 			if tt.wantErr && tt.errMsg != "" {
 				errOutput := buf.String()
+				// Also check stdout since cobra might write there
+				if err != nil && err.Error() != "" {
+					errOutput = err.Error() + "\n" + errOutput
+				}
 				if !strings.Contains(errOutput, tt.errMsg) {
 					t.Errorf("Error output does not contain expected message.\nGot: %s\nWant substring: %s", errOutput, tt.errMsg)
 				}
@@ -412,6 +442,53 @@ func TestCharacterCommandValidation(t *testing.T) {
 
 // Helper function to initialize commands for testing
 func initCommands() {
-	// This would need to call the actual init functions from each command file
-	// For testing, we might need to export them or restructure slightly
+	// Re-add all commands to rootCmd after reset
+	characterCmd = &cobra.Command{
+		Use:   "character",
+		Short: "Manage characters",
+		Long:  `Create, list, and manage character profiles for the roleplay bot.`,
+	}
+	
+	createCharacterCmd = &cobra.Command{
+		Use:   "create [character-file.json]",
+		Short: "Create a new character from a JSON file",
+		Args:  cobra.ExactArgs(1),
+		RunE:  runCreateCharacter,
+	}
+	
+	showCharacterCmd = &cobra.Command{
+		Use:   "show [character-id]",
+		Short: "Show details of a specific character",
+		Args:  cobra.ExactArgs(1),
+		RunE:  runShowCharacter,
+	}
+	
+	exampleCharacterCmd = &cobra.Command{
+		Use:   "example",
+		Short: "Show an example character JSON",
+		RunE:  runExampleCharacter,
+	}
+	
+	listCharactersCmd = &cobra.Command{
+		Use:     "list",
+		Aliases: []string{"ls"},
+		Short:   "List all available characters",
+		RunE:    runListCharacters,
+	}
+	
+	// Recreate importCharacterCmd as defined in import.go
+	importCharacterCmd = &cobra.Command{
+		Use:   "import [markdown-file]",
+		Short: "Import a character from an unstructured markdown file",
+		Args:  cobra.ExactArgs(1),
+		RunE:  runImport,
+	}
+	
+	// Add commands to hierarchy
+	rootCmd.AddCommand(characterCmd)
+	characterCmd.AddCommand(createCharacterCmd)
+	characterCmd.AddCommand(showCharacterCmd)
+	characterCmd.AddCommand(exampleCharacterCmd)
+	characterCmd.AddCommand(listCharactersCmd)
+	characterCmd.AddCommand(importCharacterCmd)
 }

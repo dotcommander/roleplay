@@ -24,10 +24,34 @@ type CharacterImporter struct {
 }
 
 func NewCharacterImporter(provider providers.AIProvider, repo *repository.CharacterRepository) *CharacterImporter {
+	// Find prompt file using multiple search paths
+	promptFile := "prompts/character-import.md"
+	
+	// Try multiple locations for the prompt file
+	possiblePaths := []string{
+		promptFile,
+		filepath.Join(".", promptFile),
+		filepath.Join("..", promptFile),
+		filepath.Join(os.Getenv("HOME"), "go", "src", "roleplay", promptFile),
+	}
+	
+	var finalPath string
+	for _, path := range possiblePaths {
+		if _, err := os.Stat(path); err == nil {
+			finalPath = path
+			break
+		}
+	}
+	
+	if finalPath == "" {
+		// Fallback to the most likely location
+		finalPath = filepath.Join(os.Getenv("HOME"), "go", "src", "roleplay", promptFile)
+	}
+	
 	return &CharacterImporter{
 		provider:   provider,
 		repository: repo,
-		promptPath: "prompts/character-import.md",
+		promptPath: finalPath,
 	}
 }
 

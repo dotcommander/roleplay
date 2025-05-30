@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
+	"sync"
 
 	"github.com/dotcommander/roleplay/internal/models"
 )
@@ -12,6 +14,7 @@ import (
 // UserProfileRepository manages persistence of user profiles
 type UserProfileRepository struct {
 	dataDir string
+	mu      sync.RWMutex
 }
 
 // NewUserProfileRepository creates a new repository instance
@@ -28,6 +31,32 @@ func (r *UserProfileRepository) profileFilename(userID, characterID string) stri
 
 // SaveUserProfile saves a user profile to disk
 func (r *UserProfileRepository) SaveUserProfile(profile *models.UserProfile) error {
+	if profile == nil {
+		return fmt.Errorf("profile cannot be nil")
+	}
+	
+	if profile.UserID == "" {
+		return fmt.Errorf("user ID cannot be empty")
+	}
+	
+	if profile.CharacterID == "" {
+		return fmt.Errorf("character ID cannot be empty")
+	}
+	
+	// Validate IDs don't contain path traversal characters
+	if strings.Contains(profile.UserID, "..") || strings.Contains(profile.UserID, "/") ||
+		strings.Contains(profile.CharacterID, "..") || strings.Contains(profile.CharacterID, "/") {
+		return fmt.Errorf("invalid ID: contains invalid characters")
+	}
+	
+	// Check for very long IDs
+	if len(profile.UserID) > 255 || len(profile.CharacterID) > 255 {
+		return fmt.Errorf("ID too long")
+	}
+	
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	
 	if err := os.MkdirAll(r.dataDir, 0755); err != nil {
 		return fmt.Errorf("failed to create user profiles directory: %w", err)
 	}
@@ -49,6 +78,9 @@ func (r *UserProfileRepository) SaveUserProfile(profile *models.UserProfile) err
 
 // LoadUserProfile loads a user profile from disk
 func (r *UserProfileRepository) LoadUserProfile(userID, characterID string) (*models.UserProfile, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	
 	filename := r.profileFilename(userID, characterID)
 	filepath := filepath.Join(r.dataDir, filename)
 

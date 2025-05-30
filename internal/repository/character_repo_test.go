@@ -399,37 +399,55 @@ func TestInvalidCharacterData(t *testing.T) {
 }
 
 func TestRepositoryRecovery(t *testing.T) {
-	tempDir := t.TempDir()
+	// Create a parent directory for our test
+	parentDir := t.TempDir()
+	tempDir := filepath.Join(parentDir, "repo")
 	
-	// Create characters directory with wrong permissions
-	charDir := filepath.Join(tempDir, "characters")
-	if err := os.MkdirAll(charDir, 0400); err != nil { // Read-only
-		t.Fatalf("Failed to create read-only directory: %v", err)
+	// Create the repo directory
+	if err := os.MkdirAll(tempDir, 0755); err != nil {
+		t.Fatalf("Failed to create temp directory: %v", err)
 	}
-
+	
+	// Create initial repository
 	repo, err := NewCharacterRepository(tempDir)
 	if err != nil {
-		// This is expected on some systems
-		t.Logf("Repository creation with read-only dir failed as expected: %v", err)
-		
-		// Fix permissions and retry
-		if err := os.Chmod(charDir, 0755); err != nil {
-			t.Fatalf("Failed to fix permissions: %v", err)
-		}
-		
-		repo, err = NewCharacterRepository(tempDir)
-		if err != nil {
-			t.Fatalf("Failed to create repository after fixing permissions: %v", err)
-		}
+		t.Fatalf("Failed to create initial repository: %v", err)
 	}
-
-	// Should be able to save now
+	
+	// Save a character
 	char := &models.Character{
 		ID:   "recovery-test",
 		Name: "Recovery Test",
 	}
 	
 	if err := repo.SaveCharacter(char); err != nil {
+		t.Fatalf("Failed to save character: %v", err)
+	}
+	
+	// Now simulate corruption by changing permissions on characters dir
+	charDir := filepath.Join(tempDir, "characters")
+	if err := os.Chmod(charDir, 0555); err != nil { // Read-only
+		t.Fatalf("Failed to change permissions: %v", err)
+	}
+	
+	// Try to save again - should fail
+	char2 := &models.Character{
+		ID:   "recovery-test-2",
+		Name: "Recovery Test 2",
+	}
+	
+	err = repo.SaveCharacter(char2)
+	if err == nil {
+		t.Error("Expected error when saving to read-only directory")
+	}
+	
+	// Fix permissions
+	if err := os.Chmod(charDir, 0755); err != nil {
+		t.Fatalf("Failed to fix permissions: %v", err)
+	}
+	
+	// Should be able to save now
+	if err := repo.SaveCharacter(char2); err != nil {
 		t.Errorf("Failed to save after recovery: %v", err)
 	}
 }

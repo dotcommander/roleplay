@@ -66,8 +66,8 @@ func runImport(cmd *cobra.Command, args []string) error {
 	}
 	characterImporter := importer.NewCharacterImporter(provider, repo)
 
-	fmt.Printf("Importing character from: %s\n", absPath)
-	fmt.Println("Analyzing markdown content with AI...")
+	cmd.Printf("Importing character from: %s\n", absPath)
+	cmd.Println("Analyzing markdown content with AI...")
 
 	ctx := context.Background()
 	character, err := characterImporter.ImportFromMarkdown(ctx, absPath)
@@ -75,21 +75,21 @@ func runImport(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to import character: %w", err)
 	}
 
-	fmt.Printf("\nSuccessfully imported character: %s\n", character.Name)
-	fmt.Printf("ID: %s\n", character.ID)
-	fmt.Printf("Backstory: %s\n", character.Backstory)
-	fmt.Printf("\nPersonality traits:\n")
-	fmt.Printf("  Openness: %.2f\n", character.Personality.Openness)
-	fmt.Printf("  Conscientiousness: %.2f\n", character.Personality.Conscientiousness)
-	fmt.Printf("  Extraversion: %.2f\n", character.Personality.Extraversion)
-	fmt.Printf("  Agreeableness: %.2f\n", character.Personality.Agreeableness)
-	fmt.Printf("  Neuroticism: %.2f\n", character.Personality.Neuroticism)
+	cmd.Printf("\nSuccessfully imported character: %s\n", character.Name)
+	cmd.Printf("ID: %s\n", character.ID)
+	cmd.Printf("Backstory: %s\n", character.Backstory)
+	cmd.Printf("\nPersonality traits:\n")
+	cmd.Printf("  Openness: %.2f\n", character.Personality.Openness)
+	cmd.Printf("  Conscientiousness: %.2f\n", character.Personality.Conscientiousness)
+	cmd.Printf("  Extraversion: %.2f\n", character.Personality.Extraversion)
+	cmd.Printf("  Agreeableness: %.2f\n", character.Personality.Agreeableness)
+	cmd.Printf("  Neuroticism: %.2f\n", character.Personality.Neuroticism)
 
 	charactersDir := filepath.Join(dataDir, "characters")
-	fmt.Printf("\nCharacter saved to: %s\n", filepath.Join(charactersDir, character.ID+".json"))
-	fmt.Printf("\nYou can now chat with this character using:\n")
-	fmt.Printf("  roleplay chat \"Hello!\" --character %s\n", character.ID)
-	fmt.Printf("  roleplay interactive --character %s\n", character.ID)
+	cmd.Printf("\nCharacter saved to: %s\n", filepath.Join(charactersDir, character.ID+".json"))
+	cmd.Printf("\nYou can now chat with this character using:\n")
+	cmd.Printf("  roleplay chat \"Hello!\" --character %s\n", character.ID)
+	cmd.Printf("  roleplay interactive --character %s\n", character.ID)
 
 	return nil
 }

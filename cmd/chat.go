@@ -218,10 +218,10 @@ func runChat(cmd *cobra.Command, args []string) error {
 			},
 		}
 		jsonBytes, _ := json.MarshalIndent(output, "", "  ")
-		fmt.Println(string(jsonBytes))
+		cmd.Println(string(jsonBytes))
 	} else {
 		// Display response
-		fmt.Fprintf(os.Stdout, "\n%s\n", resp.Content)
+		cmd.Printf("\n%s\n", resp.Content)
 
 		// Show cache metrics if verbose
 		if verbose, _ := cmd.Flags().GetBool("verbose"); verbose {

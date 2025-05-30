@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.4] - 2025-05-29
+
+### Added
+- **Thread Safety Improvements**
+  - Added mutex protection to all repository operations
+  - Character, session, and user profile repositories now thread-safe
+  - Prevents data races in concurrent access scenarios
+
+### Improved
+- **Error Handling and Validation**
+  - Character repository now validates nil characters and empty IDs
+  - Better error messages for invalid operations
+  - Consistent error handling across all repositories
+
+- **Command Testability**
+  - Commands now use `cmd.Printf` instead of `fmt.Printf`
+  - Improved test coverage for character and chat commands
+  - Better isolation for unit testing CLI commands
+
+### Fixed
+- Fixed potential race conditions in repository operations
+- Fixed test stability issues in concurrent test scenarios
+
 ## [0.8.3] - 2025-05-29
 
 ### Added

@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"github.com/dotcommander/roleplay/internal/models"
 )
@@ -13,6 +14,7 @@ import (
 // CharacterRepository manages character persistence
 type CharacterRepository struct {
 	dataDir string
+	mu      sync.RWMutex
 }
 
 // NewCharacterRepository creates a new character repository
@@ -35,6 +37,17 @@ func NewCharacterRepository(dataDir string) (*CharacterRepository, error) {
 
 // SaveCharacter persists a character to disk
 func (r *CharacterRepository) SaveCharacter(character *models.Character) error {
+	if character == nil {
+		return fmt.Errorf("character cannot be nil")
+	}
+	
+	if character.ID == "" {
+		return fmt.Errorf("character ID cannot be empty")
+	}
+	
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	
 	filename := filepath.Join(r.dataDir, "characters", fmt.Sprintf("%s.json", character.ID))
 
 	data, err := json.MarshalIndent(character, "", "  ")
@@ -47,6 +60,9 @@ func (r *CharacterRepository) SaveCharacter(character *models.Character) error {
 
 // LoadCharacter loads a character from disk
 func (r *CharacterRepository) LoadCharacter(id string) (*models.Character, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	
 	filename := filepath.Join(r.dataDir, "characters", fmt.Sprintf("%s.json", id))
 
 	data, err := os.ReadFile(filename)
@@ -67,6 +83,9 @@ func (r *CharacterRepository) LoadCharacter(id string) (*models.Character, error
 
 // ListCharacters returns all available character IDs
 func (r *CharacterRepository) ListCharacters() ([]string, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	
 	charactersDir := filepath.Join(r.dataDir, "characters")
 
 	entries, err := os.ReadDir(charactersDir)
@@ -87,12 +106,15 @@ func (r *CharacterRepository) ListCharacters() ([]string, error) {
 
 // GetCharacterInfo returns basic info about all characters
 func (r *CharacterRepository) GetCharacterInfo() ([]CharacterInfo, error) {
+	r.mu.RLock()
 	charactersDir := filepath.Join(r.dataDir, "characters")
 
 	entries, err := os.ReadDir(charactersDir)
 	if err != nil {
+		r.mu.RUnlock()
 		return nil, fmt.Errorf("failed to read characters directory: %w", err)
 	}
+	r.mu.RUnlock()
 
 	var infos []CharacterInfo
 	for _, entry := range entries {

@@ -110,7 +110,7 @@ func TestUniversalCachingPrefixConsistency(t *testing.T) {
 		if !strings.Contains(prompt, "[SYSTEM INSTRUCTIONS]") {
 			t.Errorf("Prompt %d missing system instructions", i)
 		}
-		if !strings.Contains(prompt, "[CHARACTER PROFILE]") {
+		if !strings.Contains(prompt, "[CHARACTER FOUNDATION]") {
 			t.Errorf("Prompt %d missing character profile", i)
 		}
 		if !strings.Contains(prompt, "[USER CONTEXT]") {

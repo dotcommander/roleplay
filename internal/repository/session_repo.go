@@ -5,6 +5,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
+	"strings"
+	"sync"
 	"time"
 
 	"github.com/dotcommander/roleplay/internal/models"
@@ -48,6 +51,7 @@ type CacheMetrics struct {
 // SessionRepository manages session persistence
 type SessionRepository struct {
 	dataDir string
+	mu      sync.RWMutex
 }
 
 // NewSessionRepository creates a new session repository
@@ -57,6 +61,26 @@ func NewSessionRepository(dataDir string) *SessionRepository {
 
 // SaveSession persists a session to disk
 func (s *SessionRepository) SaveSession(session *Session) error {
+	if session == nil {
+		return fmt.Errorf("session cannot be nil")
+	}
+	
+	if session.ID == "" {
+		return fmt.Errorf("session ID cannot be empty")
+	}
+	
+	if session.CharacterID == "" {
+		return fmt.Errorf("character ID cannot be empty")
+	}
+	
+	// Validate ID doesn't contain path traversal characters
+	if strings.Contains(session.ID, "..") || strings.Contains(session.ID, "/") {
+		return fmt.Errorf("invalid session ID: contains invalid characters")
+	}
+	
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	
 	sessionDir := filepath.Join(s.dataDir, "sessions", session.CharacterID)
 	if err := os.MkdirAll(sessionDir, 0755); err != nil {
 		return fmt.Errorf("failed to create session directory: %w", err)
@@ -74,6 +98,9 @@ func (s *SessionRepository) SaveSession(session *Session) error {
 
 // LoadSession loads a session from disk
 func (s *SessionRepository) LoadSession(characterID, sessionID string) (*Session, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	
 	filename := filepath.Join(s.dataDir, "sessions", characterID, fmt.Sprintf("%s.json", sessionID))
 
 	data, err := os.ReadFile(filename)
@@ -125,6 +152,11 @@ func (s *SessionRepository) ListSessions(characterID string) ([]SessionInfo, err
 			})
 		}
 	}
+
+	// Sort sessions by LastActivity (newest first)
+	sort.Slice(sessions, func(i, j int) bool {
+		return sessions[i].LastActivity.After(sessions[j].LastActivity)
+	})
 
 	return sessions, nil
 }

@@ -103,7 +103,7 @@ func runCreateCharacter(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to create character: %w", err)
 	}
 
-	fmt.Printf("Character '%s' (ID: %s) created and saved successfully!\n", char.Name, char.ID)
+	cmd.Printf("Character '%s' (ID: %s) created and saved successfully!\n", char.Name, char.ID)
 	return nil
 }
 
@@ -129,7 +129,7 @@ func runShowCharacter(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to format character: %w", err)
 	}
 
-	fmt.Println(string(output))
+	cmd.Println(string(output))
 	return nil
 }
 
@@ -172,8 +172,8 @@ Lost his brother in battle, carries survivor's guilt.`,
 		return fmt.Errorf("failed to format example: %w", err)
 	}
 
-	fmt.Println(string(output))
-	fmt.Fprintln(os.Stderr, "\nSave this to a file (e.g., thorin.json) and use 'roleplay character create thorin.json'")
+	cmd.Println(string(output))
+	cmd.Println("\nSave this to a file (e.g., thorin.json) and use 'roleplay character create thorin.json'")
 	return nil
 }
 
@@ -190,58 +190,58 @@ func runListCharacters(cmd *cobra.Command, args []string) error {
 	}
 
 	if len(characters) == 0 {
-		fmt.Println("No characters found. Create one with 'roleplay character create <file.json>'")
+		cmd.Println("No characters found. Create one with 'roleplay character create <file.json>'")
 		return nil
 	}
 
 	// Display characters in a visually appealing format
-	fmt.Println("🎭 Available Characters")
-	fmt.Println("======================")
-	fmt.Println()
+	cmd.Println("🎭 Available Characters")
+	cmd.Println("======================")
+	cmd.Println()
 
 	for i, char := range characters {
 		// Character header with emoji
-		fmt.Printf("📚 %s (%s)\n", char.Name, char.ID)
-		fmt.Println(strings.Repeat("─", 50))
+		cmd.Printf("📚 %s (%s)\n", char.Name, char.ID)
+		cmd.Println(strings.Repeat("─", 50))
 		
 		// Backstory with proper word wrapping
 		if char.Description != "" {
 			wrapped := wrapText(char.Description, 70)
 			for _, line := range wrapped {
-				fmt.Printf("   %s\n", line)
+				cmd.Printf("   %s\n", line)
 			}
 		} else {
-			fmt.Println("   [No backstory provided]")
+			cmd.Println("   [No backstory provided]")
 		}
 		
 		// Display speech style if available
 		if char.SpeechStyle != "" {
-			fmt.Println()
-			fmt.Println("   💬 Speech Style:")
+			cmd.Println()
+			cmd.Println("   💬 Speech Style:")
 			speechWrapped := wrapText(char.SpeechStyle, 66)
 			for _, line := range speechWrapped {
-				fmt.Printf("      %s\n", line)
+				cmd.Printf("      %s\n", line)
 			}
 		}
 		
 		// Display quirks if available
 		if len(char.Tags) > 0 {
-			fmt.Println()
-			fmt.Println("   🎯 Quirks:")
+			cmd.Println()
+			cmd.Println("   🎯 Quirks:")
 			for _, quirk := range char.Tags {
-				fmt.Printf("      • %s\n", quirk)
+				cmd.Printf("      • %s\n", quirk)
 			}
 		}
 		
 		// Add spacing between characters except for the last one
 		if i < len(characters)-1 {
-			fmt.Println()
+			cmd.Println()
 		}
 	}
 	
-	fmt.Println()
-	fmt.Println(strings.Repeat("─", 50))
-	fmt.Printf("Total: %d character(s)\n", len(characters))
+	cmd.Println()
+	cmd.Println(strings.Repeat("─", 50))
+	cmd.Printf("Total: %d character(s)\n", len(characters))
 	
 	return nil
 }
