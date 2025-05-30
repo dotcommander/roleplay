@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.3] - 2025-05-29
+
 ### Added
 - **OpenAI Prompt Caching Optimizations**
   - Added `user` parameter to API requests for better cache routing
@@ -22,6 +24,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Added OpenAI prompt cache hit rate tracking
   - Display total cached tokens served by OpenAI
   - Updated demo mode to show both cache types
+
+### Improved
+- **Cached Token Display**
+  - More accurate tracking of cached vs uncached tokens
+  - Better visual feedback in demo and interactive modes
+  - Clearer cost savings calculations based on actual cached tokens
 
 ## [0.8.2] - 2025-05-29
 
