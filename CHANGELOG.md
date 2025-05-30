@@ -30,6 +30,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Layout Consistency Issues**
   - Fixed width calculations between viewport and textarea components
   - Consistent spacing and border rendering across all screen sizes
+- **Test Suite Reliability**
+  - Fixed prompt file discovery for tests running in subdirectories
+  - Added proper API key handling with graceful skipping for missing credentials
+  - All internal package tests now pass consistently in CI environments
 
 ## [0.8.4] - 2025-05-29
 
