@@ -28,6 +28,7 @@ type CharacterBot struct {
 	scenarioRepo     *repository.ScenarioRepository
 	userProfileRepo  *repository.UserProfileRepository
 	userProfileAgent *UserProfileAgent
+	rateLimiter      *RateLimiter
 	mu               sync.RWMutex
 	cacheHits        int
 	cacheMisses      int
@@ -59,6 +60,7 @@ func NewCharacterBot(cfg *config.Config) *CharacterBot {
 		config:          cfg,
 		scenarioRepo:    repository.NewScenarioRepository(configPath),
 		userProfileRepo: userProfileRepo,
+		rateLimiter:     NewRateLimiter(14, 1*time.Minute), // 14 req/min to stay under 15 limit
 		cacheHits:       0,
 		cacheMisses:     0,
 	}
@@ -129,6 +131,14 @@ func (cb *CharacterBot) GetCharacter(id string) (*models.Character, error) {
 
 // ProcessRequest handles a conversation request
 func (cb *CharacterBot) ProcessRequest(ctx context.Context, req *models.ConversationRequest) (*providers.AIResponse, error) {
+	// Check rate limit first
+	allowed, _ := cb.rateLimiter.Allow(req.UserID, req.CharacterID)
+	if !allowed {
+		// Return a helpful error message with current rate info
+		currentRate := cb.rateLimiter.GetCurrentRate(req.UserID, req.CharacterID)
+		return nil, fmt.Errorf("rate limit exceeded: %d/14 requests per minute for this user-character pair. Please wait before sending more messages", currentRate)
+	}
+
 	// Check response cache first
 	responseCacheKey := cb.responseCache.GenerateKey(req.CharacterID, req.UserID, req.Message)
 	if cachedResp, found := cb.responseCache.Get(responseCacheKey); found {
@@ -935,6 +945,18 @@ func (cb *CharacterBot) averageEmotionalWeight(memories []models.Memory) float64
 	}
 
 	return total / float64(len(memories))
+}
+
+// GetRateLimiterStats returns current rate limiting statistics
+func (cb *CharacterBot) GetRateLimiterStats() map[string]interface{} {
+	return cb.rateLimiter.GetStats()
+}
+
+// Stop gracefully stops the character bot and its components
+func (cb *CharacterBot) Stop() {
+	if cb.rateLimiter != nil {
+		cb.rateLimiter.Stop()
+	}
 }
 
 // Utility functions

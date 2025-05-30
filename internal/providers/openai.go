@@ -62,6 +62,7 @@ func (o *OpenAIProvider) SendRequest(ctx context.Context, req *PromptRequest) (*
 	apiReq := openai.ChatCompletionRequest{
 		Model:    o.model,
 		Messages: messages,
+		User:     req.UserID, // Add user parameter for better cache routing
 	}
 
 	// o1 models have restrictions on parameters
@@ -151,6 +152,7 @@ func (o *OpenAIProvider) SendStreamRequest(ctx context.Context, req *PromptReque
 	apiReq := openai.ChatCompletionRequest{
 		Model:    o.model,
 		Messages: messages,
+		User:     req.UserID, // Add user parameter for better cache routing
 		Stream:   true,
 	}
 
@@ -203,15 +205,24 @@ func (o *OpenAIProvider) parseResponse(resp openai.ChatCompletionResponse) (*AIR
 		content = resp.Choices[0].Message.Content
 	}
 
-	// Note: The SDK response may not include prompt_tokens_details for all providers
-	// We'll set conservative defaults for cache metrics
+	// Extract cached tokens from prompt_tokens_details if available
 	cachedTokens := 0
 	cachedLayers := []cache.CacheLayer{}
+	
+	if resp.Usage.PromptTokensDetails != nil {
+		cachedTokens = resp.Usage.PromptTokensDetails.CachedTokens
+	}
 
-	// Some OpenAI-compatible APIs might not report cached tokens
-	// This is a best-effort approach
-	if cachedTokens > 0 {
+	// Determine which cache layers were hit based on cached token count
+	// OpenAI caches in 128-token increments starting at 1024 tokens
+	if cachedTokens >= 1024 {
+		// Core character system prompt is cached (Layer 2)
 		cachedLayers = append(cachedLayers, cache.CorePersonalityLayer)
+		
+		// If significantly more tokens are cached, likely includes user profile (Layer 3)
+		if cachedTokens >= 1536 {
+			cachedLayers = append(cachedLayers, cache.UserMemoryLayer)
+		}
 	}
 
 	return &AIResponse{
@@ -225,7 +236,7 @@ func (o *OpenAIProvider) parseResponse(resp openai.ChatCompletionResponse) (*AIR
 		CacheMetrics: cache.CacheMetrics{
 			Hit:         cachedTokens > 0,
 			Layers:      cachedLayers,
-			SavedTokens: cachedTokens / 2, // Assume 50% discount when cached
+			SavedTokens: cachedTokens / 2, // OpenAI offers 50% discount on cached tokens
 		},
 	}, nil
 }

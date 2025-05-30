@@ -377,12 +377,13 @@ func updateSessionMetrics(
 	}
 
 	session.Messages = append(session.Messages, repository.SessionMessage{
-		Timestamp:   time.Now(),
-		Role:        "character",
-		Content:     resp.Content,
-		TokensUsed:  resp.TokensUsed.Total,
-		CacheHits:   cacheHits,
-		CacheMisses: cacheMisses,
+		Timestamp:    time.Now(),
+		Role:         "character",
+		Content:      resp.Content,
+		TokensUsed:   resp.TokensUsed.Total,
+		CachedTokens: resp.TokensUsed.CachedPrompt,
+		CacheHits:    cacheHits,
+		CacheMisses:  cacheMisses,
 	})
 
 	// Update cumulative metrics
@@ -393,6 +394,21 @@ func updateSessionMetrics(
 		session.CacheMetrics.CacheMisses++
 	}
 	session.CacheMetrics.TokensSaved += resp.CacheMetrics.SavedTokens
+	session.CacheMetrics.CachedTokensTotal += resp.TokensUsed.CachedPrompt
+	
+	// Calculate prompt cache hit rate
+	if resp.TokensUsed.Prompt > 0 {
+		promptCacheRate := float64(resp.TokensUsed.CachedPrompt) / float64(resp.TokensUsed.Prompt)
+		// Update running average
+		if session.CacheMetrics.TotalRequests == 1 {
+			session.CacheMetrics.PromptCacheHitRate = promptCacheRate
+		} else {
+			// Weighted average
+			weight := 1.0 / float64(session.CacheMetrics.TotalRequests)
+			session.CacheMetrics.PromptCacheHitRate = 
+				session.CacheMetrics.PromptCacheHitRate*(1-weight) + promptCacheRate*weight
+		}
+	}
 }
 
 // displayDemoSummary shows the final summary of the demo
@@ -400,7 +416,9 @@ func displayDemoSummary(session *repository.Session, styles *demoStyles) {
 	fmt.Println("\n" + strings.Repeat("═", 60))
 	fmt.Println(styles.title.Render("📊 Demo Summary"))
 	fmt.Printf("\nTotal Interactions: %d\n", session.CacheMetrics.TotalRequests)
-	fmt.Printf("Overall Cache Hit Rate: %.1f%%\n", session.CacheMetrics.HitRate*100)
+	fmt.Printf("Response Cache Hit Rate: %.1f%%\n", session.CacheMetrics.HitRate*100)
+	fmt.Printf("OpenAI Prompt Cache Hit Rate: %.1f%%\n", session.CacheMetrics.PromptCacheHitRate*100)
+	fmt.Printf("Total Cached Tokens: %d\n", session.CacheMetrics.CachedTokensTotal)
 	fmt.Printf("Total Tokens Saved: %d\n", session.CacheMetrics.TokensSaved)
 	fmt.Printf("Estimated Cost Saved: $%.4f\n", session.CacheMetrics.CostSaved)
 	fmt.Printf("\nSession saved as: %s\n", session.ID)

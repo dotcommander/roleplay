@@ -24,22 +24,25 @@ type Session struct {
 
 // SessionMessage represents a single message in a session
 type SessionMessage struct {
-	Timestamp   time.Time `json:"timestamp"`
-	Role        string    `json:"role"` // "user" or "character"
-	Content     string    `json:"content"`
-	TokensUsed  int       `json:"tokens_used,omitempty"`
-	CacheHits   int       `json:"cache_hits,omitempty"`
-	CacheMisses int       `json:"cache_misses,omitempty"`
+	Timestamp    time.Time `json:"timestamp"`
+	Role         string    `json:"role"` // "user" or "character"
+	Content      string    `json:"content"`
+	TokensUsed   int       `json:"tokens_used,omitempty"`
+	CachedTokens int       `json:"cached_tokens,omitempty"` // Tokens served from OpenAI cache
+	CacheHits    int       `json:"cache_hits,omitempty"`
+	CacheMisses  int       `json:"cache_misses,omitempty"`
 }
 
 // CacheMetrics tracks cache performance for the session
 type CacheMetrics struct {
-	TotalRequests int     `json:"total_requests"`
-	CacheHits     int     `json:"cache_hits"`
-	CacheMisses   int     `json:"cache_misses"`
-	TokensSaved   int     `json:"tokens_saved"`
-	CostSaved     float64 `json:"cost_saved"`
-	HitRate       float64 `json:"hit_rate"`
+	TotalRequests       int     `json:"total_requests"`
+	CacheHits           int     `json:"cache_hits"`
+	CacheMisses         int     `json:"cache_misses"`
+	TokensSaved         int     `json:"tokens_saved"`
+	CachedTokensTotal   int     `json:"cached_tokens_total"`   // Total OpenAI cached tokens
+	PromptCacheHitRate  float64 `json:"prompt_cache_hit_rate"` // OpenAI prompt cache hit rate
+	CostSaved           float64 `json:"cost_saved"`
+	HitRate             float64 `json:"hit_rate"`
 }
 
 // SessionRepository manages session persistence
