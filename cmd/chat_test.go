@@ -34,6 +34,19 @@ func TestChatCommand(t *testing.T) {
 			setup: func(t *testing.T) string {
 				tempDir := t.TempDir()
 				
+				// Skip test if no real API key is available
+				if os.Getenv("OPENAI_API_KEY") == "" && os.Getenv("ANTHROPIC_API_KEY") == "" {
+					t.Skip("Skipping chat test: requires real API key for LLM calls")
+					return ""
+				}
+				
+				// Set up API key for testing
+				if key := os.Getenv("OPENAI_API_KEY"); key != "" {
+					os.Setenv("ROLEPLAY_API_KEY", key)
+				} else if key := os.Getenv("ANTHROPIC_API_KEY"); key != "" {
+					os.Setenv("ROLEPLAY_API_KEY", key)
+				}
+				
 				// Create character
 				charDir := filepath.Join(tempDir, ".config", "roleplay", "characters")
 				if err := os.MkdirAll(charDir, 0755); err != nil {
@@ -76,6 +89,19 @@ func TestChatCommand(t *testing.T) {
 			},
 			setup: func(t *testing.T) string {
 				tempDir := t.TempDir()
+				
+				// Skip test if no real API key is available
+				if os.Getenv("OPENAI_API_KEY") == "" && os.Getenv("ANTHROPIC_API_KEY") == "" {
+					t.Skip("Skipping chat test: requires real API key for LLM calls")
+					return ""
+				}
+				
+				// Set up API key for testing
+				if key := os.Getenv("OPENAI_API_KEY"); key != "" {
+					os.Setenv("ROLEPLAY_API_KEY", key)
+				} else if key := os.Getenv("ANTHROPIC_API_KEY"); key != "" {
+					os.Setenv("ROLEPLAY_API_KEY", key)
+				}
 				
 				// Create character
 				charDir := filepath.Join(tempDir, ".config", "roleplay", "characters")
@@ -164,6 +190,19 @@ func TestChatCommand(t *testing.T) {
 			setup: func(t *testing.T) string {
 				tempDir := t.TempDir()
 				
+				// Skip test if no real API key is available
+				if os.Getenv("OPENAI_API_KEY") == "" && os.Getenv("ANTHROPIC_API_KEY") == "" {
+					t.Skip("Skipping chat test: requires real API key for LLM calls")
+					return ""
+				}
+				
+				// Set up API key for testing
+				if key := os.Getenv("OPENAI_API_KEY"); key != "" {
+					os.Setenv("ROLEPLAY_API_KEY", key)
+				} else if key := os.Getenv("ANTHROPIC_API_KEY"); key != "" {
+					os.Setenv("ROLEPLAY_API_KEY", key)
+				}
+				
 				// Create character
 				charDir := filepath.Join(tempDir, ".config", "roleplay", "characters")
 				if err := os.MkdirAll(charDir, 0755); err != nil {
@@ -229,6 +268,19 @@ func TestChatCommand(t *testing.T) {
 			},
 			setup: func(t *testing.T) string {
 				tempDir := t.TempDir()
+				
+				// Skip test if no real API key is available
+				if os.Getenv("OPENAI_API_KEY") == "" && os.Getenv("ANTHROPIC_API_KEY") == "" {
+					t.Skip("Skipping chat test: requires real API key for LLM calls")
+					return ""
+				}
+				
+				// Set up API key for testing
+				if key := os.Getenv("OPENAI_API_KEY"); key != "" {
+					os.Setenv("ROLEPLAY_API_KEY", key)
+				} else if key := os.Getenv("ANTHROPIC_API_KEY"); key != "" {
+					os.Setenv("ROLEPLAY_API_KEY", key)
+				}
 				
 				// Create character
 				charDir := filepath.Join(tempDir, ".config", "roleplay", "characters")
@@ -333,9 +385,22 @@ func TestChatCommand(t *testing.T) {
 }
 
 func TestChatCacheMetrics(t *testing.T) {
+	// Skip test if no real API key is available
+	if os.Getenv("OPENAI_API_KEY") == "" && os.Getenv("ANTHROPIC_API_KEY") == "" {
+		t.Skip("Skipping cache metrics test: requires real API key for LLM calls")
+		return
+	}
+	
 	tempDir := t.TempDir()
 	oldHome := os.Getenv("HOME")
 	os.Setenv("HOME", tempDir)
+	
+	// Set up API key for testing
+	if key := os.Getenv("OPENAI_API_KEY"); key != "" {
+		os.Setenv("ROLEPLAY_API_KEY", key)
+	} else if key := os.Getenv("ANTHROPIC_API_KEY"); key != "" {
+		os.Setenv("ROLEPLAY_API_KEY", key)
+	}
 	defer func() {
 		if oldHome != "" {
 			os.Setenv("HOME", oldHome)

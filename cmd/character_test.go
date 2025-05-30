@@ -203,6 +203,20 @@ func TestCharacterCommands(t *testing.T) {
 			args: []string{"character", "import"},
 			setup: func(t *testing.T) string {
 				tempDir := t.TempDir()
+				
+				// Skip import test if no real API key is available
+				if os.Getenv("OPENAI_API_KEY") == "" && os.Getenv("ANTHROPIC_API_KEY") == "" {
+					t.Skip("Skipping import test: requires real API key for LLM calls")
+					return ""
+				}
+				
+				// Set up API key for testing
+				if key := os.Getenv("OPENAI_API_KEY"); key != "" {
+					os.Setenv("ROLEPLAY_API_KEY", key)
+				} else if key := os.Getenv("ANTHROPIC_API_KEY"); key != "" {
+					os.Setenv("ROLEPLAY_API_KEY", key)
+				}
+				
 				// Check if prompts directory exists
 				if _, err := os.Stat("prompts/character-import.md"); os.IsNotExist(err) {
 					// Try from parent directory (when running from cmd/)

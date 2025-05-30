@@ -33,6 +33,7 @@ func NewUserProfileAgent(provider providers.AIProvider, repo *repository.UserPro
 		promptFile,
 		filepath.Join(".", promptFile),
 		filepath.Join("..", promptFile),
+		filepath.Join("../..", promptFile),  // For tests running in internal/services
 		filepath.Join(os.Getenv("HOME"), "go", "src", "roleplay", promptFile),
 	}
 
