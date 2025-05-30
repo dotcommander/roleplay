@@ -16,15 +16,17 @@ import (
 
 // CharacterManager handles character lifecycle and persistence
 type CharacterManager struct {
-	bot      *services.CharacterBot
-	repo     *repository.CharacterRepository
-	sessions *repository.SessionRepository
-	mu       sync.RWMutex
-	dataDir  string
+	bot                *services.CharacterBot
+	repo               *repository.CharacterRepository
+	sessions           *repository.SessionRepository
+	mu                 sync.RWMutex
+	dataDir            string
+	cfg                *config.Config
+	providerInitialized bool
 }
 
-// NewCharacterManager creates a new character manager with fully initialized bot
-func NewCharacterManager(cfg *config.Config) (*CharacterManager, error) {
+// NewCharacterManagerWithoutProvider creates a new character manager without initializing providers
+func NewCharacterManagerWithoutProvider(cfg *config.Config) (*CharacterManager, error) {
 	dataDir := filepath.Join(os.Getenv("HOME"), ".config", "roleplay")
 
 	repo, err := repository.NewCharacterRepository(dataDir)
@@ -35,21 +37,55 @@ func NewCharacterManager(cfg *config.Config) (*CharacterManager, error) {
 	sessions := repository.NewSessionRepository(dataDir)
 	bot := services.NewCharacterBot(cfg)
 
+	return &CharacterManager{
+		bot:                bot,
+		repo:               repo,
+		sessions:           sessions,
+		dataDir:            dataDir,
+		cfg:                cfg,
+		providerInitialized: false,
+	}, nil
+}
+
+// NewCharacterManager creates a new character manager with fully initialized bot
+func NewCharacterManager(cfg *config.Config) (*CharacterManager, error) {
+	mgr, err := NewCharacterManagerWithoutProvider(cfg)
+	if err != nil {
+		return nil, err
+	}
+
 	// Initialize provider and UserProfileAgent for the bot
 	provider, err := createProvider(cfg)
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize provider: %w", err)
 	}
 
-	bot.RegisterProvider(cfg.DefaultProvider, provider)
-	bot.InitializeUserProfileAgent()
+	mgr.bot.RegisterProvider(cfg.DefaultProvider, provider)
+	mgr.bot.InitializeUserProfileAgent()
+	mgr.providerInitialized = true
 
-	return &CharacterManager{
-		bot:      bot,
-		repo:     repo,
-		sessions: sessions,
-		dataDir:  dataDir,
-	}, nil
+	return mgr, nil
+}
+
+// EnsureProviderInitialized initializes the provider if not already done
+func (m *CharacterManager) EnsureProviderInitialized() error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if m.providerInitialized {
+		return nil
+	}
+
+	provider, err := createProvider(m.cfg)
+	if err != nil {
+		return fmt.Errorf("failed to initialize provider: %w", err)
+	}
+
+	m.bot.RegisterProvider(m.cfg.DefaultProvider, provider)
+	m.bot.InitializeUserProfileAgent()
+	m.providerInitialized = true
+
+	return nil
 }
 
 // LoadAllCharacters loads all persisted characters into memory

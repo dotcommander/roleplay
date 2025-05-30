@@ -9,8 +9,13 @@ import (
 	"github.com/dotcommander/roleplay/internal/services"
 )
 
-// CreateProvider creates an OpenAI-compatible provider based on the configuration
+// CreateProvider creates an AI provider based on the configuration
 func CreateProvider(cfg *config.Config) (providers.AIProvider, error) {
+	// Check for test mode
+	if cfg.DefaultProvider == "mock" {
+		return providers.NewMockProvider(), nil
+	}
+
 	// The API key might be optional for local services like Ollama
 	apiKey := cfg.APIKey
 	baseURL := cfg.BaseURL

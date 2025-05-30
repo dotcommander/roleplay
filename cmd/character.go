@@ -92,8 +92,8 @@ func runCreateCharacter(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to parse character JSON: %w", err)
 	}
 
-	// Initialize manager (bot is now fully initialized)
-	mgr, err := manager.NewCharacterManager(config)
+	// Initialize manager without provider (don't need AI for creating characters)
+	mgr, err := manager.NewCharacterManagerWithoutProvider(config)
 	if err != nil {
 		return fmt.Errorf("failed to initialize manager: %w", err)
 	}

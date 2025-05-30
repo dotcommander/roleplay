@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.6] - 2025-05-30
+
+### Fixed
+- **Test Suite Architecture**
+  - Implemented lazy provider initialization to separate AI provider requirements from basic operations
+  - Added comprehensive mock provider system for testing without real API keys
+  - Fixed failing tests in character and chat commands that required API keys for non-AI operations
+  - Character creation, listing, and management now work without provider initialization
+  - Chat command validates character existence before requiring API credentials
+
+### Improved
+- **Provider Management**
+  - Added `NewCharacterManagerWithoutProvider()` for operations that don't need AI
+  - Added `EnsureProviderInitialized()` for lazy provider creation when needed
+  - Enhanced factory pattern to support mock providers for testing
+  - Better separation of concerns between data operations and AI provider dependencies
+
+### Technical
+- **Mock Provider Implementation**
+  - Full mock provider with proper token usage and cache metrics simulation
+  - Global mock state management for test isolation
+  - Proper integration with existing provider factory pattern
+  - Support for configurable responses and error simulation
+
 ## [0.8.5] - 2025-05-30
 
 ### Added

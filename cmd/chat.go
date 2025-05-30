@@ -57,19 +57,25 @@ func runChat(cmd *cobra.Command, args []string) error {
 	config := GetConfig()
 
 	// Validate API key
-	if config.APIKey == "" {
-		return fmt.Errorf("API key not configured. Set ROLEPLAY_API_KEY or use --api-key")
-	}
-
-	// Initialize manager (bot is now fully initialized)
-	mgr, err := manager.NewCharacterManager(config)
+	// Initialize manager without provider first to check if character exists
+	mgr, err := manager.NewCharacterManagerWithoutProvider(config)
 	if err != nil {
 		return fmt.Errorf("failed to initialize manager: %w", err)
 	}
 
-	// Ensure character is loaded
+	// Check if character exists before requiring API key
 	if _, err := mgr.GetOrLoadCharacter(characterID); err != nil {
 		return fmt.Errorf("character %s not found. Create it first with 'roleplay character create'", characterID)
+	}
+
+	// Now check API key since we know we'll need it for AI calls
+	if config.APIKey == "" {
+		return fmt.Errorf("API key not configured. Set ROLEPLAY_API_KEY or use --api-key")
+	}
+
+	// Initialize provider now that we need it
+	if err := mgr.EnsureProviderInitialized(); err != nil {
+		return fmt.Errorf("failed to initialize AI provider: %w", err)
 	}
 
 	// Get session repository

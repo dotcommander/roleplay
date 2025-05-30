@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/dotcommander/roleplay/internal/models"
+	"github.com/dotcommander/roleplay/internal/providers"
 	"github.com/spf13/cobra"
 )
 
@@ -34,18 +35,9 @@ func TestChatCommand(t *testing.T) {
 			setup: func(t *testing.T) string {
 				tempDir := t.TempDir()
 				
-				// Skip test if no real API key is available
-				if os.Getenv("OPENAI_API_KEY") == "" && os.Getenv("ANTHROPIC_API_KEY") == "" {
-					t.Skip("Skipping chat test: requires real API key for LLM calls")
-					return ""
-				}
-				
-				// Set up API key for testing
-				if key := os.Getenv("OPENAI_API_KEY"); key != "" {
-					os.Setenv("ROLEPLAY_API_KEY", key)
-				} else if key := os.Getenv("ANTHROPIC_API_KEY"); key != "" {
-					os.Setenv("ROLEPLAY_API_KEY", key)
-				}
+				// Set up mock provider for testing
+				os.Setenv("ROLEPLAY_PROVIDER", "mock")
+				os.Setenv("ROLEPLAY_API_KEY", "mock-key") // Mock provider doesn't validate this
 				
 				// Create character
 				charDir := filepath.Join(tempDir, ".config", "roleplay", "characters")
@@ -77,7 +69,7 @@ func TestChatCommand(t *testing.T) {
 				return tempDir
 			},
 			wantErr:    false,
-			wantOutput: "well",  // Look for partial match since we're using real AI
+			wantOutput: "doing well",  // Look for partial match in mock response
 		},
 		{
 			name: "chat with session",
@@ -90,18 +82,9 @@ func TestChatCommand(t *testing.T) {
 			setup: func(t *testing.T) string {
 				tempDir := t.TempDir()
 				
-				// Skip test if no real API key is available
-				if os.Getenv("OPENAI_API_KEY") == "" && os.Getenv("ANTHROPIC_API_KEY") == "" {
-					t.Skip("Skipping chat test: requires real API key for LLM calls")
-					return ""
-				}
-				
-				// Set up API key for testing
-				if key := os.Getenv("OPENAI_API_KEY"); key != "" {
-					os.Setenv("ROLEPLAY_API_KEY", key)
-				} else if key := os.Getenv("ANTHROPIC_API_KEY"); key != "" {
-					os.Setenv("ROLEPLAY_API_KEY", key)
-				}
+				// Set up mock provider for testing
+				os.Setenv("ROLEPLAY_PROVIDER", "mock")
+				os.Setenv("ROLEPLAY_API_KEY", "mock-key") // Mock provider doesn't validate this
 				
 				// Create character
 				charDir := filepath.Join(tempDir, ".config", "roleplay", "characters")
@@ -152,7 +135,7 @@ func TestChatCommand(t *testing.T) {
 					t.Fatalf("Failed to write session file: %v", err)
 				}
 				
-				setupMockProvider("Of course! I remember we were just getting started.")
+				setupMockProvider("Of course test-user! I remember we were just getting started.")
 				
 				return tempDir
 			},
@@ -190,18 +173,9 @@ func TestChatCommand(t *testing.T) {
 			setup: func(t *testing.T) string {
 				tempDir := t.TempDir()
 				
-				// Skip test if no real API key is available
-				if os.Getenv("OPENAI_API_KEY") == "" && os.Getenv("ANTHROPIC_API_KEY") == "" {
-					t.Skip("Skipping chat test: requires real API key for LLM calls")
-					return ""
-				}
-				
-				// Set up API key for testing
-				if key := os.Getenv("OPENAI_API_KEY"); key != "" {
-					os.Setenv("ROLEPLAY_API_KEY", key)
-				} else if key := os.Getenv("ANTHROPIC_API_KEY"); key != "" {
-					os.Setenv("ROLEPLAY_API_KEY", key)
-				}
+				// Set up mock provider for testing
+				os.Setenv("ROLEPLAY_PROVIDER", "mock")
+				os.Setenv("ROLEPLAY_API_KEY", "mock-key") // Mock provider doesn't validate this
 				
 				// Create character
 				charDir := filepath.Join(tempDir, ".config", "roleplay", "characters")
@@ -269,18 +243,9 @@ func TestChatCommand(t *testing.T) {
 			setup: func(t *testing.T) string {
 				tempDir := t.TempDir()
 				
-				// Skip test if no real API key is available
-				if os.Getenv("OPENAI_API_KEY") == "" && os.Getenv("ANTHROPIC_API_KEY") == "" {
-					t.Skip("Skipping chat test: requires real API key for LLM calls")
-					return ""
-				}
-				
-				// Set up API key for testing
-				if key := os.Getenv("OPENAI_API_KEY"); key != "" {
-					os.Setenv("ROLEPLAY_API_KEY", key)
-				} else if key := os.Getenv("ANTHROPIC_API_KEY"); key != "" {
-					os.Setenv("ROLEPLAY_API_KEY", key)
-				}
+				// Set up mock provider for testing
+				os.Setenv("ROLEPLAY_PROVIDER", "mock")
+				os.Setenv("ROLEPLAY_API_KEY", "mock-key") // Mock provider doesn't validate this
 				
 				// Create character
 				charDir := filepath.Join(tempDir, ".config", "roleplay", "characters")
@@ -321,7 +286,7 @@ func TestChatCommand(t *testing.T) {
 					t.Fatalf("Failed to write scenario file: %v", err)
 				}
 				
-				setupMockProvider("Welcome to our test scenario! How can I help you today?")
+				setupMockProvider("Welcome to our test scenario, test-user! How can I help you today?")
 				
 				return tempDir
 			},
@@ -385,22 +350,12 @@ func TestChatCommand(t *testing.T) {
 }
 
 func TestChatCacheMetrics(t *testing.T) {
-	// Skip test if no real API key is available
-	if os.Getenv("OPENAI_API_KEY") == "" && os.Getenv("ANTHROPIC_API_KEY") == "" {
-		t.Skip("Skipping cache metrics test: requires real API key for LLM calls")
-		return
-	}
-	
+	// Set up mock provider for testing
 	tempDir := t.TempDir()
 	oldHome := os.Getenv("HOME")
 	os.Setenv("HOME", tempDir)
-	
-	// Set up API key for testing
-	if key := os.Getenv("OPENAI_API_KEY"); key != "" {
-		os.Setenv("ROLEPLAY_API_KEY", key)
-	} else if key := os.Getenv("ANTHROPIC_API_KEY"); key != "" {
-		os.Setenv("ROLEPLAY_API_KEY", key)
-	}
+	os.Setenv("ROLEPLAY_PROVIDER", "mock")
+	os.Setenv("ROLEPLAY_API_KEY", "mock-key")
 	defer func() {
 		if oldHome != "" {
 			os.Setenv("HOME", oldHome)
@@ -543,17 +498,21 @@ func TestChatErrorHandling(t *testing.T) {
 }
 
 // Helper functions for setting up mock providers
+
 func setupMockProvider(response string) {
-	// This would need to integrate with the actual command setup
-	// to inject the mock provider
+	providers.ResetGlobalMock()
+	providers.SetGlobalMockResponses([]string{response})
 }
 
 func setupMockProviderWithMetrics(response string, cacheHit bool) {
-	// Mock provider that includes cache metrics in response
+	providers.ResetGlobalMock()
+	providers.SetGlobalMockResponses([]string{response})
+	// Note: Cache hit simulation can be added if needed
 }
 
 func setupMockProviderWithError(err error) {
-	// Mock provider that returns an error
+	providers.ResetGlobalMock()
+	providers.SetGlobalMockError(err)
 }
 
 func resetCommands() {
