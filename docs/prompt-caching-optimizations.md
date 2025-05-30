@@ -28,6 +28,26 @@
 - Automatically detects which cache layers were hit based on token count
 - Supports 128-token increment detection (1024, 1152, 1280, etc.)
 
+## Cached Token Tracking
+
+### How It Works
+The roleplay system now tracks OpenAI's `cached_tokens` from the API response:
+
+1. **Automatic Detection**: When OpenAI returns `prompt_tokens_details.cached_tokens`, we capture it
+2. **Optional Field**: The system gracefully handles providers that don't return this field
+3. **Enhanced Display**: Demo mode shows exact cached token counts when available
+4. **Debug Support**: Set `DEBUG_RESPONSE=true` to see raw API responses
+
+### Example Output
+```
+⚡ Response Time: 245ms | Cache: PROMPT HIT (1024 cached) | Tokens (Prompt: 1548, Cached: 1024, Completion: 65)
+```
+
+### Debug Environment Variables
+- `DEBUG_HTTP=true` - Shows HTTP request details
+- `DEBUG_RESPONSE=true` - Shows raw API response JSON
+- `DEBUG_CACHE=true` - Shows cached token percentages
+
 ## Architecture
 
 ### Rate Limiter

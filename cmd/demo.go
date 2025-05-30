@@ -344,13 +344,31 @@ func processDemoMessage(
 		cacheDetail = fmt.Sprintf(" (saved %d tokens)", resp.CacheMetrics.SavedTokens)
 	}
 
-	fmt.Printf("\n%s\n", styles.metrics.Render(fmt.Sprintf(
+	// Enhanced metrics display
+	metricsLine := fmt.Sprintf(
 		"  ⚡ Response Time: %v | Cache: %s%s | Total Tokens: %d",
 		elapsed,
 		style.Render(cacheStatus),
 		cacheDetail,
 		resp.TokensUsed.Total,
-	)))
+	)
+	
+	// Add detailed token breakdown if we have cached tokens
+	if resp.TokensUsed.CachedPrompt > 0 {
+		tokenBreakdown := fmt.Sprintf(" (Prompt: %d, Cached: %d, Completion: %d)",
+			resp.TokensUsed.Prompt,
+			resp.TokensUsed.CachedPrompt,
+			resp.TokensUsed.Completion,
+		)
+		metricsLine = fmt.Sprintf(
+			"  ⚡ Response Time: %v | Cache: %s | Tokens%s",
+			elapsed,
+			style.Render(fmt.Sprintf("%s (%d cached)", cacheStatus, resp.TokensUsed.CachedPrompt)),
+			tokenBreakdown,
+		)
+	}
+	
+	fmt.Printf("\n%s\n", styles.metrics.Render(metricsLine))
 
 	return resp, elapsed, nil
 }
@@ -396,8 +414,9 @@ func updateSessionMetrics(
 	session.CacheMetrics.TokensSaved += resp.CacheMetrics.SavedTokens
 	session.CacheMetrics.CachedTokensTotal += resp.TokensUsed.CachedPrompt
 	
-	// Calculate prompt cache hit rate
-	if resp.TokensUsed.Prompt > 0 {
+	// Calculate prompt cache hit rate only if we have prompt tokens
+	// Some providers may not return cached token information
+	if resp.TokensUsed.Prompt > 0 && resp.TokensUsed.CachedPrompt >= 0 {
 		promptCacheRate := float64(resp.TokensUsed.CachedPrompt) / float64(resp.TokensUsed.Prompt)
 		// Update running average
 		if session.CacheMetrics.TotalRequests == 1 {
@@ -417,8 +436,13 @@ func displayDemoSummary(session *repository.Session, styles *demoStyles) {
 	fmt.Println(styles.title.Render("📊 Demo Summary"))
 	fmt.Printf("\nTotal Interactions: %d\n", session.CacheMetrics.TotalRequests)
 	fmt.Printf("Response Cache Hit Rate: %.1f%%\n", session.CacheMetrics.HitRate*100)
-	fmt.Printf("OpenAI Prompt Cache Hit Rate: %.1f%%\n", session.CacheMetrics.PromptCacheHitRate*100)
-	fmt.Printf("Total Cached Tokens: %d\n", session.CacheMetrics.CachedTokensTotal)
+	
+	// Only show OpenAI prompt cache metrics if we have data
+	if session.CacheMetrics.CachedTokensTotal > 0 {
+		fmt.Printf("OpenAI Prompt Cache Hit Rate: %.1f%%\n", session.CacheMetrics.PromptCacheHitRate*100)
+		fmt.Printf("Total Cached Tokens: %d\n", session.CacheMetrics.CachedTokensTotal)
+	}
+	
 	fmt.Printf("Total Tokens Saved: %d\n", session.CacheMetrics.TokensSaved)
 	fmt.Printf("Estimated Cost Saved: $%.4f\n", session.CacheMetrics.CostSaved)
 	fmt.Printf("\nSession saved as: %s\n", session.ID)

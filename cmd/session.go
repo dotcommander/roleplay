@@ -153,8 +153,13 @@ func runSessionStats(cmd *cobra.Command, args []string) error {
 			fmt.Printf("  Sessions: %d\n", len(sessions))
 			fmt.Printf("  Total Requests: %d\n", charRequests)
 			fmt.Printf("  Response Cache Hit Rate: %.1f%%\n", hitRate)
-			fmt.Printf("  OpenAI Prompt Cache Rate: %.1f%%\n", avgPromptCacheRate)
-			fmt.Printf("  Cached Tokens (OpenAI): %d\n", charCachedTokens)
+			
+			// Only show OpenAI prompt cache stats if available
+			if charCachedTokens > 0 {
+				fmt.Printf("  OpenAI Prompt Cache Rate: %.1f%%\n", avgPromptCacheRate)
+				fmt.Printf("  Cached Tokens (OpenAI): %d\n", charCachedTokens)
+			}
+			
 			fmt.Printf("  Tokens Saved: %d\n", charTokensSaved)
 			fmt.Printf("  Cost Saved: $%.2f\n", charCostSaved)
 		}
@@ -178,8 +183,13 @@ func runSessionStats(cmd *cobra.Command, args []string) error {
 		fmt.Println("\nOverall Statistics:")
 		fmt.Printf("  Total Requests: %d\n", totalRequests)
 		fmt.Printf("  Overall Response Cache Hit Rate: %.1f%%\n", float64(totalHits)/float64(totalRequests)*100)
-		fmt.Printf("  Overall OpenAI Prompt Cache Rate: %.1f%%\n", avgTotalPromptCacheRate)
-		fmt.Printf("  Total Cached Tokens (OpenAI): %d\n", totalCachedTokens)
+		
+		// Only show OpenAI prompt cache stats if available
+		if totalCachedTokens > 0 {
+			fmt.Printf("  Overall OpenAI Prompt Cache Rate: %.1f%%\n", avgTotalPromptCacheRate)
+			fmt.Printf("  Total Cached Tokens (OpenAI): %d\n", totalCachedTokens)
+		}
+		
 		fmt.Printf("  Total Tokens Saved: %d\n", totalTokensSaved)
 		fmt.Printf("  Total Cost Saved: $%.2f\n", totalCostSaved)
 	}

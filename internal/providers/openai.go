@@ -93,6 +93,9 @@ func (o *OpenAIProvider) SendRequest(ctx context.Context, req *PromptRequest) (*
 		return nil, fmt.Errorf("API request failed: %w", err)
 	}
 
+	// Debug response if enabled
+	DebugResponse(resp)
+
 	// Parse the response
 	return o.parseResponse(resp)
 }
@@ -206,11 +209,16 @@ func (o *OpenAIProvider) parseResponse(resp openai.ChatCompletionResponse) (*AIR
 	}
 
 	// Extract cached tokens from prompt_tokens_details if available
+	// This field is optional and may not be present in all OpenAI-compatible APIs
 	cachedTokens := 0
 	cachedLayers := []cache.CacheLayer{}
 	
+	// Safely check for cached tokens - not all providers return this
 	if resp.Usage.PromptTokensDetails != nil {
 		cachedTokens = resp.Usage.PromptTokensDetails.CachedTokens
+		
+		// Debug cached tokens if enabled
+		DebugCachedTokens(resp.Usage.PromptTokens, cachedTokens)
 	}
 
 	// Determine which cache layers were hit based on cached token count
@@ -225,18 +233,28 @@ func (o *OpenAIProvider) parseResponse(resp openai.ChatCompletionResponse) (*AIR
 		}
 	}
 
+	// Build token usage, handling potential nil or missing fields
+	tokenUsage := TokenUsage{
+		Prompt:       resp.Usage.PromptTokens,
+		Completion:   resp.Usage.CompletionTokens,
+		CachedPrompt: cachedTokens,
+		Total:        resp.Usage.TotalTokens,
+	}
+	
+	// Calculate saved tokens based on OpenAI's pricing model
+	// OpenAI offers 50% discount on cached tokens
+	savedTokens := 0
+	if cachedTokens > 0 {
+		savedTokens = cachedTokens / 2
+	}
+
 	return &AIResponse{
-		Content: content,
-		TokensUsed: TokenUsage{
-			Prompt:       resp.Usage.PromptTokens,
-			Completion:   resp.Usage.CompletionTokens,
-			CachedPrompt: cachedTokens,
-			Total:        resp.Usage.TotalTokens,
-		},
+		Content:    content,
+		TokensUsed: tokenUsage,
 		CacheMetrics: cache.CacheMetrics{
 			Hit:         cachedTokens > 0,
 			Layers:      cachedLayers,
-			SavedTokens: cachedTokens / 2, // OpenAI offers 50% discount on cached tokens
+			SavedTokens: savedTokens,
 		},
 	}, nil
 }
