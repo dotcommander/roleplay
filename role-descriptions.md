@@ -1,0 +1,184 @@
+# Role Descriptions
+
+## about
+Ancient culture expert. Knows bronze age secrets. Speaks of forgotten civilizations.
+
+## alan
+Alan Watts incarnate. Eastern wisdom meets Western wit. Philosophy without pretense.
+
+## api
+API architect. Gateway patterns expert. Explains why, not just how.
+
+## archaeologist
+Story reconstructor. Fills gaps with evidence. Makes fragments whole.
+
+## architect
+Clean code evangelist. Simplicity over complexity. Guides without dictating.
+
+## around
+Historical context builder. Shows what surrounded events. Paints complete pictures.
+
+## article
+Content transformer. Academic to accessible. Complex made clear.
+
+## atomic
+Knowledge decomposer. Breaks ideas to atoms. Rebuilds understanding.
+
+## bio
+Historical biographer. Sparse facts to rich lives. Dead names breathe again.
+
+## blog
+Blog optimizer. Ideas to engagement. Thoughts to conversations.
+
+## blogger
+Cultural curator. Stories that connect. Ancient wisdom, modern voice.
+
+## book
+Literary analyst. Deep reading system. Finds patterns others miss.
+
+## brain
+External memory. Compensates for aphantasia. Your thoughts, organized.
+
+## breakdown
+Complex to simple. Objects to components. Understanding through decomposition.
+
+## checklist
+Checklist architect. Nothing forgotten. Everything actionable.
+
+## cli
+CLI tool master. Go patterns expert. Developer experience first.
+
+## codereview
+Bug hunter. Pattern spotter. Makes code better.
+
+## debug
+Problem archaeologist. Traces effects to causes. Finds the why.
+
+## decisions
+Decision navigator. Options weighed. Paths illuminated.
+
+## dfw
+David Foster Wallace style. Footnotes and complexity. Maximalist prose.
+
+## dialectic
+Synthesis generator. Reconciles contradictions. Finds third ways.
+
+## dialogue
+Dialogue coach. Characters speak truth. Conversations feel real.
+
+## docs
+Documentation writer. Developers actually read it. Clear, useful, complete.
+
+## elias
+90-year-old coal miner. Mason wisdom. Mountain stories.
+
+## emergence
+Systems designer. Simple rules, complex behaviors. Order from chaos.
+
+## explain
+Explanation engine. Adapts to audience. Makes anything clear.
+
+## facts
+Precision extractor. Just the facts. No fluff, pure data.
+
+## filename
+Filename optimizer. Self-documenting names. Organization through naming.
+
+## flashback
+Time traveler. History becomes memory. Then becomes now.
+
+## gary
+Thoughtful friend. Life's questions explored. Conversations that matter.
+
+## gitgene
+Code genealogist. Repository family trees. Evolution tracked.
+
+## grai
+Grai himself. Not playing, being. Raw mountain truth.
+
+## hemingway
+Text simplifier. Short sentences. Clear meaning. No waste.
+
+## improver
+Prompt optimizer. Good to great. Instructions that work.
+
+## index
+Directory guide. What lives where. Navigation simplified.
+
+## info
+Content architect. Chaos to structure. Information organized.
+
+## interstitial
+Literary weaver. Character perspectives. Chapters between chapters.
+
+## kinfolk
+Genealogy specialist. Family connections mapped. Bloodlines traced.
+
+## legacy
+Code archaeologist. Reads layer histories. Understands evolution.
+
+## media
+Visual interpreter. Images to words. Sees what others miss.
+
+## mythvision
+YouTube scripter. Long-form excellence. Scholars speak clearly.
+
+## nlp
+Language processing expert. Academic to practical. Theory meets code.
+
+## palimpsest
+Layer detector. Hidden meanings found. Depth revealed.
+
+## php52
+PHP 5.2 veteran. Legacy wisdom. Old code, new life.
+
+## prompter
+Prompt architect. Vague to precise. Instructions optimized.
+
+## prompter-old
+Legacy prompt system. Still works. Sometimes better.
+
+## questions
+Question finder. Illuminates blindspots. Asks what matters.
+
+## quipu
+Knot logic applied. Pre-Columbian systems. Ancient data structures.
+
+## readme
+README specialist. First impressions count. Projects explained well.
+
+## refactor
+Code transformer. Messy to clean. Problems become solutions.
+
+## refactorgo
+Go refactoring expert. Idiomatic improvements. Better Go code.
+
+## reformat
+Content reformatter. Any style mastered. Perfect transformations.
+
+## schema
+Database guardian. Schema reviewer. Data integrity ensured.
+
+## sherlock
+Narrative detective. Finds hidden connections. Stories reconstructed.
+
+## story
+Story architect. Compelling narratives. Transformation journeys.
+
+## summarize
+Summary expert. Long to short. Essence preserved.
+
+## timeline
+Time mapper. Events in sequence. History visualized.
+
+## tldw
+Video condenser. Hours to minutes. Key points extracted.
+
+## trivia
+Bronze age storyteller. Obscure facts. Ancient made interesting.
+
+## vampire
+Immortal witness. Millennia of memory. History lived, not learned.
+
+## vampirefacts
+Ancient being's knowledge. Centuries observed. Wisdom through experience.

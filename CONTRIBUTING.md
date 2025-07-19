@@ -1,193 +1,352 @@
-# Contributing to Roleplay
+# 🤝 Contributing to Roleplay
 
-First off, thank you for considering contributing to Roleplay! It's people like you that make Roleplay such a great tool.
+Thank you for considering contributing to Roleplay! Your contributions help make this AI character bot system better for everyone. Whether you're fixing bugs, adding features, improving documentation, or helping with testing, every contribution is valuable.
+
+## 📋 Table of Contents
+- [Code of Conduct](#code-of-conduct)
+- [Ways to Contribute](#ways-to-contribute)
+- [Development Setup](#development-setup)
+- [Pull Request Process](#pull-request-process)
+- [Code Style Guidelines](#code-style-guidelines)
+- [Testing](#testing)
+- [Documentation](#documentation)
 
 ## Code of Conduct
 
-This project and everyone participating in it is governed by our Code of Conduct. By participating, you are expected to uphold this code. Please report unacceptable behavior to support@example.com.
+This project is governed by our Code of Conduct. By participating, you agree to uphold this code. Please report unacceptable behavior to the project maintainers.
 
-## How Can I Contribute?
+## 🚀 Ways to Contribute
 
-### Reporting Bugs
+### 🐛 Bug Reports
+Found a bug? Help us fix it! Before reporting:
 
-Before creating bug reports, please check existing issues as you might find out that you don't need to create one. When you are creating a bug report, please include as many details as possible:
+1. **Search existing issues** to avoid duplicates
+2. **Use the latest version** to ensure the bug still exists
+3. **Provide detailed information**:
+   - Clear, descriptive title
+   - Exact steps to reproduce
+   - Expected vs. actual behavior
+   - Configuration details (`roleplay status`)
+   - Environment info (OS, Go version)
+   - Relevant logs or screenshots
 
-* **Use a clear and descriptive title**
-* **Describe the exact steps which reproduce the problem**
-* **Provide specific examples to demonstrate the steps**
-* **Describe the behavior you observed after following the steps**
-* **Explain which behavior you expected to see instead and why**
-* **Include your configuration and environment details**
+**Example Bug Report:**
+```
+Title: Character personality evolution not working with Ollama provider
 
-### Suggesting Enhancements
+Steps to reproduce:
+1. Configure roleplay with Ollama provider
+2. Chat with character for 20+ messages
+3. Check personality traits with `roleplay character show character-id`
 
-Enhancement suggestions are tracked as GitHub issues. When creating an enhancement suggestion, please include:
+Expected: Personality traits should show slight changes
+Actual: Personality traits remain exactly the same
 
-* **Use a clear and descriptive title**
-* **Provide a step-by-step description of the suggested enhancement**
-* **Provide specific examples to demonstrate the steps**
-* **Describe the current behavior and explain which behavior you expected to see instead**
-* **Explain why this enhancement would be useful**
+Environment:
+- OS: macOS 14.0
+- Go: 1.23.1
+- Provider: ollama (llama3)
+- Config: ~/.config/roleplay/config.yaml (attached)
+```
 
-### Pull Requests
+### ✨ Feature Requests
+Have an idea to improve Roleplay? We'd love to hear it!
 
-1. Fork the repo and create your branch from `main`.
-2. If you've added code that should be tested, add tests.
-3. If you've changed APIs, update the documentation.
-4. Ensure the test suite passes.
-5. Make sure your code lints.
-6. Issue that pull request!
+- **Start with a GitHub Discussion** for large features
+- **Use GitHub Issues** for smaller enhancements
+- **Explain the problem** your feature would solve
+- **Describe your proposed solution** in detail
+- **Consider alternative approaches**
 
-## Development Process
+### 📖 Documentation
+Help make Roleplay easier to use:
+
+- Fix typos or unclear explanations
+- Add examples and use cases
+- Improve code comments
+- Write tutorials or guides
+- Translate documentation
+
+### 🧪 Testing
+Help ensure Roleplay works reliably:
+
+- Test new features and report issues
+- Add unit tests for uncovered code
+- Create integration tests
+- Test on different platforms and providers
+
+## 🛠️ Development Setup
 
 ### Prerequisites
 
-- Go 1.23 or higher
-- golangci-lint (for linting)
-- An OpenAI or Anthropic API key for testing
+| Tool | Version | Purpose |
+|------|---------|---------|
+| **Go** | 1.23+ | Main programming language |
+| **golangci-lint** | Latest | Code linting and formatting |
+| **API Key** | - | Testing with AI providers (OpenAI, Anthropic, or Ollama for local) |
 
-### Setting Up Your Development Environment
+### Quick Start
 
 ```bash
-# Clone your fork
+# 1. Fork and clone
 git clone https://github.com/your-username/roleplay.git
 cd roleplay
 
-# Add upstream remote
-git remote add upstream https://github.com/original-owner/roleplay.git
+# 2. Add upstream remote
+git remote add upstream https://github.com/dotcommander/roleplay.git
 
-# Install dependencies
+# 3. Install dependencies
 go mod download
 
-# Run tests
-go test ./...
+# 4. Verify setup
+make test        # Run all tests
+make lint        # Check code style
+make build       # Build binary
 
-# Run linter
-golangci-lint run
-
-# Build the project
-go build -o roleplay
+# 5. Test your changes
+./roleplay demo  # Quick functionality test
 ```
 
-### Code Style
+### Development Workflow
 
-- Follow standard Go conventions
-- Use `gofmt` to format your code
-- Write idiomatic Go code
-- Add comments for exported functions and types
-- Keep functions focused and small
-- Write unit tests for new functionality
+1. **Create a feature branch**
+   ```bash
+   git checkout -b feature/my-awesome-feature
+   ```
 
-### Testing
+2. **Make your changes**
+   - Follow the [code style guidelines](#code-style-guidelines)
+   - Add tests for new functionality
+   - Update documentation as needed
+
+3. **Test thoroughly**
+   ```bash
+   # Run full test suite
+   make test
+
+   # Test with different providers
+   export OPENAI_API_KEY=sk-...
+   ./roleplay api-test --provider openai
+
+   # Manual testing
+   ./roleplay interactive
+   ```
+
+4. **Commit with clear messages**
+   ```bash
+   git commit -m "feat: add streaming response support
+
+   - Implement streaming for OpenAI provider
+   - Add progress indicators to TUI
+   - Update documentation with streaming examples
+   
+   Fixes #123"
+   ```
+
+## 📏 Code Style Guidelines
+
+### Go Best Practices
+```go
+// ✅ Good: Clear function name and documentation
+// ProcessCharacterRequest handles conversation requests for a specific character
+func (cb *CharacterBot) ProcessCharacterRequest(ctx context.Context, req *ConversationRequest) (*AIResponse, error) {
+    if req.CharacterID == "" {
+        return nil, fmt.Errorf("character ID is required")
+    }
+    // ... implementation
+}
+
+// ❌ Bad: Unclear name and no documentation
+func (cb *CharacterBot) process(r interface{}) interface{} {
+    // ... implementation
+}
+```
+
+### Code Organization
+- **Package structure**: Follow the established `internal/` structure
+- **Interface design**: Define interfaces in packages that use them
+- **Error handling**: Use clear, actionable error messages
+- **Concurrency**: Use mutexes appropriately for thread safety
+
+### Documentation Standards
+```go
+// ✅ Good: Complete documentation
+// CacheEntry represents a cached prompt entry with metadata for TTL management.
+// It tracks access patterns and hit counts for adaptive caching strategies.
+type CacheEntry struct {
+    Breakpoints []CacheBreakpoint // Cache layers with individual TTLs
+    CreatedAt   time.Time         // Entry creation timestamp
+    LastAccess  time.Time         // Most recent access for TTL calculation
+    HitCount    int               // Number of cache hits for popularity tracking
+}
+
+// ❌ Bad: Missing or unclear documentation
+type CacheEntry struct {
+    Breakpoints []CacheBreakpoint
+    CreatedAt   time.Time
+    LastAccess  time.Time
+    HitCount    int
+}
+```
+
+### Testing Guidelines
 
 ```bash
-# Run all tests
-go test ./...
+# Run comprehensive tests
+make test                    # All tests with coverage
+make test-integration        # Integration tests only
+make test-cache             # Cache system tests
+go test -race ./...         # Race condition detection
 
-# Run tests with coverage
-go test -cover ./...
-
-# Run tests for a specific package
-go test ./internal/cache
-
-# Run tests with race detection
-go test -race ./...
+# Test specific functionality
+go test ./internal/cache -v
+go test ./internal/providers -run TestOpenAI
 ```
 
-### Commit Messages
+### Commit Message Format
+Follow [Conventional Commits](https://www.conventionalcommits.org/):
 
-- Use the present tense ("Add feature" not "Added feature")
-- Use the imperative mood ("Move cursor to..." not "Moves cursor to...")
-- Limit the first line to 72 characters or less
-- Reference issues and pull requests liberally after the first line
-
-Example:
 ```
-Add character import functionality
+<type>[optional scope]: <description>
 
-- Implement AI-powered markdown parser
-- Add import command to CLI
-- Support for various character formats
-- Add comprehensive error handling
+[optional body]
+
+[optional footer(s)]
+```
+
+**Types:**
+- `feat:` New features
+- `fix:` Bug fixes  
+- `docs:` Documentation changes
+- `style:` Code style changes
+- `refactor:` Code refactoring
+- `test:` Test additions/changes
+- `chore:` Maintenance tasks
+
+**Examples:**
+```bash
+feat(cache): implement adaptive TTL for character prompts
+
+- Add complexity-based TTL calculation
+- Extend cache duration for active conversations  
+- Add background cleanup worker
+
+Closes #145
+
+fix(tui): resolve character list scrolling issue
+
+The character list wasn't properly updating scroll position
+when new characters were added during active sessions.
 
 Fixes #123
 ```
 
-### Project Structure
+## 🏗️ Project Architecture
+
+Understanding the codebase structure helps you contribute effectively:
 
 ```
 roleplay/
-├── cmd/                    # CLI commands
-├── internal/              # Internal packages
-│   ├── cache/            # Caching system
-│   ├── config/           # Configuration
-│   ├── importer/         # Character importer
-│   ├── manager/          # Character manager
-│   ├── models/           # Data models
-│   ├── providers/        # AI providers
-│   ├── repository/       # Data persistence
-│   ├── services/         # Core services
-│   └── utils/            # Utilities
-├── prompts/              # LLM prompt templates
-├── examples/             # Example files
-└── scripts/              # Build and utility scripts
+├── cmd/                     # CLI command implementations
+│   ├── root.go             # Main command setup and config
+│   ├── chat.go             # Chat command logic
+│   ├── interactive.go      # TUI implementation
+│   └── character.go        # Character management
+├── internal/               # Internal packages (not exported)
+│   ├── cache/              # 4-layer caching system
+│   ├── config/             # Configuration structures
+│   ├── factory/            # Provider factory pattern
+│   ├── models/             # Domain models (Character, Memory, etc.)
+│   ├── providers/          # AI provider implementations
+│   ├── services/           # Core business logic (CharacterBot)
+│   ├── repository/         # Data persistence layer
+│   └── tui/                # Terminal UI components
+├── prompts/                # LLM prompt templates
+├── examples/               # Example characters and configs
+└── docs/                   # Technical documentation
 ```
+
+## 🔧 Common Contribution Patterns
 
 ### Adding a New AI Provider
 
-1. Create a new file in `internal/providers/`
-2. Implement the `AIProvider` interface
-3. Add provider initialization in `cmd/root.go`
-4. Update documentation
+1. **Implement the interface** in `internal/providers/`:
+   ```go
+   type NewProvider struct {
+       apiKey string
+       baseURL string
+   }
 
-Example:
-```go
-type MyProvider struct {
-    apiKey string
-}
+   func (p *NewProvider) SendRequest(ctx context.Context, req *PromptRequest) (*AIResponse, error) {
+       // Your implementation here
+   }
+   ```
 
-func NewMyProvider(apiKey string) *MyProvider {
-    return &MyProvider{apiKey: apiKey}
-}
+2. **Add to factory** in `internal/factory/provider.go`:
+   ```go
+   case "newprovider":
+       return providers.NewProvider(apiKey, baseURL), nil
+   ```
 
-func (p *MyProvider) SendRequest(ctx context.Context, req *PromptRequest) (*AIResponse, error) {
-    // Implementation
-}
+3. **Update documentation** and add tests
 
-func (p *MyProvider) SupportsBreakpoints() bool {
-    return false
-}
+### Enhancing the Cache System
 
-func (p *MyProvider) MaxBreakpoints() int {
-    return 0
-}
+The cache system is in `internal/cache/`. Key areas:
 
-func (p *MyProvider) Name() string {
-    return "myprovider"
-}
-```
+- **`cache.go`**: Core cache logic and TTL management
+- **`response_cache.go`**: Response-level caching
+- **`types.go`**: Cache layer definitions
 
-### Documentation
+### Adding New Commands
 
-- Update the README.md if you change functionality
-- Add godoc comments to all exported types and functions
-- Include examples in documentation where appropriate
-- Update CHANGELOG.md for notable changes
+1. Create command file in `cmd/`
+2. Add to root command in `cmd/root.go`
+3. Follow existing patterns for flags and validation
 
-## Release Process
+## 📤 Pull Request Process
 
-We use GitHub Actions for automated releases. To create a new release:
+### Before Submitting
 
-1. Update version in appropriate files
-2. Update CHANGELOG.md
-3. Create a git tag: `git tag -a v1.2.3 -m "Release version 1.2.3"`
-4. Push the tag: `git push origin v1.2.3`
-5. GitHub Actions will automatically build and create the release
+- [ ] Code follows project style guidelines
+- [ ] All tests pass (`make test`)
+- [ ] Code is properly documented
+- [ ] Manual testing completed
+- [ ] CHANGELOG.md updated (if applicable)
 
-## Questions?
+### PR Checklist
 
-Feel free to open an issue with your question or reach out on our Discord server.
+- [ ] **Clear title** following conventional commit format
+- [ ] **Detailed description** explaining the change
+- [ ] **Link to related issues** (Fixes #123)
+- [ ] **Screenshots/demos** for UI changes
+- [ ] **Breaking changes** clearly documented
 
-## Recognition
+### Review Process
 
-Contributors will be recognized in our README.md file. Thank you for your contributions!
+1. **Automated checks** must pass (tests, linting)
+2. **Code review** by maintainers
+3. **Manual testing** for significant changes
+4. **Documentation review** for user-facing changes
+
+## 🎯 Good First Issues
+
+Look for issues labeled:
+- `good-first-issue` - Perfect for newcomers
+- `help-wanted` - We'd love community help
+- `documentation` - Improve docs and examples
+
+## 💬 Getting Help
+
+- **GitHub Discussions** - Questions and design discussions
+- **GitHub Issues** - Bug reports and feature requests  
+- **Code Comments** - Inline documentation and examples
+
+## 🎉 Recognition
+
+Contributors are recognized in:
+- README.md contributors section
+- GitHub contributors graph
+- Release notes for significant contributions
+
+Thank you for making Roleplay better! 🚀

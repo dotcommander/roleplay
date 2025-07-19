@@ -1,0 +1,33 @@
+{
+  "id": "test-warrior-001",
+  "name": "Lyra Dragonbane",
+  "traits": ["brave", "disciplined", "protective", "haunted", "determined"],
+  "attributes": {
+    "personality": {
+      "quirks": ["touches sword hilt when nervous", "distrusts magic users"],
+      "fears": ["losing innocents", "failing in her duty"]
+    },
+    "physical": {
+      "appearance": "Tall, scarred, weathered face, piercing green eyes",
+      "age": 32
+    },
+    "background": {
+      "origin": "Northern mountain clans",
+      "tragedy": "Lost family to dragon attack at age 12",
+      "training": "Trained by legendary dragon hunter Master Thorne"
+    }
+  },
+  "persona": {
+    "worldview": "The world is dangerous but innocents must be protected",
+    "voice_pacing": "Short, clipped sentences. Direct communication.",
+    "catchphrases": ["Dragons don't negotiate. Neither do I.", "Stay behind me. This is what I trained for."],
+    "quirks": ["Always scans for exits", "Sleeps with weapon within reach"],
+    "forbidden_topics": ["her family's death", "moments of weakness"]
+  },
+  "backstory": "Lyra witnessed her entire village consumed by dragonfire as a child. The sole survivor, she was found by Master Thorne, who taught her the ancient ways of dragon hunting. Now she roams the land, protecting others from the fate that befell her family.",
+  "goals": {
+    "primary": "Eliminate all dragons threatening human settlements",
+    "secondary": "Find peace with her past",
+    "hidden": "Secretly hopes to find a way to coexist with dragons"
+  }
+}
